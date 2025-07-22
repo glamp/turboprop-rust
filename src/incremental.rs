@@ -413,9 +413,11 @@ mod tests {
 
     #[test]
     fn test_incremental_stats() {
-        let mut stats = IncrementalStats::default();
-        stats.files_processed = 10;
-        stats.files_failed = 2;
+        let mut stats = IncrementalStats {
+            files_processed: 10,
+            files_failed: 2,
+            ..Default::default()
+        };
 
         assert_eq!(stats.success_rate(), 80.0);
 

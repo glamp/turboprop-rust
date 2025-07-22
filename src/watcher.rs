@@ -152,7 +152,11 @@ impl FileWatcher {
     ///
     /// # Returns
     /// * `Result<Self>` - The file watcher instance or error
-    pub fn with_config(path: &Path, gitignore_filter: GitignoreFilter, config: WatcherConfig) -> Result<Self> {
+    pub fn with_config(
+        path: &Path,
+        gitignore_filter: GitignoreFilter,
+        config: WatcherConfig,
+    ) -> Result<Self> {
         let (event_sender, event_receiver) = tokio_mpsc::channel(1000);
         let (tx, rx) = mpsc::channel();
 
@@ -251,7 +255,10 @@ struct EventDebouncer {
 impl EventDebouncer {
     /// Create a new event debouncer
     fn new(event_sender: tokio_mpsc::Sender<WatchEventBatch>, config: WatcherConfig) -> Self {
-        Self { event_sender, config }
+        Self {
+            event_sender,
+            config,
+        }
     }
 
     /// Spawn the debouncer in a separate thread
@@ -268,7 +275,7 @@ impl EventDebouncer {
     async fn run(self, event_receiver: Receiver<notify::Result<Event>>) {
         let mut pending_events: HashMap<PathBuf, (WatchEvent, Instant)> = HashMap::new();
         let mut last_batch_time = Instant::now();
-        
+
         // Use a 50ms interval for efficient polling instead of busy waiting
         let mut interval = tokio::time::interval(Duration::from_millis(50));
 

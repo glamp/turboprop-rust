@@ -168,7 +168,7 @@ impl ExponentialBackoff {
 
         let base_delay_ms = self.config.initial_delay.as_millis() as f64;
         let multiplier = self.config.backoff_multiplier;
-        
+
         // Calculate exponential delay: initial_delay * multiplier^(attempt-1)
         let delay_ms = base_delay_ms * multiplier.powi((attempt - 1) as i32);
         let delay = Duration::from_millis(delay_ms as u64);
@@ -188,10 +188,10 @@ impl ExponentialBackoff {
     fn add_jitter(&self, delay: Duration) -> Duration {
         let delay_ms = delay.as_millis() as f64;
         let jitter_range = delay_ms * 0.25; // ±25%
-        
+
         let mut rng = rand::thread_rng();
         let jitter: f64 = rng.gen_range(-jitter_range..=jitter_range);
-        
+
         let final_delay_ms = (delay_ms + jitter).max(0.0) as u64;
         Duration::from_millis(final_delay_ms)
     }

@@ -79,7 +79,7 @@ pub fn validate_embedding_config(
         return Err(TurboPropError::config_validation(
             "embedding.batch_size",
             config.batch_size.to_string(),
-            "positive integer greater than 0"
+            "positive integer greater than 0",
         ));
     }
 
@@ -98,7 +98,7 @@ pub fn validate_embedding_config(
         return Err(TurboPropError::config_validation(
             "embedding.embedding_dimensions",
             config.embedding_dimensions.to_string(),
-            "positive integer greater than 0"
+            "positive integer greater than 0",
         ));
     }
 
@@ -112,7 +112,7 @@ pub fn validate_chunking_config(config: &ChunkingConfig) -> TurboPropResult<()> 
         return Err(TurboPropError::config_validation(
             "chunking.target_chunk_size_tokens",
             config.target_chunk_size_tokens.to_string(),
-            "positive integer greater than 0"
+            "positive integer greater than 0",
         ));
     }
 
@@ -120,7 +120,7 @@ pub fn validate_chunking_config(config: &ChunkingConfig) -> TurboPropResult<()> 
         return Err(TurboPropError::config_validation(
             "chunking.max_chunk_size_tokens",
             config.max_chunk_size_tokens.to_string(),
-            "positive integer greater than 0"
+            "positive integer greater than 0",
         ));
     }
 
@@ -128,7 +128,7 @@ pub fn validate_chunking_config(config: &ChunkingConfig) -> TurboPropResult<()> 
         return Err(TurboPropError::config_validation(
             "chunking.min_chunk_size_tokens",
             config.min_chunk_size_tokens.to_string(),
-            "positive integer greater than 0"
+            "positive integer greater than 0",
         ));
     }
 
@@ -136,18 +136,22 @@ pub fn validate_chunking_config(config: &ChunkingConfig) -> TurboPropResult<()> 
     if config.target_chunk_size_tokens > config.max_chunk_size_tokens {
         return Err(TurboPropError::config_validation(
             "chunking",
-            format!("target_chunk_size_tokens ({}) > max_chunk_size_tokens ({})", 
-                config.target_chunk_size_tokens, config.max_chunk_size_tokens),
-            "target_chunk_size_tokens must not exceed max_chunk_size_tokens"
+            format!(
+                "target_chunk_size_tokens ({}) > max_chunk_size_tokens ({})",
+                config.target_chunk_size_tokens, config.max_chunk_size_tokens
+            ),
+            "target_chunk_size_tokens must not exceed max_chunk_size_tokens",
         ));
     }
 
     if config.min_chunk_size_tokens > config.target_chunk_size_tokens {
         return Err(TurboPropError::config_validation(
             "chunking",
-            format!("min_chunk_size_tokens ({}) > target_chunk_size_tokens ({})", 
-                config.min_chunk_size_tokens, config.target_chunk_size_tokens),
-            "min_chunk_size_tokens must not exceed target_chunk_size_tokens"
+            format!(
+                "min_chunk_size_tokens ({}) > target_chunk_size_tokens ({})",
+                config.min_chunk_size_tokens, config.target_chunk_size_tokens
+            ),
+            "min_chunk_size_tokens must not exceed target_chunk_size_tokens",
         ));
     }
 
@@ -156,7 +160,10 @@ pub fn validate_chunking_config(config: &ChunkingConfig) -> TurboPropResult<()> 
         return Err(TurboPropError::config_validation(
             "chunking.overlap_tokens",
             config.overlap_tokens.to_string(),
-            format!("less than target_chunk_size_tokens ({})", config.target_chunk_size_tokens)
+            format!(
+                "less than target_chunk_size_tokens ({})",
+                config.target_chunk_size_tokens
+            ),
         ));
     }
 
@@ -182,7 +189,7 @@ pub fn validate_file_discovery_config(
             return Err(TurboPropError::config_validation(
                 "file_discovery.max_filesize_bytes",
                 max_size.to_string(),
-                "positive integer greater than 0"
+                "positive integer greater than 0",
             ));
         }
 
@@ -208,7 +215,7 @@ pub fn validate_search_config(
         return Err(TurboPropError::config_validation(
             "search.default_limit",
             config.default_limit.to_string(),
-            "positive integer greater than 0"
+            "positive integer greater than 0",
         ));
     }
 
@@ -224,7 +231,7 @@ pub fn validate_search_config(
         return Err(TurboPropError::config_validation(
             "search.min_similarity",
             config.min_similarity.to_string(),
-            "number between 0.0 and 1.0"
+            "number between 0.0 and 1.0",
         ));
     }
 
@@ -249,7 +256,7 @@ pub fn validate_general_config(
             return Err(TurboPropError::config_validation(
                 "general.worker_threads",
                 threads.to_string(),
-                "positive integer greater than 0"
+                "positive integer greater than 0",
             ));
         }
 
@@ -301,7 +308,7 @@ fn validate_directory_path(path: &Path, description: &str) -> TurboPropResult<()
         return Err(TurboPropError::config_validation(
             description,
             "<empty>".to_string(),
-            "non-empty directory path"
+            "non-empty directory path",
         ));
     }
 
@@ -310,7 +317,7 @@ fn validate_directory_path(path: &Path, description: &str) -> TurboPropResult<()
         return Err(TurboPropError::config_validation(
             description,
             path_str.to_string(),
-            "path without null characters"
+            "path without null characters",
         ));
     }
 
@@ -340,7 +347,7 @@ pub fn validate_yaml_config(yaml_config: &YamlConfig) -> TurboPropResult<()> {
                 return Err(TurboPropError::config_validation(
                     "embedding.batch_size",
                     batch_size.to_string(),
-                    "positive integer greater than 0"
+                    "positive integer greater than 0",
                 ));
             }
         }
@@ -353,7 +360,7 @@ pub fn validate_yaml_config(yaml_config: &YamlConfig) -> TurboPropResult<()> {
                 return Err(TurboPropError::config_validation(
                     "indexing.chunk_size",
                     chunk_size.to_string(),
-                    "positive integer greater than 0"
+                    "positive integer greater than 0",
                 ));
             }
         }
@@ -366,7 +373,7 @@ pub fn validate_yaml_config(yaml_config: &YamlConfig) -> TurboPropResult<()> {
                 return Err(TurboPropError::config_validation(
                     "search.default_limit",
                     limit.to_string(),
-                    "positive integer greater than 0"
+                    "positive integer greater than 0",
                 ));
             }
         }
@@ -376,7 +383,7 @@ pub fn validate_yaml_config(yaml_config: &YamlConfig) -> TurboPropResult<()> {
                 return Err(TurboPropError::config_validation(
                     "search.min_similarity",
                     threshold.to_string(),
-                    "number between 0.0 and 1.0"
+                    "number between 0.0 and 1.0",
                 ));
             }
         }

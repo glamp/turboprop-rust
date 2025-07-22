@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tp::retry::{RetryConfig, RetryableOperation, ExponentialBackoff};
 use tp::error::{TurboPropError, TurboPropResult};
+use tp::retry::{ExponentialBackoff, RetryConfig, RetryableOperation};
 
 struct FailingOperation {
     attempts: Arc<Mutex<u32>>,
@@ -27,7 +27,7 @@ impl RetryableOperation<String> for FailingOperation {
     fn execute(&mut self) -> Result<String, Self::Error> {
         let mut attempts = self.attempts.lock().unwrap();
         *attempts += 1;
-        
+
         if *attempts <= self.succeed_after {
             Err(TurboPropError::network("Temporary failure", None))
         } else {
@@ -68,9 +68,9 @@ async fn test_exponential_backoff_first_delay() {
     let config = RetryConfig::new()
         .with_initial_delay(Duration::from_millis(100))
         .with_backoff_multiplier(2.0);
-    
+
     let backoff = ExponentialBackoff::new(&config);
-    
+
     assert_eq!(backoff.delay_for_attempt(1), Duration::from_millis(100));
     assert_eq!(backoff.delay_for_attempt(2), Duration::from_millis(200));
     assert_eq!(backoff.delay_for_attempt(3), Duration::from_millis(400));
@@ -82,9 +82,9 @@ async fn test_exponential_backoff_max_delay() {
         .with_initial_delay(Duration::from_millis(100))
         .with_max_delay(Duration::from_millis(250))
         .with_backoff_multiplier(2.0);
-    
+
     let backoff = ExponentialBackoff::new(&config);
-    
+
     // Should cap at max_delay
     assert_eq!(backoff.delay_for_attempt(1), Duration::from_millis(100));
     assert_eq!(backoff.delay_for_attempt(2), Duration::from_millis(200));
@@ -96,9 +96,9 @@ async fn test_exponential_backoff_max_delay() {
 async fn test_successful_operation_no_retries() {
     let config = RetryConfig::default();
     let mut operation = FailingOperation::new(0); // Succeed immediately
-    
+
     let result = config.execute(&mut operation).await;
-    
+
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "Success after 1 attempts");
     assert_eq!(operation.get_attempts(), 1);
@@ -108,15 +108,15 @@ async fn test_successful_operation_no_retries() {
 async fn test_operation_succeeds_after_retries() {
     let config = RetryConfig::new().with_max_attempts(5);
     let mut operation = FailingOperation::new(2); // Fail twice, then succeed
-    
+
     let start = Instant::now();
     let result = config.execute(&mut operation).await;
     let elapsed = start.elapsed();
-    
+
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "Success after 3 attempts");
     assert_eq!(operation.get_attempts(), 3);
-    
+
     // Should have waited some time for retries
     assert!(elapsed >= Duration::from_millis(300)); // 100ms + 200ms
 }
@@ -125,12 +125,12 @@ async fn test_operation_succeeds_after_retries() {
 async fn test_operation_exceeds_max_attempts() {
     let config = RetryConfig::new().with_max_attempts(3);
     let mut operation = FailingOperation::new(5); // Will never succeed within 3 attempts
-    
+
     let result = config.execute(&mut operation).await;
-    
+
     assert!(result.is_err());
     assert_eq!(operation.get_attempts(), 3); // Should only try max_attempts times
-    
+
     match result.unwrap_err() {
         TurboPropError::NetworkError { message, .. } => {
             assert!(message.contains("Temporary failure"));
@@ -142,24 +142,26 @@ async fn test_operation_exceeds_max_attempts() {
 #[tokio::test]
 async fn test_non_retryable_error_no_retry() {
     let config = RetryConfig::default();
-    
+
     struct NonRetryableOperation;
     impl RetryableOperation<String> for NonRetryableOperation {
         type Error = TurboPropError;
-        
+
         fn execute(&mut self) -> Result<String, Self::Error> {
-            Err(TurboPropError::config_validation("field", "invalid", "valid"))
+            Err(TurboPropError::config_validation(
+                "field", "invalid", "valid",
+            ))
         }
-        
+
         fn is_retryable(&self, error: &Self::Error) -> bool {
             // Configuration errors should not be retried
             !matches!(error, TurboPropError::ConfigurationValidationError { .. })
         }
     }
-    
+
     let mut operation = NonRetryableOperation;
     let result = config.execute(&mut operation).await;
-    
+
     assert!(result.is_err());
     match result.unwrap_err() {
         TurboPropError::ConfigurationValidationError { .. } => {
@@ -174,18 +176,18 @@ async fn test_jitter_adds_randomness() {
     let config = RetryConfig::new()
         .with_initial_delay(Duration::from_millis(100))
         .with_jitter(true);
-    
+
     let backoff = ExponentialBackoff::new(&config);
-    
+
     // Get delays for same attempt multiple times
     let delay1 = backoff.delay_for_attempt(2);
     let delay2 = backoff.delay_for_attempt(2);
     let delay3 = backoff.delay_for_attempt(2);
-    
+
     // With jitter, delays should vary (though they might occasionally be the same)
     let delays = vec![delay1, delay2, delay3];
     let base_delay = Duration::from_millis(200); // 100ms * 2
-    
+
     // All delays should be within reasonable bounds (50% to 150% of base)
     for delay in delays {
         assert!(delay >= Duration::from_millis(100)); // At least 50% of base
@@ -193,7 +195,7 @@ async fn test_jitter_adds_randomness() {
     }
 }
 
-#[tokio::test] 
+#[tokio::test]
 async fn test_retry_network_operations() {
     // Test helper for network-like operations
     let config = RetryConfig::new()
@@ -219,9 +221,9 @@ async fn test_retry_network_operations() {
         }
 
         fn is_retryable(&self, error: &Self::Error) -> bool {
-            matches!(error, 
-                TurboPropError::NetworkError { .. } | 
-                TurboPropError::NetworkTimeout { .. }
+            matches!(
+                error,
+                TurboPropError::NetworkError { .. } | TurboPropError::NetworkTimeout { .. }
             )
         }
     }

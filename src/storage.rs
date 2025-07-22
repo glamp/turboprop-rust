@@ -11,7 +11,7 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
-use crate::types::{ContentChunk, IndexedChunk, SourceLocation, ChunkIndexNum, TokenCount};
+use crate::types::{ChunkIndexNum, ContentChunk, IndexedChunk, SourceLocation, TokenCount};
 
 /// Default storage version for index compatibility
 pub const DEFAULT_STORAGE_VERSION: &str = "1.0.0";
@@ -575,6 +575,174 @@ impl IndexStorage {
     }
 }
 
+use crate::index::SearchIndex;
+use crate::types::{ChunkId, DocumentChunk};
+
+/// Persistent index that wraps an in-memory index with disk storage
+pub struct PersistentIndex {
+    search_index: SearchIndex,
+    #[allow(dead_code)]
+    storage: IndexStorage,
+    storage_path: PathBuf,
+}
+
+impl PersistentIndex {
+    /// Create a new persistent index
+    pub fn new(storage_path: &Path) -> Result<Self> {
+        let storage = IndexStorage::new(storage_path)?;
+        let search_index = SearchIndex::new();
+
+        Ok(Self {
+            search_index,
+            storage,
+            storage_path: storage_path.to_path_buf(),
+        })
+    }
+
+    /// Load an existing persistent index from disk
+    pub fn load(storage_path: &Path) -> Result<Self> {
+        let storage = IndexStorage::new(storage_path)?;
+        let mut search_index = SearchIndex::new();
+
+        // Try to load existing index data
+        if storage.index_exists() {
+            match storage.load_index(DEFAULT_STORAGE_VERSION) {
+                Ok((indexed_chunks, _config)) => {
+                    // Convert IndexedChunk back to DocumentChunk and add to SearchIndex
+                    for indexed_chunk in indexed_chunks {
+                        // Parse file path from chunk ID (format: "file_path:start_line")
+                        let chunk_id_str = indexed_chunk.chunk.id.as_str();
+                        let full_file_path = if let Some(colon_pos) = chunk_id_str.rfind(':') {
+                            PathBuf::from(&chunk_id_str[..colon_pos])
+                        } else {
+                            PathBuf::from("unknown")
+                        };
+
+                        // Extract just the file name for relative path storage
+                        let file_path = full_file_path
+                            .file_name()
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|| PathBuf::from("unknown"));
+
+                        let doc_chunk = DocumentChunk {
+                            content: indexed_chunk.chunk.content.clone(),
+                            embedding: indexed_chunk.embedding,
+                            metadata: ChunkMetadata {
+                                id: indexed_chunk.chunk.id.into_string(),
+                                file_path,
+                                start_line: indexed_chunk.chunk.source_location.start_line,
+                                end_line: indexed_chunk.chunk.source_location.end_line,
+                                start_char: indexed_chunk.chunk.source_location.start_char,
+                                end_char: indexed_chunk.chunk.source_location.end_char,
+                                chunk_index: indexed_chunk.chunk.chunk_index.get(),
+                                total_chunks: indexed_chunk.chunk.total_chunks,
+                                token_count: indexed_chunk.chunk.token_count.get(),
+                                content_length: indexed_chunk.chunk.content.len(),
+                            },
+                        };
+                        search_index.add_chunk(doc_chunk);
+                    }
+                }
+                Err(e) => {
+                    // If loading fails, start with empty index but log the error
+                    eprintln!("Warning: Failed to load existing index: {}", e);
+                }
+            }
+        }
+
+        Ok(Self {
+            search_index,
+            storage,
+            storage_path: storage_path.to_path_buf(),
+        })
+    }
+
+    /// Check if a persistent index exists at the given path
+    pub fn exists(storage_path: &Path) -> bool {
+        IndexStorage::new(storage_path)
+            .map(|storage| storage.index_exists())
+            .unwrap_or(false)
+    }
+
+    /// Add a chunk to the index
+    pub fn add_chunk(&mut self, chunk: DocumentChunk) {
+        self.search_index.add_chunk(chunk);
+    }
+
+    /// Remove a chunk from the index by ID
+    pub fn remove_chunk(&mut self, chunk_id: ChunkId) {
+        self.search_index.remove_chunk(chunk_id);
+    }
+
+    /// Get the number of chunks in the index
+    pub fn len(&self) -> usize {
+        self.search_index.len()
+    }
+
+    /// Check if the index is empty
+    pub fn is_empty(&self) -> bool {
+        self.search_index.is_empty()
+    }
+
+    /// Get the search index
+    pub fn search_index(&self) -> &SearchIndex {
+        &self.search_index
+    }
+
+    /// Get the storage path
+    pub fn storage_path(&self) -> &Path {
+        &self.storage_path
+    }
+
+    /// Save the index to disk
+    pub fn save(&self) -> Result<()> {
+        // Convert SearchIndex chunks to IndexedChunk format
+        let mut indexed_chunks = Vec::new();
+        for (chunk_id, doc_chunk) in self.search_index.chunks() {
+            // Convert DocumentChunk to ContentChunk
+            let content_chunk = ContentChunk {
+                id: chunk_id.clone(),
+                content: doc_chunk.content.clone(),
+                token_count: TokenCount::new(doc_chunk.content.len()), // Approximate token count
+                source_location: SourceLocation {
+                    file_path: doc_chunk.metadata.file_path.clone(),
+                    start_line: doc_chunk.metadata.start_line,
+                    end_line: doc_chunk.metadata.end_line,
+                    start_char: 0, // We don't track character positions
+                    end_char: doc_chunk.content.len(),
+                },
+                chunk_index: ChunkIndexNum::new(0), // We don't track this in current implementation
+                total_chunks: 1,                    // We don't track this in current implementation
+            };
+
+            indexed_chunks.push(IndexedChunk {
+                chunk: content_chunk,
+                embedding: doc_chunk.embedding.clone(),
+            });
+        }
+
+        // Create a minimal config for saving
+        let config = IndexConfig {
+            model_name: "default".to_string(),
+            embedding_dimensions: indexed_chunks
+                .first()
+                .map(|c| c.embedding.len())
+                .unwrap_or(0),
+            batch_size: 32, // Default batch size
+            respect_gitignore: true,
+            include_untracked: false,
+        };
+
+        self.storage
+            .save_index(&indexed_chunks, &config, DEFAULT_STORAGE_VERSION)
+    }
+
+    /// Find all chunk IDs for a given file path
+    pub fn find_chunks_by_file_path(&self, file_path: &Path) -> Vec<ChunkId> {
+        self.search_index.find_chunks_by_file_path(file_path)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -703,170 +871,5 @@ mod tests {
         assert_eq!(metadata.file_path, PathBuf::from("path/to/file.rs"));
         assert_eq!(metadata.token_count, 3);
         assert_eq!(metadata.content_length, 17);
-    }
-}
-
-use crate::index::SearchIndex;
-use crate::types::{ChunkId, DocumentChunk};
-
-/// Persistent index that wraps an in-memory index with disk storage
-pub struct PersistentIndex {
-    search_index: SearchIndex,
-    #[allow(dead_code)]
-    storage: IndexStorage,
-    storage_path: PathBuf,
-}
-
-impl PersistentIndex {
-    /// Create a new persistent index
-    pub fn new(storage_path: &Path) -> Result<Self> {
-        let storage = IndexStorage::new(storage_path)?;
-        let search_index = SearchIndex::new();
-
-        Ok(Self {
-            search_index,
-            storage,
-            storage_path: storage_path.to_path_buf(),
-        })
-    }
-
-    /// Load an existing persistent index from disk
-    pub fn load(storage_path: &Path) -> Result<Self> {
-        let storage = IndexStorage::new(storage_path)?;
-        let mut search_index = SearchIndex::new();
-
-        // Try to load existing index data
-        if storage.index_exists() {
-            match storage.load_index(DEFAULT_STORAGE_VERSION) {
-                Ok((indexed_chunks, _config)) => {
-                    // Convert IndexedChunk back to DocumentChunk and add to SearchIndex
-                    for indexed_chunk in indexed_chunks {
-                        // Parse file path from chunk ID (format: "file_path:start_line")
-                        let chunk_id_str = indexed_chunk.chunk.id.as_str();
-                        let full_file_path = if let Some(colon_pos) = chunk_id_str.rfind(':') {
-                            PathBuf::from(&chunk_id_str[..colon_pos])
-                        } else {
-                            PathBuf::from("unknown")
-                        };
-                        
-                        // Extract just the file name for relative path storage
-                        let file_path = full_file_path.file_name()
-                            .map(|name| PathBuf::from(name))
-                            .unwrap_or_else(|| PathBuf::from("unknown"));
-                        
-                        let doc_chunk = DocumentChunk {
-                            content: indexed_chunk.chunk.content.clone(),
-                            embedding: indexed_chunk.embedding,
-                            metadata: ChunkMetadata {
-                                id: indexed_chunk.chunk.id.into_string(),
-                                file_path,
-                                start_line: indexed_chunk.chunk.source_location.start_line,
-                                end_line: indexed_chunk.chunk.source_location.end_line,
-                                start_char: indexed_chunk.chunk.source_location.start_char,
-                                end_char: indexed_chunk.chunk.source_location.end_char,
-                                chunk_index: indexed_chunk.chunk.chunk_index.get(),
-                                total_chunks: indexed_chunk.chunk.total_chunks,
-                                token_count: indexed_chunk.chunk.token_count.get(),
-                                content_length: indexed_chunk.chunk.content.len(),
-                            },
-                        };
-                        search_index.add_chunk(doc_chunk);
-                    }
-                }
-                Err(e) => {
-                    // If loading fails, start with empty index but log the error
-                    eprintln!("Warning: Failed to load existing index: {}", e);
-                }
-            }
-        }
-
-        Ok(Self {
-            search_index,
-            storage,
-            storage_path: storage_path.to_path_buf(),
-        })
-    }
-
-    /// Check if a persistent index exists at the given path
-    pub fn exists(storage_path: &Path) -> bool {
-        IndexStorage::new(storage_path)
-            .map(|storage| storage.index_exists())
-            .unwrap_or(false)
-    }
-
-    /// Add a chunk to the index
-    pub fn add_chunk(&mut self, chunk: DocumentChunk) {
-        self.search_index.add_chunk(chunk);
-    }
-
-    /// Remove a chunk from the index by ID
-    pub fn remove_chunk(&mut self, chunk_id: ChunkId) {
-        self.search_index.remove_chunk(chunk_id);
-    }
-
-    /// Get the number of chunks in the index
-    pub fn len(&self) -> usize {
-        self.search_index.len()
-    }
-
-    /// Check if the index is empty
-    pub fn is_empty(&self) -> bool {
-        self.search_index.is_empty()
-    }
-
-    /// Get the search index
-    pub fn search_index(&self) -> &SearchIndex {
-        &self.search_index
-    }
-
-    /// Get the storage path
-    pub fn storage_path(&self) -> &Path {
-        &self.storage_path
-    }
-
-    /// Save the index to disk
-    pub fn save(&self) -> Result<()> {
-        // Convert SearchIndex chunks to IndexedChunk format
-        let mut indexed_chunks = Vec::new();
-        for (chunk_id, doc_chunk) in self.search_index.chunks() {
-            // Convert DocumentChunk to ContentChunk
-            let content_chunk = ContentChunk {
-                id: chunk_id.clone(),
-                content: doc_chunk.content.clone(),
-                token_count: TokenCount::new(doc_chunk.content.len()), // Approximate token count
-                source_location: SourceLocation {
-                    file_path: doc_chunk.metadata.file_path.clone(),
-                    start_line: doc_chunk.metadata.start_line,
-                    end_line: doc_chunk.metadata.end_line,
-                    start_char: 0, // We don't track character positions
-                    end_char: doc_chunk.content.len(),
-                },
-                chunk_index: ChunkIndexNum::new(0), // We don't track this in current implementation
-                total_chunks: 1, // We don't track this in current implementation
-            };
-            
-            indexed_chunks.push(IndexedChunk {
-                chunk: content_chunk,
-                embedding: doc_chunk.embedding.clone(),
-            });
-        }
-        
-        // Create a minimal config for saving
-        let config = IndexConfig {
-            model_name: "default".to_string(),
-            embedding_dimensions: indexed_chunks.first()
-                .map(|c| c.embedding.len())
-                .unwrap_or(0),
-            batch_size: 32, // Default batch size
-            respect_gitignore: true,
-            include_untracked: false,
-        };
-        
-        self.storage.save_index(&indexed_chunks, &config, DEFAULT_STORAGE_VERSION)
-    }
-
-    /// Find all chunk IDs for a given file path
-    pub fn find_chunks_by_file_path(&self, file_path: &Path) -> Vec<ChunkId> {
-        self.search_index.find_chunks_by_file_path(file_path)
     }
 }

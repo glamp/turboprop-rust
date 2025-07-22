@@ -25,10 +25,7 @@ pub enum TurboPropError {
 
     /// File system permission errors
     #[error("Permission denied for {operation} operation on '{path}'. Check file permissions and ensure the process has necessary access rights.")]
-    FilePermissionError {
-        path: PathBuf,
-        operation: String,
-    },
+    FilePermissionError { path: PathBuf, operation: String },
 
     /// Generic file system errors
     #[error("File system error: {message}{}",
@@ -40,10 +37,7 @@ pub enum TurboPropError {
 
     /// Corrupted index files
     #[error("Index is corrupted at '{path}': {reason}. The index will be rebuilt automatically.")]
-    CorruptedIndex {
-        path: PathBuf,
-        reason: String,
-    },
+    CorruptedIndex { path: PathBuf, reason: String },
 
     /// Insufficient disk space
     #[error("Insufficient disk space at '{path}'. Required: {}, Available: {}. Free up disk space or choose a different location.",
@@ -57,16 +51,11 @@ pub enum TurboPropError {
 
     /// Embedding model errors
     #[error("Embedding model error for '{model_name}': {reason}. Verify the model name and check your internet connection.")]
-    EmbeddingModelError {
-        model_name: String,
-        reason: String,
-    },
+    EmbeddingModelError { model_name: String, reason: String },
 
     /// Invalid Git repository
     #[error("Invalid Git repository at '{path}'. Ensure the path contains a valid Git repository or use a different directory.")]
-    InvalidGitRepository {
-        path: PathBuf,
-    },
+    InvalidGitRepository { path: PathBuf },
 
     /// File encoding issues
     #[error("File encoding error for '{path}'{}: File may be binary or use an unsupported encoding. Skip this file or convert to UTF-8.",
@@ -92,23 +81,18 @@ pub enum TurboPropError {
     },
 
     /// Model loading errors
-    #[error("Failed to load model '{model_name}': {reason}. Verify the model exists and is compatible.")]
-    ModelLoadingError {
-        model_name: String,
-        reason: String,
-    },
+    #[error(
+        "Failed to load model '{model_name}': {reason}. Verify the model exists and is compatible."
+    )]
+    ModelLoadingError { model_name: String, reason: String },
 
     /// Index not found errors
     #[error("No index found at '{path}'. Run 'tp index' to create an index first.")]
-    IndexNotFound {
-        path: PathBuf,
-    },
+    IndexNotFound { path: PathBuf },
 
     /// Generic errors for compatibility
     #[error("{message}")]
-    Other {
-        message: String,
-    },
+    Other { message: String },
 }
 
 impl TurboPropError {
@@ -226,7 +210,7 @@ impl From<anyhow::Error> for TurboPropError {
 impl From<std::io::Error> for TurboPropError {
     fn from(error: std::io::Error) -> Self {
         use std::io::ErrorKind;
-        
+
         let message = error.to_string();
         match error.kind() {
             ErrorKind::PermissionDenied => Self::FilePermissionError {
@@ -281,7 +265,8 @@ mod tests {
 
     #[test]
     fn test_error_constructors() {
-        let error = TurboPropError::network("Connection failed", Some("https://example.com".to_string()));
+        let error =
+            TurboPropError::network("Connection failed", Some("https://example.com".to_string()));
         match error {
             TurboPropError::NetworkError { message, url } => {
                 assert_eq!(message, "Connection failed");

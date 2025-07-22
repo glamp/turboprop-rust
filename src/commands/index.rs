@@ -79,7 +79,11 @@ impl ErrorType {
             },
             ErrorType::EmbeddingInit => ErrorInfo {
                 message: MSG_EMBEDDING_INIT_FAILED,
-                help_texts: &[HELP_MODEL_DOWNLOAD, HELP_RETRY_CONNECTION, HELP_TRY_DIFFERENT_MODEL],
+                help_texts: &[
+                    HELP_MODEL_DOWNLOAD,
+                    HELP_RETRY_CONNECTION,
+                    HELP_TRY_DIFFERENT_MODEL,
+                ],
             },
             ErrorType::PermissionDenied => ErrorInfo {
                 message: MSG_PERMISSION_DENIED,
@@ -91,11 +95,19 @@ impl ErrorType {
             },
             ErrorType::Network => ErrorInfo {
                 message: MSG_NETWORK_TIMEOUT,
-                help_texts: &[HELP_MODEL_DOWNLOAD_ISSUE, HELP_CHECK_CONNECTION, HELP_USE_CACHE_DIR],
+                help_texts: &[
+                    HELP_MODEL_DOWNLOAD_ISSUE,
+                    HELP_CHECK_CONNECTION,
+                    HELP_USE_CACHE_DIR,
+                ],
             },
             ErrorType::Generic => ErrorInfo {
                 message: "Indexing failed",
-                help_texts: &[HELP_USE_VERBOSE, HELP_EXCLUDE_LARGE_FILES, HELP_CHECK_DIRECTORY],
+                help_texts: &[
+                    HELP_USE_VERBOSE,
+                    HELP_EXCLUDE_LARGE_FILES,
+                    HELP_CHECK_DIRECTORY,
+                ],
             },
         }
     }
@@ -103,7 +115,7 @@ impl ErrorType {
     /// Classify an error based on its message content
     fn classify(error: &anyhow::Error) -> Self {
         let error_str = error.to_string().to_lowercase();
-        
+
         if error_str.contains("no files found") {
             ErrorType::NoFilesFound
         } else if error_str.contains("failed to initialize embedding generator") {
@@ -463,16 +475,19 @@ fn format_watch_error(error: &anyhow::Error, path: &Path) -> String {
 fn format_user_error(error: &anyhow::Error, path: &Path) -> String {
     let error_type = ErrorType::classify(error);
     let error_info = error_type.get_info();
-    
+
     let message = match error_type {
         ErrorType::NoFilesFound => format!("No files found to index in '{}'", path.display()),
         ErrorType::Generic => format!("Indexing failed for '{}'", path.display()),
         _ => error_info.message.to_string(),
     };
-    
+
     // For permission errors, we need to add path-specific help
     if matches!(error_type, ErrorType::PermissionDenied) {
-        let path_help = format!("Make sure you have read permissions for the directory: {}", path.display());
+        let path_help = format!(
+            "Make sure you have read permissions for the directory: {}",
+            path.display()
+        );
         let mut help_with_path = vec![path_help.as_str()];
         help_with_path.extend_from_slice(error_info.help_texts);
         format_error_message(&message, &help_with_path, Some(error))

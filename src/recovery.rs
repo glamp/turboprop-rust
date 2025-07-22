@@ -105,25 +105,32 @@ impl IndexRecovery {
 
     /// Validate metadata file structure and content.
     async fn validate_metadata_file(&self, metadata_file: &Path) -> TurboPropResult<()> {
-        let content = fs::read_to_string(metadata_file)
-            .map_err(|e| TurboPropError::file_system(
+        let content = fs::read_to_string(metadata_file).map_err(|e| {
+            TurboPropError::file_system(
                 format!("Cannot read metadata file: {}", e),
-                Some(metadata_file.to_path_buf())
-            ))?;
+                Some(metadata_file.to_path_buf()),
+            )
+        })?;
 
-        let metadata: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|e| TurboPropError::corrupted_index(
+        let metadata: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+            TurboPropError::corrupted_index(
                 metadata_file.to_path_buf(),
-                format!("Invalid JSON: {}", e)
-            ))?;
+                format!("Invalid JSON: {}", e),
+            )
+        })?;
 
         // Check required fields
-        let required_fields = ["version", "created_at", "chunk_count", "embedding_dimensions"];
+        let required_fields = [
+            "version",
+            "created_at",
+            "chunk_count",
+            "embedding_dimensions",
+        ];
         for field in &required_fields {
-            if !metadata.get(field).is_some() {
+            if metadata.get(field).is_none() {
                 return Err(TurboPropError::corrupted_index(
                     metadata_file.to_path_buf(),
-                    format!("Missing required field: {}", field)
+                    format!("Missing required field: {}", field),
                 ));
             }
         }
@@ -140,13 +147,17 @@ impl IndexRecovery {
             return Ok(());
         }
 
-        info!("Cleaning up corrupted index at: {}", turboprop_dir.display());
+        info!(
+            "Cleaning up corrupted index at: {}",
+            turboprop_dir.display()
+        );
 
-        fs::remove_dir_all(&turboprop_dir)
-            .map_err(|e| TurboPropError::file_system(
+        fs::remove_dir_all(&turboprop_dir).map_err(|e| {
+            TurboPropError::file_system(
                 format!("Failed to remove index directory: {}", e),
-                Some(turboprop_dir)
-            ))?;
+                Some(turboprop_dir),
+            )
+        })?;
 
         info!("Index cleanup completed");
         Ok(())
@@ -155,7 +166,7 @@ impl IndexRecovery {
     /// Create a backup of the corrupted index before cleaning.
     pub async fn backup_corrupted_index(&self) -> TurboPropResult<PathBuf> {
         let turboprop_dir = self.index_path.join(".turboprop");
-        
+
         if !turboprop_dir.exists() {
             return Err(TurboPropError::index_not_found(turboprop_dir));
         }
@@ -168,14 +179,16 @@ impl IndexRecovery {
         info!("Backing up corrupted index to: {}", backup_path.display());
 
         // Copy the corrupted index to backup location
-        self.copy_dir_recursive(&turboprop_dir, &backup_path).await?;
+        self.copy_dir_recursive(&turboprop_dir, &backup_path)
+            .await?;
 
         // Remove the original corrupted index
-        fs::remove_dir_all(&turboprop_dir)
-            .map_err(|e| TurboPropError::file_system(
+        fs::remove_dir_all(&turboprop_dir).map_err(|e| {
+            TurboPropError::file_system(
                 format!("Failed to remove original index: {}", e),
-                Some(turboprop_dir)
-            ))?;
+                Some(turboprop_dir),
+            )
+        })?;
 
         info!("Backup created successfully at: {}", backup_path.display());
         Ok(backup_path)
@@ -183,23 +196,25 @@ impl IndexRecovery {
 
     /// Recursively copy a directory.
     async fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> TurboPropResult<()> {
-        fs::create_dir_all(dst)
-            .map_err(|e| TurboPropError::file_system(
+        fs::create_dir_all(dst).map_err(|e| {
+            TurboPropError::file_system(
                 format!("Failed to create backup directory: {}", e),
-                Some(dst.to_path_buf())
-            ))?;
+                Some(dst.to_path_buf()),
+            )
+        })?;
 
-        for entry in fs::read_dir(src)
-            .map_err(|e| TurboPropError::file_system(
+        for entry in fs::read_dir(src).map_err(|e| {
+            TurboPropError::file_system(
                 format!("Failed to read directory: {}", e),
-                Some(src.to_path_buf())
-            ))? 
-        {
-            let entry = entry
-                .map_err(|e| TurboPropError::file_system(
+                Some(src.to_path_buf()),
+            )
+        })? {
+            let entry = entry.map_err(|e| {
+                TurboPropError::file_system(
                     format!("Failed to read directory entry: {}", e),
-                    Some(src.to_path_buf())
-                ))?;
+                    Some(src.to_path_buf()),
+                )
+            })?;
 
             let src_path = entry.path();
             let dst_path = dst.join(entry.file_name());
@@ -207,11 +222,12 @@ impl IndexRecovery {
             if src_path.is_dir() {
                 Box::pin(self.copy_dir_recursive(&src_path, &dst_path)).await?;
             } else {
-                fs::copy(&src_path, &dst_path)
-                    .map_err(|e| TurboPropError::file_system(
+                fs::copy(&src_path, &dst_path).map_err(|e| {
+                    TurboPropError::file_system(
                         format!("Failed to copy file: {}", e),
-                        Some(src_path)
-                    ))?;
+                        Some(src_path),
+                    )
+                })?;
             }
         }
 
@@ -219,7 +235,7 @@ impl IndexRecovery {
     }
 
     /// Check if there's sufficient disk space for index operations.
-    pub async fn check_disk_space(&self, required_bytes: u64) -> TurboPropResult<bool> {
+    pub async fn check_disk_space(&self, _required_bytes: u64) -> TurboPropResult<bool> {
         match fs::metadata(&self.index_path) {
             Ok(_) => {
                 // For simplicity, we'll assume there's enough space
@@ -230,7 +246,7 @@ impl IndexRecovery {
             }
             Err(e) => Err(TurboPropError::file_system(
                 format!("Cannot check disk space: {}", e),
-                Some(self.index_path.clone())
+                Some(self.index_path.clone()),
             )),
         }
     }
@@ -239,11 +255,12 @@ impl IndexRecovery {
     pub async fn validate_permissions(&self) -> TurboPropResult<bool> {
         // Check if we can create the .turboprop directory
         let turboprop_dir = self.index_path.join(".turboprop");
-        
+
         match fs::create_dir_all(&turboprop_dir) {
             Ok(_) => {
                 // Clean up test directory if it was created
-                if turboprop_dir.exists() && fs::read_dir(&turboprop_dir).unwrap().next().is_none() {
+                if turboprop_dir.exists() && fs::read_dir(&turboprop_dir).unwrap().next().is_none()
+                {
                     let _ = fs::remove_dir(&turboprop_dir);
                 }
                 Ok(true)
@@ -256,7 +273,11 @@ impl IndexRecovery {
     }
 
     /// Recover the index using the specified strategy.
-    pub async fn recover(&self, strategy: RecoveryStrategy, config: &TurboPropConfig) -> TurboPropResult<()> {
+    pub async fn recover(
+        &self,
+        strategy: RecoveryStrategy,
+        config: &TurboPropConfig,
+    ) -> TurboPropResult<()> {
         info!("Starting index recovery with strategy: {:?}", strategy);
 
         match strategy {
@@ -267,7 +288,7 @@ impl IndexRecovery {
             RecoveryStrategy::Rebuild => {
                 self.cleanup_index().await?;
                 info!("Rebuilding index...");
-                
+
                 // Rebuild the index
                 let _index = PersistentChunkIndex::build(&self.index_path, config).await?;
                 info!("Index rebuilt successfully");
@@ -302,13 +323,13 @@ impl IndexRecovery {
             }
             ValidationResult::Corrupted { issues } => {
                 warn!("Index is corrupted: {:?}", issues);
-                
+
                 // Check permissions and disk space
                 let has_permissions = self.validate_permissions().await?;
                 if !has_permissions {
                     return Err(TurboPropError::file_permission(
                         self.index_path.clone(),
-                        "write".to_string()
+                        "write".to_string(),
                     ));
                 }
 
@@ -317,7 +338,7 @@ impl IndexRecovery {
                     return Err(TurboPropError::insufficient_disk_space(
                         100 * 1024 * 1024,
                         0, // We don't know the actual available space
-                        self.index_path.clone()
+                        self.index_path.clone(),
                     ));
                 }
 
@@ -342,7 +363,7 @@ mod tests {
     async fn test_missing_index_detection() {
         let temp_dir = TempDir::new().unwrap();
         let recovery = IndexRecovery::new(temp_dir.path());
-        
+
         let result = recovery.validate_index().await.unwrap();
         assert_eq!(result, ValidationResult::Missing);
     }
@@ -351,28 +372,29 @@ mod tests {
     async fn test_healthy_index_detection() {
         let temp_dir = TempDir::new().unwrap();
         let index_path = temp_dir.path();
-        
+
         // Create a valid index structure
         let turboprop_dir = index_path.join(".turboprop");
         fs::create_dir_all(&turboprop_dir).unwrap();
-        
+
         let metadata = serde_json::json!({
             "version": "1.0",
             "created_at": "2024-01-01T00:00:00Z",
             "chunk_count": 5,
             "embedding_dimensions": 384
         });
-        
+
         fs::write(
-            turboprop_dir.join("metadata.json"), 
-            serde_json::to_string_pretty(&metadata).unwrap()
-        ).unwrap();
+            turboprop_dir.join("metadata.json"),
+            serde_json::to_string_pretty(&metadata).unwrap(),
+        )
+        .unwrap();
         fs::write(turboprop_dir.join("chunks.db"), b"chunk data").unwrap();
         fs::write(turboprop_dir.join("embeddings.bin"), b"embedding data").unwrap();
-        
+
         let recovery = IndexRecovery::new(index_path);
         let result = recovery.validate_index().await.unwrap();
-        
+
         assert_eq!(result, ValidationResult::Healthy);
     }
 
@@ -380,17 +402,17 @@ mod tests {
     async fn test_corrupted_index_detection() {
         let temp_dir = TempDir::new().unwrap();
         let index_path = temp_dir.path();
-        
+
         // Create corrupted index structure
         let turboprop_dir = index_path.join(".turboprop");
         fs::create_dir_all(&turboprop_dir).unwrap();
-        
+
         // Invalid JSON metadata
         fs::write(turboprop_dir.join("metadata.json"), b"invalid json").unwrap();
-        
+
         let recovery = IndexRecovery::new(index_path);
         let result = recovery.validate_index().await.unwrap();
-        
+
         match result {
             ValidationResult::Corrupted { issues } => {
                 assert!(!issues.is_empty());

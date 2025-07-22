@@ -7,7 +7,7 @@ fn test_network_error_display() {
         message: "Connection timeout".to_string(),
         url: Some("https://huggingface.co/model".to_string()),
     };
-    
+
     let error_str = error.to_string();
     assert!(error_str.contains("Network error"));
     assert!(error_str.contains("Connection timeout"));
@@ -21,7 +21,7 @@ fn test_file_permission_error_display() {
         path: path.clone(),
         operation: "read".to_string(),
     };
-    
+
     let error_str = error.to_string();
     assert!(error_str.contains("Permission denied"));
     assert!(error_str.contains("/restricted/file.txt"));
@@ -35,7 +35,7 @@ fn test_corrupted_index_error_display() {
         path: path.clone(),
         reason: "Invalid header".to_string(),
     };
-    
+
     let error_str = error.to_string();
     assert!(error_str.contains("Index is corrupted"));
     assert!(error_str.contains("/project/.turboprop/index.db"));
@@ -46,10 +46,10 @@ fn test_corrupted_index_error_display() {
 fn test_insufficient_disk_space_error_display() {
     let error = TurboPropError::InsufficientDiskSpace {
         required_bytes: 1024 * 1024 * 100, // 100MB
-        available_bytes: 1024 * 1024 * 50,  // 50MB
+        available_bytes: 1024 * 1024 * 50, // 50MB
         path: PathBuf::from("/project/.turboprop"),
     };
-    
+
     let error_str = error.to_string();
     assert!(error_str.contains("Insufficient disk space"));
     assert!(error_str.contains("100 MB"));
@@ -62,7 +62,7 @@ fn test_embedding_model_error_display() {
         model_name: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
         reason: "Model download failed".to_string(),
     };
-    
+
     let error_str = error.to_string();
     assert!(error_str.contains("Embedding model error"));
     assert!(error_str.contains("sentence-transformers/all-MiniLM-L6-v2"));
@@ -72,10 +72,8 @@ fn test_embedding_model_error_display() {
 #[test]
 fn test_invalid_git_repository_error_display() {
     let path = PathBuf::from("/not-a-git-repo");
-    let error = TurboPropError::InvalidGitRepository {
-        path: path.clone(),
-    };
-    
+    let error = TurboPropError::InvalidGitRepository { path: path.clone() };
+
     let error_str = error.to_string();
     assert!(error_str.contains("Invalid Git repository"));
     assert!(error_str.contains("/not-a-git-repo"));
@@ -88,7 +86,7 @@ fn test_file_encoding_error_display() {
         path: path.clone(),
         encoding: Some("binary".to_string()),
     };
-    
+
     let error_str = error.to_string();
     assert!(error_str.contains("File encoding error"));
     assert!(error_str.contains("binary-file.exe"));
@@ -102,7 +100,7 @@ fn test_configuration_validation_error_display() {
         value: "invalid".to_string(),
         expected: "positive integer".to_string(),
     };
-    
+
     let error_str = error.to_string();
     assert!(error_str.contains("Configuration validation error"));
     assert!(error_str.contains("embedding.batch_size"));
@@ -114,7 +112,7 @@ fn test_configuration_validation_error_display() {
 fn test_error_conversion_from_anyhow() {
     let anyhow_error = anyhow::anyhow!("Some generic error");
     let turboprop_error: TurboPropError = anyhow_error.into();
-    
+
     match turboprop_error {
         TurboPropError::Other { message } => {
             assert!(message.contains("Some generic error"));
@@ -127,7 +125,7 @@ fn test_error_conversion_from_anyhow() {
 fn test_error_conversion_from_io_error() {
     let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "File not found");
     let turboprop_error: TurboPropError = io_error.into();
-    
+
     match turboprop_error {
         TurboPropError::FileSystemError { message, path: _ } => {
             assert!(message.contains("File not found"));
@@ -141,7 +139,7 @@ fn test_turboprop_result_type() {
     // Test that our Result type alias works correctly
     let success: TurboPropResult<String> = Ok("success".to_string());
     assert!(success.is_ok());
-    
+
     let failure: TurboPropResult<String> = Err(TurboPropError::Other {
         message: "failure".to_string(),
     });

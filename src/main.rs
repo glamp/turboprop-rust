@@ -1,8 +1,9 @@
 use clap::Parser;
 use tp::cli::{Cli, Commands};
+use tp::commands::execute_index_command_cli;
 use tp::config::{CliConfigOverrides, TurboPropConfig};
 use tp::types::parse_filesize;
-use tp::{index_files_with_config, search_with_config};
+use tp::search_with_config;
 
 /// Default content preview length for search results in CLI
 const DEFAULT_CONTENT_PREVIEW_LENGTH: usize = 80;
@@ -53,8 +54,9 @@ async fn main() -> anyhow::Result<()> {
             // Validate configuration
             config.validate()?;
 
-            // Call the new config-aware indexing function
-            index_files_with_config(&path, &config).await?;
+            // Call the enhanced index command with progress tracking
+            // Show progress bars by default (true), they work fine with verbose logging
+            execute_index_command_cli(&path, &config, true).await?;
         }
         Commands::Search {
             query,

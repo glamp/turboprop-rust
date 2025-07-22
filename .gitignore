@@ -22,3 +22,6 @@ Thumbs.db
 
 # Scratch/temporary directories
 .swissarmyhammer/
+
+# Test data and sample codebases  
+sample-codebases/

@@ -5,6 +5,7 @@
 
 pub mod chunking;
 pub mod cli;
+pub mod commands;
 pub mod config;
 pub mod content;
 pub mod embeddings;
@@ -12,6 +13,8 @@ pub mod files;
 pub mod git;
 pub mod index;
 pub mod models;
+pub mod pipeline;
+pub mod progress;
 pub mod query;
 pub mod search;
 pub mod storage;

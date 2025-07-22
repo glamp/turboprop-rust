@@ -35,6 +35,9 @@ pub enum Commands {
         /// Batch size for embedding generation
         #[arg(long, default_value = "32")]
         batch_size: usize,
+        /// Watch for file changes and update index automatically
+        #[arg(short, long)]
+        watch: bool,
     },
     /// Search indexed files
     Search {

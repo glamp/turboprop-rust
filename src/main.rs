@@ -19,6 +19,7 @@ async fn main() -> anyhow::Result<()> {
             verbose,
             worker_threads,
             batch_size,
+            watch,
         } => {
             // Load base configuration
             let mut config = TurboPropConfig::load()?;
@@ -52,7 +53,13 @@ async fn main() -> anyhow::Result<()> {
 
             // Call the enhanced index command with progress tracking
             // Show progress bars by default (true), they work fine with verbose logging
-            execute_index_command_cli(&path, &config, true).await?;
+            if watch {
+                // Execute the watch mode
+                use tp::commands::index::execute_watch_command_cli;
+                execute_watch_command_cli(&path, &config, true).await?;
+            } else {
+                execute_index_command_cli(&path, &config, true).await?;
+            }
         }
         Commands::Search {
             query,

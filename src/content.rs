@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::error_utils::FileErrorContext;
+use crate::types::FileDiscoveryConfig;
 
 pub struct ContentProcessor {
     max_file_size_bytes: Option<u64>,
@@ -103,6 +104,84 @@ impl ContentProcessor {
         let (cow, actual_encoding, _) = encoding.decode(bytes);
         Ok((actual_encoding, cow.into_owned()))
     }
+}
+
+/// File content with metadata for processing
+#[derive(Debug, Clone)]
+pub struct FileContent {
+    pub content: String,
+    pub encoding: String,
+    pub is_binary: bool,
+    pub line_count: usize,
+    pub char_count: usize,
+    pub file_size: u64,
+    pub file_path: std::path::PathBuf,
+    pub language: Option<String>,
+}
+
+impl FileContent {
+    /// Get the size of the file content
+    pub fn size(&self) -> u64 {
+        self.file_size
+    }
+    
+    /// Get the detected language (if any)
+    pub fn language(&self) -> Option<&str> {
+        self.language.as_deref()
+    }
+}
+
+/// Extract content from a file with the given configuration
+pub fn extract_content(path: &Path, _config: &FileDiscoveryConfig) -> Result<FileContent> {
+    let processor = ContentProcessor::new();
+    let processed = processor.process_file(path)?;
+    let metadata = fs::metadata(path)?;
+    
+    // Simple language detection based on file extension
+    let language = path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase())
+        .and_then(|ext| match ext.as_str() {
+            "rs" => Some("rust".to_string()),
+            "js" => Some("javascript".to_string()),
+            "ts" => Some("typescript".to_string()),
+            "py" => Some("python".to_string()),
+            "java" => Some("java".to_string()),
+            "cpp" | "cc" | "cxx" => Some("cpp".to_string()),
+            "c" => Some("c".to_string()),
+            "h" | "hpp" => Some("c".to_string()),
+            "go" => Some("go".to_string()),
+            "rb" => Some("ruby".to_string()),
+            "php" => Some("php".to_string()),
+            "swift" => Some("swift".to_string()),
+            "kt" => Some("kotlin".to_string()),
+            "scala" => Some("scala".to_string()),
+            "clj" => Some("clojure".to_string()),
+            "hs" => Some("haskell".to_string()),
+            "elm" => Some("elm".to_string()),
+            "html" => Some("html".to_string()),
+            "css" => Some("css".to_string()),
+            "scss" | "sass" => Some("scss".to_string()),
+            "vue" => Some("vue".to_string()),
+            "md" => Some("markdown".to_string()),
+            "json" => Some("json".to_string()),
+            "xml" => Some("xml".to_string()),
+            "yaml" | "yml" => Some("yaml".to_string()),
+            "toml" => Some("toml".to_string()),
+            "sh" | "bash" => Some("bash".to_string()),
+            _ => None,
+        });
+
+    Ok(FileContent {
+        content: processed.content,
+        encoding: processed.encoding,
+        is_binary: processed.is_binary,
+        line_count: processed.line_count,
+        char_count: processed.char_count,
+        file_size: metadata.len(),
+        file_path: path.to_path_buf(),
+        language,
+    })
 }
 
 impl Default for ContentProcessor {

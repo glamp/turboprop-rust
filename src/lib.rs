@@ -13,6 +13,7 @@ pub mod error_utils;
 pub mod files;
 pub mod filters;
 pub mod git;
+pub mod incremental;
 pub mod index;
 pub mod models;
 pub mod output;
@@ -23,6 +24,7 @@ pub mod search;
 pub mod storage;
 pub mod types;
 pub mod validation;
+pub mod watcher;
 
 use crate::chunking::ChunkingStrategy;
 use crate::config::TurboPropConfig;

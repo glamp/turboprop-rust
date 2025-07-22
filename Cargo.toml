@@ -25,6 +25,8 @@ serde_yaml = "0.9"
 rayon = "1.7"
 indicatif = "0.17"
 humantime = "2.1"
+notify = "6.1"
+signal-hook = "0.3"
 
 [dev-dependencies]
 tempfile = "3.8"

@@ -273,6 +273,14 @@ pub fn parse_filesize(input: &str) -> Result<u64, String> {
     }
 }
 
+/// Document chunk with metadata and embedding
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentChunk {
+    pub content: String,
+    pub embedding: Vec<f32>,
+    pub metadata: crate::storage::ChunkMetadata,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexedChunk {
     pub chunk: ContentChunk,

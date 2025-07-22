@@ -592,3 +592,56 @@ mod tests {
         assert_eq!(no_change_result.chunk_delta(), 0);
     }
 }
+
+use crate::types::{ChunkId, DocumentChunk};
+use std::collections::HashMap;
+
+/// Simple search index for managing document chunks
+#[derive(Debug)]
+pub struct SearchIndex {
+    chunks: HashMap<ChunkId, DocumentChunk>,
+}
+
+impl SearchIndex {
+    /// Create a new empty search index
+    pub fn new() -> Self {
+        Self {
+            chunks: HashMap::new(),
+        }
+    }
+
+    /// Add a chunk to the index
+    pub fn add_chunk(&mut self, chunk: DocumentChunk) {
+        let chunk_id = ChunkId::from(format!("{}:{}", chunk.metadata.file_path.display(), chunk.metadata.start_line));
+        self.chunks.insert(chunk_id, chunk);
+    }
+
+    /// Remove a chunk from the index
+    pub fn remove_chunk(&mut self, chunk_id: ChunkId) {
+        self.chunks.remove(&chunk_id);
+    }
+
+    /// Get the number of chunks in the index
+    pub fn len(&self) -> usize {
+        self.chunks.len()
+    }
+
+    /// Check if the index is empty
+    pub fn is_empty(&self) -> bool {
+        self.chunks.is_empty()
+    }
+
+    /// Get all chunks in the index
+    pub fn chunks(&self) -> impl Iterator<Item = (&ChunkId, &DocumentChunk)> {
+        self.chunks.iter()
+    }
+
+    /// Find all chunk IDs for a given file path
+    pub fn find_chunks_by_file_path(&self, file_path: &std::path::Path) -> Vec<ChunkId> {
+        self.chunks
+            .iter()
+            .filter(|(_, chunk)| chunk.metadata.file_path == file_path)
+            .map(|(chunk_id, _)| chunk_id.clone())
+            .collect()
+    }
+}

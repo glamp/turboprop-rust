@@ -705,3 +705,91 @@ mod tests {
         assert_eq!(metadata.content_length, 17);
     }
 }
+
+use crate::index::SearchIndex;
+use crate::types::{ChunkId, DocumentChunk};
+
+/// Persistent index that wraps an in-memory index with disk storage
+pub struct PersistentIndex {
+    search_index: SearchIndex,
+    storage: IndexStorage,
+    storage_path: PathBuf,
+}
+
+impl PersistentIndex {
+    /// Create a new persistent index
+    pub fn new(storage_path: &Path) -> Result<Self> {
+        let storage = IndexStorage::new(storage_path)?;
+        let search_index = SearchIndex::new();
+        
+        Ok(Self {
+            search_index,
+            storage,
+            storage_path: storage_path.to_path_buf(),
+        })
+    }
+
+    /// Load an existing persistent index from disk
+    pub fn load(storage_path: &Path) -> Result<Self> {
+        let storage = IndexStorage::new(storage_path)?;
+        let search_index = SearchIndex::new(); // Start with empty index
+        
+        // TODO: Load actual data from storage
+        // For now, just return an empty index
+        
+        Ok(Self {
+            search_index,
+            storage,
+            storage_path: storage_path.to_path_buf(),
+        })
+    }
+
+    /// Check if a persistent index exists at the given path
+    pub fn exists(storage_path: &Path) -> bool {
+        IndexStorage::new(storage_path)
+            .map(|storage| storage.index_exists())
+            .unwrap_or(false)
+    }
+
+    /// Add a chunk to the index
+    pub fn add_chunk(&mut self, chunk: DocumentChunk) {
+        self.search_index.add_chunk(chunk);
+    }
+
+    /// Remove a chunk from the index by ID
+    pub fn remove_chunk(&mut self, chunk_id: ChunkId) {
+        self.search_index.remove_chunk(chunk_id);
+    }
+
+    /// Get the number of chunks in the index
+    pub fn len(&self) -> usize {
+        self.search_index.len()
+    }
+
+    /// Check if the index is empty
+    pub fn is_empty(&self) -> bool {
+        self.search_index.is_empty()
+    }
+
+    /// Get the search index
+    pub fn search_index(&self) -> &SearchIndex {
+        &self.search_index
+    }
+
+    /// Get the storage path
+    pub fn storage_path(&self) -> &Path {
+        &self.storage_path
+    }
+
+    /// Save the index to disk
+    pub fn save(&self) -> Result<()> {
+        // TODO: Implement actual saving
+        // For now, just return Ok
+        Ok(())
+    }
+
+    /// Find all chunk IDs for a given file path
+    pub fn find_chunks_by_file_path(&self, file_path: &Path) -> Vec<ChunkId> {
+        self.search_index.find_chunks_by_file_path(file_path)
+    }
+}

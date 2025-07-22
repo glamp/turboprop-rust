@@ -112,6 +112,14 @@ impl FileDiscovery {
     }
 }
 
+/// Discover files in the given directory using default configuration
+pub fn discover_files(path: &Path, config: &FileDiscoveryConfig) -> Result<Vec<std::path::PathBuf>> {
+    let discovery = FileDiscovery::new(config.clone());
+    let file_metadata = discovery.discover_files(path)?;
+    
+    Ok(file_metadata.into_iter().map(|metadata| metadata.path).collect())
+}
+
 pub fn get_common_file_extensions() -> HashSet<&'static str> {
     let mut extensions = HashSet::new();
 

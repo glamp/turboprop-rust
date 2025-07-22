@@ -8,7 +8,11 @@ use std::path::Path;
 use tracing::{info, warn};
 
 use crate::config::TurboPropConfig;
+use crate::git::GitignoreFilter;
+use crate::incremental::{IncrementalStats, IncrementalUpdater};
 use crate::pipeline::{IndexingPipeline, PipelineConfig};
+use crate::storage::PersistentIndex;
+use crate::watcher::{FileWatcher, SignalHandler};
 
 // Error message constants for user-friendly error formatting
 const ERROR_ICON: &str = "❌";
@@ -195,6 +199,198 @@ fn format_error_message(
     }
 
     message
+}
+
+/// Execute the watch command with file system monitoring
+///
+/// This function starts the index in watch mode, continuously monitoring
+/// for file changes and updating the index incrementally.
+///
+/// # Arguments
+///
+/// * `path` - The directory path to watch
+/// * `config` - Complete TurboProp configuration
+/// * `show_progress` - Whether to show progress output
+///
+/// # Returns
+///
+/// * `Result<()>` - Ok(()) when gracefully shut down, error otherwise
+pub async fn execute_watch_command(
+    path: &Path,
+    config: &TurboPropConfig,
+    show_progress: bool,
+) -> Result<()> {
+    info!("Starting watch mode for path: {}", path.display());
+
+    // First, build initial index if it doesn't exist
+    let mut persistent_index = if PersistentIndex::exists(path) {
+        info!("Loading existing index...");
+        PersistentIndex::load(path)
+            .with_context(|| format!("Failed to load existing index for: {}", path.display()))?
+    } else {
+        info!("Building initial index...");
+        // Build the initial index using the same logic as the regular index command
+        execute_index_command(path, config, show_progress).await
+            .context("Failed to build initial index for watch mode")?;
+        
+        // Now load the index that was just created
+        PersistentIndex::load(path)
+            .with_context(|| format!("Failed to load newly created index for: {}", path.display()))?
+    };
+
+    // Initialize file watcher
+    let gitignore_filter = GitignoreFilter::new(path)
+        .with_context(|| format!("Failed to create gitignore filter for: {}", path.display()))?;
+
+    let mut file_watcher = FileWatcher::new(path, gitignore_filter)
+        .with_context(|| format!("Failed to create file watcher for: {}", path.display()))?;
+
+    // Initialize incremental updater
+    let mut incremental_updater = IncrementalUpdater::new(config.clone(), path).await
+        .context("Failed to initialize incremental updater")?;
+
+    // Set up signal handler for graceful shutdown
+    let signal_handler = SignalHandler::new()
+        .context("Failed to set up signal handler")?;
+
+    if show_progress {
+        println!("✓ Watching for changes in {} (Press Ctrl+C to stop)", path.display());
+        println!("  Initial index: {} chunks", persistent_index.len());
+    }
+
+    // Main watch loop
+    let mut total_stats = IncrementalStats::default();
+    
+    tokio::select! {
+        _ = signal_handler.wait_for_shutdown() => {
+            info!("Received shutdown signal, stopping watch mode");
+        }
+        _ = async {
+            loop {
+                if let Some(batch) = file_watcher.next_batch().await {
+                    if show_progress {
+                        println!("🔄 Processing {} file changes...", batch.events.len());
+                    }
+
+                    match incremental_updater.process_batch(&batch, &mut persistent_index).await {
+                        Ok(stats) => {
+                            if show_progress && (stats.files_added > 0 || stats.files_modified > 0 || stats.files_removed > 0) {
+                                println!(
+                                    "✓ Updated index - {} added, {} modified, {} removed ({} chunks)",
+                                    stats.files_added,
+                                    stats.files_modified, 
+                                    stats.files_removed,
+                                    persistent_index.len()
+                                );
+                            }
+                            total_stats.merge(stats);
+                        }
+                        Err(e) => {
+                            warn!("Failed to process file changes: {}", e);
+                            if show_progress {
+                                eprintln!("⚠️  Error processing changes: {}", e);
+                            }
+                        }
+                    }
+                } else {
+                    // File watcher closed, break the loop
+                    break;
+                }
+            }
+        } => {
+            info!("File watcher closed, stopping watch mode");
+        }
+    }
+
+    info!("Watch mode shutting down...");
+    info!(
+        "Total changes processed - added: {}, modified: {}, removed: {}",
+        total_stats.files_added,
+        total_stats.files_modified,
+        total_stats.files_removed
+    );
+
+    if show_progress {
+        println!("👋 Watch mode stopped");
+        println!("   Total files processed: {}", total_stats.files_processed);
+        println!("   Files added: {}", total_stats.files_added);
+        println!("   Files modified: {}", total_stats.files_modified);
+        println!("   Files removed: {}", total_stats.files_removed);
+        println!("   Final index size: {} chunks", persistent_index.len());
+    }
+
+    Ok(())
+}
+
+/// Execute watch command with detailed error context for CLI usage
+///
+/// This wrapper provides additional error context and user-friendly error messages
+/// for CLI usage of the watch command.
+pub async fn execute_watch_command_cli(
+    path: &Path,
+    config: &TurboPropConfig,
+    show_progress: bool,
+) -> Result<()> {
+    // Validate inputs before starting watch mode
+    validate_index_inputs(path, config)?;
+
+    // Execute the watch command
+    match execute_watch_command(path, config, show_progress).await {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Provide user-friendly error messages
+            let user_message = format_watch_error(&e, path);
+            eprintln!("{}", user_message);
+            Err(e)
+        }
+    }
+}
+
+/// Format technical errors into user-friendly messages for watch mode
+fn format_watch_error(error: &anyhow::Error, path: &Path) -> String {
+    let error_str = error.to_string().to_lowercase();
+
+    if error_str.contains("permission denied") {
+        format_error_message(
+            &format!("Cannot watch directory: {}", path.display()),
+            &[
+                "File system watching requires read permissions for the directory and its contents",
+                "Make sure you have appropriate permissions to watch this directory",
+                "Try running with elevated permissions if necessary",
+            ],
+            Some(error),
+        )
+    } else if error_str.contains("too many open files") {
+        format_error_message(
+            "File system resource limit reached",
+            &[
+                "Your system has reached the maximum number of file handles",
+                "Try watching a smaller directory or increase the system file handle limit",
+                "On macOS/Linux, you can increase limits with 'ulimit -n'",
+            ],
+            Some(error),
+        )
+    } else if error_str.contains("no such file") || error_str.contains("not found") {
+        format_error_message(
+            &format!("Directory not found: {}", path.display()),
+            &[
+                "The specified directory does not exist",
+                "Make sure the path is correct and the directory exists",
+                "Check that the directory wasn't moved or deleted",
+            ],
+            Some(error),
+        )
+    } else {
+        format_error_message(
+            &format!("Watch mode failed for '{}'", path.display()),
+            &[
+                "An unexpected error occurred while setting up file watching",
+                "Try running with --verbose for more detailed error information",
+                "Make sure the directory is accessible and you have read permissions",
+            ],
+            Some(error),
+        )
+    }
 }
 
 /// Format technical errors into user-friendly messages

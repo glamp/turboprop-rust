@@ -93,6 +93,40 @@ impl GitRepo {
     }
 }
 
+/// Gitignore filter that respects .gitignore rules
+pub struct GitignoreFilter {
+    git_repo: Option<GitRepo>,
+}
+
+impl GitignoreFilter {
+    /// Create a new gitignore filter for the specified path
+    pub fn new(path: &Path) -> Result<Self> {
+        let git_repo = if GitRepo::is_git_repo(path) {
+            Some(GitRepo::discover(path)?)
+        } else {
+            None
+        };
+
+        Ok(Self { git_repo })
+    }
+
+    /// Check if a file should be included (not ignored by gitignore)
+    pub fn should_include(&self, path: &Path) -> bool {
+        if let Some(ref repo) = self.git_repo {
+            // If we can't determine if it's ignored, include it by default
+            repo.is_ignored(path).unwrap_or(false) == false
+        } else {
+            // No git repo, include all files
+            true
+        }
+    }
+
+    /// Get the root path of the git repository (if any)
+    pub fn root_path(&self) -> Option<&Path> {
+        self.git_repo.as_ref().map(|repo| repo.root_path())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

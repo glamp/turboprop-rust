@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
 // Constants for reasonable limits to prevent resource exhaustion
-const MAX_FILE_COUNT: usize = 10_000_000;  // 10 million files max
+const MAX_FILE_COUNT: usize = 10_000_000; // 10 million files max
 const MAX_CHUNKS_PER_FILE: usize = 100_000; // 100k chunks per file max
 const MAX_EMBEDDINGS_PER_FILE: usize = 100_000; // 100k embeddings per file max
 
@@ -53,36 +53,48 @@ impl IndexingStats {
         if self.files_processed + self.files_failed > self.files_discovered {
             anyhow::bail!(
                 "Invalid statistics: processed ({}) + failed ({}) exceeds discovered ({})",
-                self.files_processed, self.files_failed, self.files_discovered
+                self.files_processed,
+                self.files_failed,
+                self.files_discovered
             );
         }
-        
+
         // Check that no individual count exceeds maximum limits
         if self.files_discovered > MAX_FILE_COUNT {
-            anyhow::bail!("Files discovered {} exceeds maximum limit {}", self.files_discovered, MAX_FILE_COUNT);
+            anyhow::bail!(
+                "Files discovered {} exceeds maximum limit {}",
+                self.files_discovered,
+                MAX_FILE_COUNT
+            );
         }
-        
+
         // Check for reasonable ratios - warn if chunks per file is extremely high
         if self.files_processed > 0 {
             let avg_chunks_per_file = self.chunks_created / self.files_processed;
             if avg_chunks_per_file > MAX_CHUNKS_PER_FILE {
-                warn!("Average chunks per file ({}) is very high, may indicate an issue", avg_chunks_per_file);
+                warn!(
+                    "Average chunks per file ({}) is very high, may indicate an issue",
+                    avg_chunks_per_file
+                );
             }
-            
+
             let avg_embeddings_per_file = self.embeddings_generated / self.files_processed;
             if avg_embeddings_per_file > MAX_EMBEDDINGS_PER_FILE {
-                warn!("Average embeddings per file ({}) is very high, may indicate an issue", avg_embeddings_per_file);
+                warn!(
+                    "Average embeddings per file ({}) is very high, may indicate an issue",
+                    avg_embeddings_per_file
+                );
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Get the total number of files that were attempted to be processed
     pub fn total_attempted_files(&self) -> usize {
         self.files_processed + self.files_failed
     }
-    
+
     /// Get the success rate as a percentage
     pub fn success_rate(&self) -> f64 {
         let total = self.total_attempted_files();
@@ -129,7 +141,10 @@ impl IndexingProgress {
     pub fn finish_discovery(&mut self, file_count: usize) -> Result<()> {
         // Validate file count is within reasonable limits
         if file_count > MAX_FILE_COUNT {
-            warn!("File count {} exceeds maximum limit {}, clamping to limit", file_count, MAX_FILE_COUNT);
+            warn!(
+                "File count {} exceeds maximum limit {}, clamping to limit",
+                file_count, MAX_FILE_COUNT
+            );
             self.stats.files_discovered = MAX_FILE_COUNT;
         } else {
             self.stats.files_discovered = file_count;
@@ -149,14 +164,20 @@ impl IndexingProgress {
     pub fn start_processing(&mut self, total_files: usize) -> Result<()> {
         // Validate total files count is within reasonable limits
         let validated_total_files = if total_files > MAX_FILE_COUNT {
-            warn!("Total files count {} exceeds maximum limit {}, clamping to limit", total_files, MAX_FILE_COUNT);
+            warn!(
+                "Total files count {} exceeds maximum limit {}, clamping to limit",
+                total_files, MAX_FILE_COUNT
+            );
             MAX_FILE_COUNT
         } else {
             total_files
         };
 
         if !self.enabled {
-            info!("Starting file processing ({} files)...", validated_total_files);
+            info!(
+                "Starting file processing ({} files)...",
+                validated_total_files
+            );
             return Ok(());
         }
 
@@ -193,8 +214,10 @@ impl IndexingProgress {
     pub fn record_file_success(&mut self, chunks_created: usize, embeddings_generated: usize) {
         // Validate chunks and embeddings counts are within reasonable limits
         let validated_chunks = if chunks_created > MAX_CHUNKS_PER_FILE {
-            warn!("Chunks created {} exceeds maximum limit {} for a single file, clamping to limit", 
-                  chunks_created, MAX_CHUNKS_PER_FILE);
+            warn!(
+                "Chunks created {} exceeds maximum limit {} for a single file, clamping to limit",
+                chunks_created, MAX_CHUNKS_PER_FILE
+            );
             MAX_CHUNKS_PER_FILE
         } else {
             chunks_created
@@ -211,7 +234,10 @@ impl IndexingProgress {
         // Use checked arithmetic to prevent overflow
         self.stats.files_processed = self.stats.files_processed.saturating_add(1);
         self.stats.chunks_created = self.stats.chunks_created.saturating_add(validated_chunks);
-        self.stats.embeddings_generated = self.stats.embeddings_generated.saturating_add(validated_embeddings);
+        self.stats.embeddings_generated = self
+            .stats
+            .embeddings_generated
+            .saturating_add(validated_embeddings);
     }
 
     /// Record failed processing of a file
@@ -286,7 +312,6 @@ impl IndexingProgress {
         self.stats.files_failed > 0
     }
 }
-
 
 #[cfg(test)]
 mod tests {

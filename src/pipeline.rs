@@ -168,9 +168,7 @@ impl IndexingPipeline {
     /// Discover files to be indexed
     fn discover_files(&self, path: &Path) -> Result<Vec<FileMetadata>> {
         let discovery = FileDiscovery::new(self.config.file_discovery.clone());
-        let files = discovery
-            .discover_files(path)
-            .with_dir_read_context(path)?;
+        let files = discovery.discover_files(path).with_dir_read_context(path)?;
 
         debug!("Discovered {} files for indexing", files.len());
         Ok(files)
@@ -178,18 +176,22 @@ impl IndexingPipeline {
 
     /// Process all discovered files through the chunking and embedding pipeline
     async fn process_files(&mut self, files: &[FileMetadata]) -> Result<ChunkIndex> {
-        let (embedding_generator, chunking_strategy) = self.initialize_processing_components().await?;
-        self.process_files_to_index(files, &chunking_strategy, embedding_generator).await
+        let (embedding_generator, chunking_strategy) =
+            self.initialize_processing_components().await?;
+        self.process_files_to_index(files, &chunking_strategy, embedding_generator)
+            .await
     }
 
     /// Initialize components for file processing
-    async fn initialize_processing_components(&self) -> Result<(EmbeddingGenerator, ChunkingStrategy)> {
+    async fn initialize_processing_components(
+        &self,
+    ) -> Result<(EmbeddingGenerator, ChunkingStrategy)> {
         let embedding_generator = EmbeddingGenerator::new(self.config.embedding.clone())
             .await
             .context("Failed to initialize embedding generator")?;
 
         let chunking_strategy = ChunkingStrategy::new(self.config.chunking.clone());
-        
+
         Ok((embedding_generator, chunking_strategy))
     }
 
@@ -209,7 +211,12 @@ impl IndexingPipeline {
 
             match result {
                 Ok((chunks, embeddings)) => {
-                    self.handle_successful_file_processing_for_index(file, chunks, embeddings, &mut chunk_index);
+                    self.handle_successful_file_processing_for_index(
+                        file,
+                        chunks,
+                        embeddings,
+                        &mut chunk_index,
+                    );
                 }
                 Err(e) => {
                     if let Err(processing_error) = self.handle_file_processing_error(file, e) {

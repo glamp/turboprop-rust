@@ -38,8 +38,7 @@ impl ContentProcessor {
     }
 
     pub fn process_file(&self, file_path: &Path) -> Result<ProcessedContent> {
-        let metadata = fs::metadata(file_path)
-            .with_file_metadata_context(file_path)?;
+        let metadata = fs::metadata(file_path).with_file_metadata_context(file_path)?;
 
         if let Some(max_size) = self.max_file_size_bytes {
             if metadata.len() > max_size {
@@ -50,8 +49,7 @@ impl ContentProcessor {
             }
         }
 
-        let raw_bytes = fs::read(file_path)
-            .with_file_read_context(file_path)?;
+        let raw_bytes = fs::read(file_path).with_file_read_context(file_path)?;
 
         if raw_bytes.is_empty() {
             return Ok(ProcessedContent {

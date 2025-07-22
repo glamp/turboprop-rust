@@ -14,21 +14,28 @@ use crate::pipeline::{IndexingPipeline, PipelineConfig};
 const ERROR_ICON: &str = "❌";
 const HELP_ICON: &str = "💡";
 
-const HELP_NO_FILES_FOUND: &str = "Make sure the directory contains files that match the configured file discovery settings.";
-const HELP_CHECK_GITIGNORE: &str = "Check if your .gitignore is excluding too many files, or try --include-untracked.";
+const HELP_NO_FILES_FOUND: &str =
+    "Make sure the directory contains files that match the configured file discovery settings.";
+const HELP_CHECK_GITIGNORE: &str =
+    "Check if your .gitignore is excluding too many files, or try --include-untracked.";
 
 const MSG_EMBEDDING_INIT_FAILED: &str = "Failed to initialize the embedding model";
-const HELP_MODEL_DOWNLOAD: &str = "This usually means the model needs to be downloaded or there's a network issue.";
-const HELP_RETRY_CONNECTION: &str = "Try running the command again with a stable internet connection.";
-const HELP_TRY_DIFFERENT_MODEL: &str = "Consider using a different model with --model if the issue persists.";
+const HELP_MODEL_DOWNLOAD: &str =
+    "This usually means the model needs to be downloaded or there's a network issue.";
+const HELP_RETRY_CONNECTION: &str =
+    "Try running the command again with a stable internet connection.";
+const HELP_TRY_DIFFERENT_MODEL: &str =
+    "Consider using a different model with --model if the issue persists.";
 
 const MSG_PERMISSION_DENIED: &str = "Permission denied while accessing files";
-const HELP_RUN_WITH_PERMISSIONS: &str = "Try running with appropriate permissions or choose a different directory.";
+const HELP_RUN_WITH_PERMISSIONS: &str =
+    "Try running with appropriate permissions or choose a different directory.";
 
 const MSG_DISK_SPACE: &str = "Insufficient disk space for indexing";
 const HELP_DISK_SPACE: &str = "The indexing process requires space to store the generated index.";
 const HELP_FREE_SPACE: &str = "Free up disk space or try indexing a smaller directory.";
-const HELP_USE_MAX_FILESIZE: &str = "Consider using --max-filesize to limit the files being processed.";
+const HELP_USE_MAX_FILESIZE: &str =
+    "Consider using --max-filesize to limit the files being processed.";
 
 const MSG_NETWORK_TIMEOUT: &str = "Network or timeout issue";
 const HELP_MODEL_DOWNLOAD_ISSUE: &str = "This usually occurs when downloading embedding models.";
@@ -36,8 +43,10 @@ const HELP_CHECK_CONNECTION: &str = "Check your internet connection and try agai
 const HELP_USE_CACHE_DIR: &str = "Consider using a local cache directory with --cache-dir.";
 
 const HELP_USE_VERBOSE: &str = "Try running with --verbose for more detailed error information.";
-const HELP_EXCLUDE_LARGE_FILES: &str = "Consider using --max-filesize to exclude large files that might be causing issues.";
-const HELP_CHECK_DIRECTORY: &str = "Check that the directory is accessible and contains readable files.";
+const HELP_EXCLUDE_LARGE_FILES: &str =
+    "Consider using --max-filesize to exclude large files that might be causing issues.";
+const HELP_CHECK_DIRECTORY: &str =
+    "Check that the directory is accessible and contains readable files.";
 
 /// Execute the index command with the provided configuration
 ///
@@ -162,8 +171,7 @@ fn validate_index_inputs(path: &Path, config: &TurboPropConfig) -> Result<()> {
     if config.embedding.batch_size > config.embedding.batch_size_warning_threshold {
         warn!(
             "Large batch size ({}) exceeds threshold ({}), this may cause memory issues",
-            config.embedding.batch_size,
-            config.embedding.batch_size_warning_threshold
+            config.embedding.batch_size, config.embedding.batch_size_warning_threshold
         );
     }
 
@@ -179,9 +187,9 @@ fn format_user_error(error: &anyhow::Error, path: &Path) -> String {
             "{} {}\n{} {}\n{} {}",
             ERROR_ICON,
             format!("No files found to index in '{}'", path.display()),
-            HELP_ICON, 
+            HELP_ICON,
             HELP_NO_FILES_FOUND,
-            HELP_ICON, 
+            HELP_ICON,
             HELP_CHECK_GITIGNORE
         )
     } else if error_str.contains("failed to initialize embedding generator") {
@@ -203,7 +211,10 @@ fn format_user_error(error: &anyhow::Error, path: &Path) -> String {
             ERROR_ICON,
             MSG_PERMISSION_DENIED,
             HELP_ICON,
-            format!("Make sure you have read permissions for the directory: {}", path.display()),
+            format!(
+                "Make sure you have read permissions for the directory: {}",
+                path.display()
+            ),
             HELP_ICON,
             HELP_RUN_WITH_PERMISSIONS,
             format!("Technical details: {}", error)
@@ -236,7 +247,7 @@ fn format_user_error(error: &anyhow::Error, path: &Path) -> String {
         )
     } else {
         format!(
-            "{} {}\n{} {}\n{} {}\n{} {}\n\n{}", 
+            "{} {}\n{} {}\n{} {}\n{} {}\n\n{}",
             ERROR_ICON,
             format!("Indexing failed for '{}'", path.display()),
             HELP_ICON,

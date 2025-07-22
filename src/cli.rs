@@ -49,5 +49,11 @@ pub enum Commands {
         /// Minimum similarity threshold (0.0 to 1.0)
         #[arg(short, long)]
         threshold: Option<f32>,
+        /// Output format: 'json' (default) or 'text'
+        #[arg(long, default_value = "json")]
+        output: String,
+        /// Filter results by file extension (e.g., '.rs', '.js', '.py')
+        #[arg(long)]
+        filetype: Option<String>,
     },
 }

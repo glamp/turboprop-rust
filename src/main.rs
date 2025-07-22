@@ -1,12 +1,8 @@
 use clap::Parser;
 use tp::cli::{Cli, Commands};
-use tp::commands::execute_index_command_cli;
+use tp::commands::{execute_index_command_cli, execute_search_command_cli};
 use tp::config::{CliConfigOverrides, TurboPropConfig};
-use tp::search_with_config;
 use tp::types::parse_filesize;
-
-/// Default content preview length for search results in CLI
-const DEFAULT_CONTENT_PREVIEW_LENGTH: usize = 80;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -63,55 +59,11 @@ async fn main() -> anyhow::Result<()> {
             repo,
             limit,
             threshold,
+            output,
+            filetype,
         } => {
-            // Validate threshold if provided
-            if let Some(t) = threshold {
-                if !(0.0..=1.0).contains(&t) {
-                    anyhow::bail!("Threshold must be between 0.0 and 1.0, got: {}", t);
-                }
-            }
-
-            // Perform the search with the new parameters
-            let results = search_with_config(&query, &repo, Some(limit), threshold).await?;
-
-            // Display the results
-            if results.is_empty() {
-                println!("No results found for query: '{}'", query);
-                if let Some(threshold) = threshold {
-                    println!(
-                        "Try lowering the similarity threshold (currently {:.3})",
-                        threshold
-                    );
-                }
-            } else {
-                println!("Found {} results for query: '{}'", results.len(), query);
-                if let Some(threshold) = threshold {
-                    println!("(minimum similarity: {:.3})", threshold);
-                }
-                println!();
-
-                for (i, result) in results.iter().enumerate() {
-                    println!(
-                        "{:2}. {} (similarity: {:.3})",
-                        i + 1,
-                        result.location_display(),
-                        result.similarity
-                    );
-
-                    // Show content preview
-                    let preview = result.content_preview(DEFAULT_CONTENT_PREVIEW_LENGTH);
-                    let preview_lines: Vec<&str> = preview.lines().take(2).collect();
-                    for line in preview_lines {
-                        println!("    {}", line.trim());
-                    }
-                    if preview.lines().count() > 2 {
-                        println!("    ...");
-                    }
-                    println!();
-                }
-
-                println!("Search completed successfully");
-            }
+            // Execute the search command using the new implementation
+            execute_search_command_cli(query, repo, limit, threshold, output, filetype).await?;
         }
     }
 

@@ -32,6 +32,9 @@ pub enum Commands {
         /// Number of worker threads for processing
         #[arg(long)]
         worker_threads: Option<usize>,
+        /// Batch size for embedding generation
+        #[arg(long, default_value = "32")]
+        batch_size: usize,
     },
     /// Search indexed files
     Search {

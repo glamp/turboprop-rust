@@ -17,7 +17,7 @@ use crate::chunking::ChunkingStrategy;
 use crate::config::TurboPropConfig;
 use crate::embeddings::EmbeddingGenerator;
 use crate::files::FileDiscovery;
-use crate::types::{parse_filesize, ChunkingConfig, FileDiscoveryConfig};
+use crate::types::{parse_filesize, ChunkingConfig, ChunkIndex, FileDiscoveryConfig};
 use anyhow::Result;
 use std::path::Path;
 use tracing::{debug, info};
@@ -36,8 +36,9 @@ pub const DEFAULT_INDEX_PATH: &str = ".";
 ///
 /// * `Result<()>` - Ok(()) if successful, error otherwise
 ///
-/// # Example
+/// # Examples
 ///
+/// Index current directory without size limit:
 /// ```
 /// use std::path::Path;
 /// use tp::index_files;
@@ -45,13 +46,28 @@ pub const DEFAULT_INDEX_PATH: &str = ".";
 /// let result = index_files(Path::new("."), None);
 /// assert!(result.is_ok());
 /// ```
+///
+/// Index with maximum file size filter:
+/// ```
+/// use std::path::Path;
+/// use tp::index_files;
+///
+/// // Index files up to 2MB in size
+/// # std::fs::create_dir_all("test_dir").unwrap();
+/// let result = index_files(Path::new("test_dir"), Some("2mb"));
+/// assert!(result.is_ok());
+///
+/// // Index files up to 500KB in size  
+/// let result = index_files(Path::new("test_dir"), Some("500kb"));
+/// assert!(result.is_ok());
+/// ```
 pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
     if !path.exists() {
-        anyhow::bail!("Path does not exist: {}", path.display());
+        anyhow::bail!("Failed to access path: {}", path.display());
     }
 
     if !path.is_dir() {
-        anyhow::bail!("Path is not a directory: {}", path.display());
+        anyhow::bail!("Failed to index path: {} is not a directory", path.display());
     }
 
     info!("Indexing files in: {}", path.display());
@@ -60,7 +76,7 @@ pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
 
     if let Some(size_str) = max_filesize {
         let max_bytes = parse_filesize(size_str)
-            .map_err(|e| anyhow::anyhow!("Invalid filesize format: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to parse filesize: {}", e))?;
         config = config.with_max_filesize(max_bytes);
         info!("Using max filesize filter: {} bytes", max_bytes);
     }
@@ -84,7 +100,8 @@ pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
 
 /// Index files with embedding generation using the provided configuration.
 ///
-/// This is the enhanced version that generates embeddings for the discovered text chunks.
+/// This is the enhanced version that generates embeddings for the discovered text chunks
+/// and stores them in a searchable index.
 ///
 /// # Arguments
 ///
@@ -93,14 +110,55 @@ pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
 ///
 /// # Returns
 ///
-/// * `Result<()>` - Ok(()) if successful, error otherwise
-pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> Result<()> {
+/// * `Result<ChunkIndex>` - The populated chunk index with embeddings
+///
+/// # Examples
+///
+/// Basic usage with default configuration:
+/// ```no_run
+/// use std::path::Path;
+/// use tp::{config::TurboPropConfig, index_files_with_config};
+///
+/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// let config = TurboPropConfig::default();
+/// let result = index_files_with_config(Path::new("./src"), &config).await;
+/// assert!(result.is_ok());
+/// 
+/// let index = result.unwrap();
+/// println!("Indexed {} chunks", index.len());
+/// # });
+/// ```
+///
+/// Advanced usage with custom embedding model and batch size:
+/// ```no_run
+/// use std::path::Path;
+/// use tp::{config::TurboPropConfig, embeddings::EmbeddingConfig, index_files_with_config};
+///
+/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// let embedding_config = EmbeddingConfig::with_model("sentence-transformers/all-MiniLM-L12-v2")
+///     .with_batch_size(16);
+///
+/// let config = TurboPropConfig {
+///     embedding: embedding_config,
+///     ..Default::default()
+/// };
+///
+/// let result = index_files_with_config(Path::new("./project"), &config).await;
+/// assert!(result.is_ok());
+///
+/// let index = result.unwrap();
+/// // The index can now be used for similarity search
+/// println!("Created index with {} chunks using {}-dimensional embeddings", 
+///          index.len(), config.embedding.embedding_dimensions);
+/// # });
+/// ```
+pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> Result<ChunkIndex> {
     if !path.exists() {
-        anyhow::bail!("Path does not exist: {}", path.display());
+        anyhow::bail!("Failed to access path: {}", path.display());
     }
 
     if !path.is_dir() {
-        anyhow::bail!("Path is not a directory: {}", path.display());
+        anyhow::bail!("Failed to index path: {} is not a directory", path.display());
     }
 
     info!("Indexing files with embeddings in: {}", path.display());
@@ -118,6 +176,9 @@ pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> R
     let files = discovery.discover_files(path)?;
     info!("Discovered {} files for indexing", files.len());
 
+    // Create the chunk index to store results
+    let mut chunk_index = ChunkIndex::new();
+    
     // Process each file
     let chunking_config = ChunkingConfig::default();
     let chunking_strategy = ChunkingStrategy::new(chunking_config);
@@ -153,18 +214,20 @@ pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> R
             file.is_git_tracked
         );
 
-        // TODO: Store chunks and embeddings in a vector database or index
-        // For now, we just generate them to validate the pipeline
+        // Store chunks and embeddings in the index
+        chunk_index.add_chunks(chunks, embeddings);
+        debug!("Added {} chunks to index", chunk_texts.len());
     }
 
     info!(
-        "Indexing completed: {} files processed, {} chunks created, {} embeddings generated",
+        "Indexing completed: {} files processed, {} chunks created, {} embeddings generated, {} chunks stored in index",
         files.len(),
         total_chunks,
-        total_embeddings
+        total_embeddings,
+        chunk_index.len()
     );
 
-    Ok(())
+    Ok(chunk_index)
 }
 
 /// Search through indexed files using the specified query.
@@ -177,12 +240,30 @@ pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> R
 ///
 /// * `Result<()>` - Ok(()) if successful, error otherwise
 ///
-/// # Example
+/// # Examples
 ///
+/// Simple text search:
 /// ```
 /// use tp::search_files;
 ///
 /// let result = search_files("function main");
+/// assert!(result.is_ok());
+/// ```
+///
+/// Search for specific patterns or keywords:
+/// ```
+/// use tp::search_files;
+///
+/// // Search for function definitions
+/// let result = search_files("fn calculate_total");
+/// assert!(result.is_ok());
+///
+/// // Search for error handling patterns
+/// let result = search_files("Result<Vec<String>>");
+/// assert!(result.is_ok());
+///
+/// // Search for imports and modules
+/// let result = search_files("use serde::");
 /// assert!(result.is_ok());
 /// ```
 pub fn search_files(query: &str) -> Result<()> {
@@ -239,7 +320,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("Path does not exist"));
+            .contains("Failed to access path"));
     }
 
     #[test]
@@ -249,7 +330,7 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("Path is not a directory"));
+            .contains("is not a directory"));
     }
 
     #[test]

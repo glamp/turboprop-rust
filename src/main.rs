@@ -18,6 +18,7 @@ async fn main() -> anyhow::Result<()> {
             cache_dir,
             verbose,
             worker_threads,
+            batch_size,
         } => {
             // Load base configuration
             let mut config = TurboPropConfig::load()?;
@@ -33,13 +34,15 @@ async fn main() -> anyhow::Result<()> {
 
             if let Some(max_filesize_str) = max_filesize {
                 let max_bytes = parse_filesize(&max_filesize_str)
-                    .map_err(|e| anyhow::anyhow!("Invalid filesize format: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Failed to parse filesize: {}", e))?;
                 cli_overrides = cli_overrides.with_max_filesize(max_bytes);
             }
 
             if let Some(threads) = worker_threads {
                 cli_overrides = cli_overrides.with_worker_threads(threads);
             }
+
+            cli_overrides = cli_overrides.with_batch_size(batch_size);
 
             // Merge CLI overrides with config
             config = config.merge_cli_args(&cli_overrides);

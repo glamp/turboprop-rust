@@ -72,6 +72,76 @@ pub fn parse_filesize(input: &str) -> Result<u64, String> {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexedChunk {
+    pub chunk: ContentChunk,
+    pub embedding: Vec<f32>,
+}
+
+#[derive(Debug, Default)]
+pub struct ChunkIndex {
+    chunks: Vec<IndexedChunk>,
+}
+
+impl ChunkIndex {
+    pub fn new() -> Self {
+        Self {
+            chunks: Vec::new(),
+        }
+    }
+
+    pub fn add_chunk(&mut self, chunk: ContentChunk, embedding: Vec<f32>) {
+        self.chunks.push(IndexedChunk { chunk, embedding });
+    }
+
+    pub fn add_chunks(&mut self, chunks: Vec<ContentChunk>, embeddings: Vec<Vec<f32>>) {
+        for (chunk, embedding) in chunks.into_iter().zip(embeddings.into_iter()) {
+            self.add_chunk(chunk, embedding);
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.chunks.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.chunks.is_empty()
+    }
+
+    pub fn get_chunks(&self) -> &[IndexedChunk] {
+        &self.chunks
+    }
+
+    pub fn similarity_search(&self, query_embedding: &[f32], limit: usize) -> Vec<(f32, &IndexedChunk)> {
+        let mut results: Vec<(f32, &IndexedChunk)> = self.chunks
+            .iter()
+            .map(|indexed_chunk| {
+                let similarity = cosine_similarity(query_embedding, &indexed_chunk.embedding);
+                (similarity, indexed_chunk)
+            })
+            .collect();
+        
+        results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        results.into_iter().take(limit).collect()
+    }
+}
+
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() {
+        return 0.0;
+    }
+
+    let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let magnitude_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let magnitude_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+
+    if magnitude_a == 0.0 || magnitude_b == 0.0 {
+        return 0.0;
+    }
+
+    dot_product / (magnitude_a * magnitude_b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -37,6 +37,12 @@ pub struct ModelManager {
     cache_dir: PathBuf,
 }
 
+impl Default for ModelManager {
+    fn default() -> Self {
+        Self::new(".turboprop/models")
+    }
+}
+
 impl ModelManager {
     /// Create a new model manager with the specified cache directory
     pub fn new(cache_dir: impl Into<PathBuf>) -> Self {
@@ -45,10 +51,6 @@ impl ModelManager {
         }
     }
 
-    /// Get the default model manager using the standard cache directory
-    pub fn default() -> Self {
-        Self::new(".turboprop/models")
-    }
 
     /// Initialize the cache directory, creating it if it doesn't exist
     pub fn init_cache(&self) -> Result<()> {
@@ -73,7 +75,7 @@ impl ModelManager {
     /// Get the local path where a model should be cached
     pub fn get_model_path(&self, model_name: &str) -> PathBuf {
         // Convert model name to filesystem-safe directory name
-        let safe_name = model_name.replace('/', "_").replace(':', "_");
+        let safe_name = model_name.replace(['/', ':'], "_");
         self.cache_dir.join(safe_name)
     }
 
@@ -162,7 +164,7 @@ impl ModelManager {
 
             if path.is_dir() {
                 stats.model_count += 1;
-                stats.total_size_bytes += self.calculate_directory_size(&path)?;
+                stats.total_size_bytes += Self::calculate_directory_size(&path)?;
             }
         }
 
@@ -170,7 +172,7 @@ impl ModelManager {
     }
 
     /// Calculate the total size of a directory recursively
-    fn calculate_directory_size(&self, dir: &Path) -> Result<u64> {
+    fn calculate_directory_size(dir: &Path) -> Result<u64> {
         let mut total_size = 0;
 
         for entry in std::fs::read_dir(dir)? {
@@ -180,7 +182,7 @@ impl ModelManager {
             if path.is_file() {
                 total_size += entry.metadata()?.len();
             } else if path.is_dir() {
-                total_size += self.calculate_directory_size(&path)?;
+                total_size += Self::calculate_directory_size(&path)?;
             }
         }
 

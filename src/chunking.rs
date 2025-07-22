@@ -115,7 +115,7 @@ impl ChunkingStrategy {
             // Validate chunk size
             if chunk_tokens.len() > self.config.max_chunk_size_tokens {
                 return Err(anyhow::anyhow!(
-                    "Chunk size {} exceeds maximum allowed size {}",
+                    "Failed to create chunk: size {} exceeds maximum allowed size {}",
                     chunk_tokens.len(),
                     self.config.max_chunk_size_tokens
                 ));

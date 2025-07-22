@@ -16,7 +16,7 @@ use crate::types::FileDiscoveryConfig;
 pub const CONFIG_FILE_NAME: &str = "turboprop.json";
 
 /// Main configuration structure for TurboProp
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TurboPropConfig {
     /// Embedding generation configuration
     pub embedding: EmbeddingConfig,
@@ -39,15 +39,6 @@ pub struct GeneralConfig {
     pub worker_threads: Option<usize>,
 }
 
-impl Default for TurboPropConfig {
-    fn default() -> Self {
-        Self {
-            embedding: EmbeddingConfig::default(),
-            file_discovery: FileDiscoveryConfig::default(),
-            general: GeneralConfig::default(),
-        }
-    }
-}
 
 impl Default for GeneralConfig {
     fn default() -> Self {
@@ -164,6 +155,11 @@ impl TurboPropConfig {
             debug!("Overriding worker threads from CLI: {}", threads);
         }
 
+        if let Some(batch_size) = args.batch_size {
+            self.embedding.batch_size = batch_size;
+            debug!("Overriding batch size from CLI: {}", batch_size);
+        }
+
         self
     }
 
@@ -183,17 +179,17 @@ impl TurboPropConfig {
 
         // Validate paths are reasonable
         if self.general.cache_dir.as_os_str().is_empty() {
-            anyhow::bail!("Cache directory cannot be empty");
+            anyhow::bail!("Failed to validate config: cache directory cannot be empty");
         }
 
         if self.general.default_index_path.as_os_str().is_empty() {
-            anyhow::bail!("Default index path cannot be empty");
+            anyhow::bail!("Failed to validate config: default index path cannot be empty");
         }
 
         // Validate worker threads
         if let Some(threads) = self.general.worker_threads {
             if threads == 0 {
-                anyhow::bail!("Worker threads must be greater than 0");
+                anyhow::bail!("Failed to validate config: worker threads must be greater than 0");
             }
             if threads > 1000 {
                 tracing::warn!(
@@ -215,6 +211,7 @@ pub struct CliConfigOverrides {
     pub verbose: bool,
     pub max_filesize: Option<u64>,
     pub worker_threads: Option<usize>,
+    pub batch_size: Option<usize>,
 }
 
 impl CliConfigOverrides {
@@ -244,6 +241,11 @@ impl CliConfigOverrides {
 
     pub fn with_worker_threads(mut self, worker_threads: usize) -> Self {
         self.worker_threads = Some(worker_threads);
+        self
+    }
+
+    pub fn with_batch_size(mut self, batch_size: usize) -> Self {
+        self.batch_size = Some(batch_size);
         self
     }
 }

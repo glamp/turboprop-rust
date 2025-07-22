@@ -41,7 +41,7 @@ impl ContentProcessor {
 
         if let Some(max_size) = self.max_file_size_bytes {
             if metadata.len() > max_size {
-                anyhow::bail!("File too large: {} bytes", metadata.len());
+                anyhow::bail!("Failed to read file: {} bytes exceeds size limit", metadata.len());
             }
         }
 
@@ -170,7 +170,7 @@ mod tests {
         let result = processor.process_file(temp_file.path());
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("File too large"));
+        assert!(result.unwrap_err().to_string().contains("Failed to read file"));
     }
 
     #[test]

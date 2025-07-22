@@ -8,6 +8,8 @@ use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use std::path::PathBuf;
 use tracing::{debug, info, warn};
 
+use crate::models::ModelManager;
+
 /// Default embedding model to use if none specified
 pub const DEFAULT_MODEL: &str = "sentence-transformers/all-MiniLM-L6-v2";
 
@@ -23,6 +25,8 @@ pub struct EmbeddingConfig {
     pub cache_dir: PathBuf,
     /// Batch size for processing multiple texts at once
     pub batch_size: usize,
+    /// Expected embedding dimensions for the model
+    pub embedding_dimensions: usize,
 }
 
 impl Default for EmbeddingConfig {
@@ -31,6 +35,7 @@ impl Default for EmbeddingConfig {
             model_name: DEFAULT_MODEL.to_string(),
             cache_dir: PathBuf::from(".turboprop/models"),
             batch_size: 32,
+            embedding_dimensions: DEFAULT_EMBEDDING_DIMENSIONS,
         }
     }
 }
@@ -38,8 +43,18 @@ impl Default for EmbeddingConfig {
 impl EmbeddingConfig {
     /// Create a new configuration with a custom model name
     pub fn with_model(model_name: impl Into<String>) -> Self {
+        let model_name = model_name.into();
+        
+        // Look up model dimensions from available models
+        let embedding_dimensions = ModelManager::get_available_models()
+            .iter()
+            .find(|model| model.name == model_name)
+            .map(|model| model.dimensions)
+            .unwrap_or(DEFAULT_EMBEDDING_DIMENSIONS);
+            
         Self {
-            model_name: model_name.into(),
+            model_name,
+            embedding_dimensions,
             ..Default::default()
         }
     }
@@ -53,6 +68,12 @@ impl EmbeddingConfig {
     /// Set the batch size for processing
     pub fn with_batch_size(mut self, batch_size: usize) -> Self {
         self.batch_size = batch_size;
+        self
+    }
+
+    /// Set the embedding dimensions for the model
+    pub fn with_embedding_dimensions(mut self, dimensions: usize) -> Self {
+        self.embedding_dimensions = dimensions;
         self
     }
 }
@@ -127,7 +148,7 @@ impl EmbeddingGenerator {
     /// For the default model, this will be 384 dimensions.
     pub fn embed_single(&mut self, text: &str) -> Result<Vec<f32>> {
         if text.is_empty() {
-            return Ok(vec![0.0; DEFAULT_EMBEDDING_DIMENSIONS]);
+            return Ok(vec![0.0; self.config.embedding_dimensions]);
         }
 
         let embeddings = self.model.embed(vec![text], None).with_context(|| {
@@ -140,7 +161,7 @@ impl EmbeddingGenerator {
         embeddings
             .into_iter()
             .next()
-            .ok_or_else(|| anyhow::anyhow!("No embedding generated for input text"))
+            .ok_or_else(|| anyhow::anyhow!("Failed to generate embedding: no output for input text"))
     }
 
     /// Generate embeddings for multiple text chunks in batches
@@ -175,9 +196,7 @@ impl EmbeddingGenerator {
 
     /// Get the embedding dimensions for this model
     pub fn embedding_dimensions(&self) -> usize {
-        // For now, we assume the default model dimensions
-        // In the future, this could be queried from the model itself
-        DEFAULT_EMBEDDING_DIMENSIONS
+        self.config.embedding_dimensions
     }
 
     /// Get the model name being used

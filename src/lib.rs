@@ -4,7 +4,12 @@
 //! indexed content for fast code discovery.
 
 pub mod cli;
+pub mod files;
+pub mod git;
+pub mod types;
 
+use crate::files::FileDiscovery;
+use crate::types::{parse_filesize, FileDiscoveryConfig};
 use anyhow::Result;
 use std::path::Path;
 use tracing::info;
@@ -17,6 +22,7 @@ pub const DEFAULT_INDEX_PATH: &str = ".";
 /// # Arguments
 ///
 /// * `path` - The file system path to index
+/// * `max_filesize` - Optional maximum file size filter (e.g., "2mb", "100kb")
 ///
 /// # Returns
 ///
@@ -28,10 +34,10 @@ pub const DEFAULT_INDEX_PATH: &str = ".";
 /// use std::path::Path;
 /// use tp::index_files;
 ///
-/// let result = index_files(Path::new("."));
+/// let result = index_files(Path::new("."), None);
 /// assert!(result.is_ok());
 /// ```
-pub fn index_files(path: &Path) -> Result<()> {
+pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
     if !path.exists() {
         anyhow::bail!("Path does not exist: {}", path.display());
     }
@@ -41,6 +47,30 @@ pub fn index_files(path: &Path) -> Result<()> {
     }
 
     info!("Indexing files in: {}", path.display());
+
+    let mut config = FileDiscoveryConfig::default();
+
+    if let Some(size_str) = max_filesize {
+        let max_bytes = parse_filesize(size_str)
+            .map_err(|e| anyhow::anyhow!("Invalid filesize format: {}", e))?;
+        config = config.with_max_filesize(max_bytes);
+        info!("Using max filesize filter: {} bytes", max_bytes);
+    }
+
+    let discovery = FileDiscovery::new(config);
+    let files = discovery.discover_files(path)?;
+
+    info!("Discovered {} files for indexing", files.len());
+
+    for file in &files {
+        info!(
+            "  {} ({} bytes, git_tracked: {})",
+            file.path.display(),
+            file.size_bytes,
+            file.is_git_tracked
+        );
+    }
+
     Ok(())
 }
 
@@ -74,13 +104,13 @@ mod tests {
 
     #[test]
     fn test_index_files_success() {
-        let result = index_files(Path::new("."));
+        let result = index_files(Path::new("."), None);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_index_files_with_valid_directory() {
-        let result = index_files(Path::new("src"));
+        let result = index_files(Path::new("src"), None);
         assert!(result.is_ok());
     }
 
@@ -111,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_index_files_nonexistent_path() {
-        let result = index_files(Path::new("/nonexistent/path"));
+        let result = index_files(Path::new("/nonexistent/path"), None);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -121,11 +151,27 @@ mod tests {
 
     #[test]
     fn test_index_files_file_not_directory() {
-        let result = index_files(Path::new("Cargo.toml"));
+        let result = index_files(Path::new("Cargo.toml"), None);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("Path is not a directory"));
+    }
+
+    #[test]
+    fn test_index_files_with_max_filesize() {
+        let result = index_files(Path::new("src"), Some("1mb"));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_index_files_with_invalid_filesize() {
+        let result = index_files(Path::new("src"), Some("invalid"));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid filesize format"));
     }
 }

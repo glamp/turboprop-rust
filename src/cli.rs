@@ -17,6 +17,9 @@ pub enum Commands {
         /// Path to index
         #[arg(short, long, default_value = crate::DEFAULT_INDEX_PATH)]
         path: PathBuf,
+        /// Maximum file size to index (e.g., "2mb", "100kb", "1gb")
+        #[arg(short, long)]
+        max_filesize: Option<String>,
     },
     /// Search indexed files
     Search {

@@ -9,8 +9,8 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Index { path } => {
-            index_files(&path)?;
+        Commands::Index { path, max_filesize } => {
+            index_files(&path, max_filesize.as_deref())?;
         }
         Commands::Search { query } => {
             search_files(&query)?;

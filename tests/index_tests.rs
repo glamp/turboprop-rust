@@ -25,9 +25,9 @@ fn create_test_file(dir: &std::path::Path, name: &str, content: &str) -> PathBuf
 /// Create a minimal test chunk for testing
 fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
     ContentChunk {
-        id: id.to_string(),
+        id: id.to_string().into(),
         content: content.to_string(),
-        token_count: content.split_whitespace().count(),
+        token_count: content.split_whitespace().count().into(),
         source_location: SourceLocation {
             file_path: PathBuf::from(file_path),
             start_line: 1,
@@ -35,7 +35,7 @@ fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
             start_char: 0,
             end_char: content.len(),
         },
-        chunk_index: 0,
+        chunk_index: 0.into(),
         total_chunks: 1,
     }
 }
@@ -100,8 +100,8 @@ fn test_index_storage_basic_operations() {
     assert_eq!(loaded_chunks[1].embedding, vec![0.4, 0.5, 0.6]);
 
     // Check that chunk metadata is preserved
-    assert_eq!(loaded_chunks[0].chunk.id, "chunk1");
-    assert_eq!(loaded_chunks[1].chunk.id, "chunk2");
+    assert_eq!(loaded_chunks[0].chunk.id, "chunk1".into());
+    assert_eq!(loaded_chunks[1].chunk.id, "chunk2".into());
 }
 
 #[test]
@@ -164,8 +164,8 @@ fn test_index_storage_large_data() {
     assert_eq!(loaded_chunks.len(), 1000);
 
     // Spot check a few chunks
-    assert_eq!(loaded_chunks[0].chunk.id, "chunk_0");
-    assert_eq!(loaded_chunks[999].chunk.id, "chunk_999");
+    assert_eq!(loaded_chunks[0].chunk.id, "chunk_0".into());
+    assert_eq!(loaded_chunks[999].chunk.id, "chunk_999".into());
     assert_eq!(loaded_chunks[0].embedding.len(), 384);
     assert_eq!(loaded_chunks[999].embedding.len(), 384);
 }
@@ -358,7 +358,7 @@ fn test_index_integrity_after_partial_write() {
     // Index should still be valid
     let (loaded_chunks, _) = storage.load_index("1.0.0").unwrap();
     assert_eq!(loaded_chunks.len(), 1);
-    assert_eq!(loaded_chunks[0].chunk.id, "chunk1");
+    assert_eq!(loaded_chunks[0].chunk.id, "chunk1".into());
 }
 
 #[test]

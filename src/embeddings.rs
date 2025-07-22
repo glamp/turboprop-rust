@@ -16,6 +16,9 @@ pub const DEFAULT_MODEL: &str = "sentence-transformers/all-MiniLM-L6-v2";
 /// Expected embedding dimensions for the default model
 pub const DEFAULT_EMBEDDING_DIMENSIONS: usize = 384;
 
+/// Maximum length for text in error messages before truncation
+const ERROR_MESSAGE_TEXT_PREVIEW_LENGTH: usize = 50;
+
 /// Configuration for embedding generation
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EmbeddingConfig {
@@ -154,7 +157,11 @@ impl EmbeddingGenerator {
         let embeddings = self.model.embed(vec![text], None).with_context(|| {
             format!(
                 "Failed to generate embedding for text: {}",
-                if text.len() > 50 { &text[..50] } else { text }
+                if text.len() > ERROR_MESSAGE_TEXT_PREVIEW_LENGTH { 
+                    &text[..ERROR_MESSAGE_TEXT_PREVIEW_LENGTH] 
+                } else { 
+                    text 
+                }
             )
         })?;
 

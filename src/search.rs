@@ -6,12 +6,12 @@
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 use std::path::Path;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::config::TurboPropConfig;
 use crate::index::PersistentChunkIndex;
 use crate::query::QueryProcessor;
-use crate::types::{IndexedChunk, SearchResult};
+use crate::types::{cosine_similarity, IndexedChunk, SearchResult};
 
 /// Default number of search results to return
 pub const DEFAULT_SEARCH_LIMIT: usize = 10;
@@ -200,33 +200,6 @@ impl SearchEngine {
     }
 }
 
-/// Calculate cosine similarity between two vectors
-///
-/// This uses the same algorithm as in types.rs but with optimizations for search
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() {
-        warn!("Vector dimension mismatch: {} vs {}", a.len(), b.len());
-        return 0.0;
-    }
-
-    if a.is_empty() {
-        return 0.0;
-    }
-
-    // Use efficient SIMD operations where possible
-    let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-    if norm_a == 0.0 || norm_b == 0.0 {
-        return 0.0;
-    }
-
-    let similarity = dot_product / (norm_a * norm_b);
-
-    // Clamp to valid range to handle floating point precision issues
-    similarity.clamp(-1.0, 1.0)
-}
 
 /// Convenience function to perform a simple search
 pub async fn search_index<P: AsRef<Path>>(
@@ -252,8 +225,9 @@ pub async fn search_index<P: AsRef<Path>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::*;
-    use std::path::PathBuf;
+
+    /// Configurable floating-point comparison tolerance for tests
+    const FLOAT_COMPARISON_TOLERANCE: f32 = 1e-6;
 
     #[test]
     fn test_search_config() {
@@ -281,22 +255,22 @@ mod tests {
         // Test identical vectors
         let v1 = vec![1.0, 0.0, 0.0];
         let v2 = vec![1.0, 0.0, 0.0];
-        assert!((cosine_similarity(&v1, &v2) - 1.0).abs() < 1e-6);
+        assert!((cosine_similarity(&v1, &v2) - 1.0).abs() < FLOAT_COMPARISON_TOLERANCE);
 
         // Test orthogonal vectors
         let v1 = vec![1.0, 0.0];
         let v2 = vec![0.0, 1.0];
-        assert!((cosine_similarity(&v1, &v2) - 0.0).abs() < 1e-6);
+        assert!((cosine_similarity(&v1, &v2) - 0.0).abs() < FLOAT_COMPARISON_TOLERANCE);
 
         // Test opposite vectors
         let v1 = vec![1.0, 0.0];
         let v2 = vec![-1.0, 0.0];
-        assert!((cosine_similarity(&v1, &v2) - (-1.0)).abs() < 1e-6);
+        assert!((cosine_similarity(&v1, &v2) - (-1.0)).abs() < FLOAT_COMPARISON_TOLERANCE);
 
         // Test different magnitudes (should be normalized)
         let v1 = vec![2.0, 0.0];
         let v2 = vec![3.0, 0.0];
-        assert!((cosine_similarity(&v1, &v2) - 1.0).abs() < 1e-6);
+        assert!((cosine_similarity(&v1, &v2) - 1.0).abs() < FLOAT_COMPARISON_TOLERANCE);
     }
 
     #[test]
@@ -315,25 +289,6 @@ mod tests {
     // Integration tests would require actual index files, so we'll create unit tests
     // that test the core functionality with mock data
 
-    fn create_test_indexed_chunk(id: &str, content: &str, embedding: Vec<f32>) -> IndexedChunk {
-        IndexedChunk {
-            chunk: ContentChunk {
-                id: id.to_string(),
-                content: content.to_string(),
-                token_count: content.split_whitespace().count(),
-                source_location: SourceLocation {
-                    file_path: PathBuf::from("test.rs"),
-                    start_line: 1,
-                    end_line: 1,
-                    start_char: 0,
-                    end_char: content.len(),
-                },
-                chunk_index: 0,
-                total_chunks: 1,
-            },
-            embedding,
-        }
-    }
 
     #[test]
     fn test_process_results_threshold() {

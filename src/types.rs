@@ -1,6 +1,201 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// A strongly-typed wrapper for chunk identifiers to prevent mixing up different ID types
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ChunkId(String);
+
+impl ChunkId {
+    /// Create a new ChunkId from a string
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    /// Get the string representation of the chunk ID
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Convert to owned String
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl From<String> for ChunkId {
+    fn from(id: String) -> Self {
+        Self(id)
+    }
+}
+
+impl From<&str> for ChunkId {
+    fn from(id: &str) -> Self {
+        Self(id.to_string())
+    }
+}
+
+impl AsRef<str> for ChunkId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ChunkId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A strongly-typed wrapper for token counts to prevent mixing up different count types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct TokenCount(usize);
+
+impl TokenCount {
+    /// Create a new TokenCount from a usize
+    pub fn new(count: usize) -> Self {
+        Self(count)
+    }
+
+    /// Get the usize representation of the token count
+    pub fn get(&self) -> usize {
+        self.0
+    }
+}
+
+impl From<usize> for TokenCount {
+    fn from(count: usize) -> Self {
+        Self(count)
+    }
+}
+
+impl From<TokenCount> for usize {
+    fn from(count: TokenCount) -> usize {
+        count.0
+    }
+}
+
+impl std::fmt::Display for TokenCount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl PartialEq<usize> for TokenCount {
+    fn eq(&self, other: &usize) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<TokenCount> for usize {
+    fn eq(&self, other: &TokenCount) -> bool {
+        *self == other.0
+    }
+}
+
+impl PartialOrd<usize> for TokenCount {
+    fn partial_cmp(&self, other: &usize) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
+    }
+}
+
+impl PartialOrd<TokenCount> for usize {
+    fn partial_cmp(&self, other: &TokenCount) -> Option<std::cmp::Ordering> {
+        self.partial_cmp(&other.0)
+    }
+}
+
+/// A strongly-typed wrapper for chunk indices to prevent mixing up different index types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct ChunkIndexNum(usize);
+
+impl ChunkIndexNum {
+    /// Create a new ChunkIndexNum from a usize
+    pub fn new(index: usize) -> Self {
+        Self(index)
+    }
+
+    /// Get the usize representation of the chunk index
+    pub fn get(&self) -> usize {
+        self.0
+    }
+}
+
+impl From<usize> for ChunkIndexNum {
+    fn from(index: usize) -> Self {
+        Self(index)
+    }
+}
+
+impl From<ChunkIndexNum> for usize {
+    fn from(index: ChunkIndexNum) -> usize {
+        index.0
+    }
+}
+
+impl std::fmt::Display for ChunkIndexNum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl PartialEq<usize> for ChunkIndexNum {
+    fn eq(&self, other: &usize) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<ChunkIndexNum> for usize {
+    fn eq(&self, other: &ChunkIndexNum) -> bool {
+        *self == other.0
+    }
+}
+
+impl PartialOrd<usize> for ChunkIndexNum {
+    fn partial_cmp(&self, other: &usize) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
+    }
+}
+
+impl PartialOrd<ChunkIndexNum> for usize {
+    fn partial_cmp(&self, other: &ChunkIndexNum) -> Option<std::cmp::Ordering> {
+        self.partial_cmp(&other.0)
+    }
+}
+
+/// A strongly-typed wrapper for embedding dimensions to prevent mixing up different dimension types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct EmbeddingDimension(usize);
+
+impl EmbeddingDimension {
+    /// Create a new EmbeddingDimension from a usize
+    pub fn new(dimension: usize) -> Self {
+        Self(dimension)
+    }
+
+    /// Get the usize representation of the embedding dimension
+    pub fn get(&self) -> usize {
+        self.0
+    }
+}
+
+impl From<usize> for EmbeddingDimension {
+    fn from(dimension: usize) -> Self {
+        Self(dimension)
+    }
+}
+
+impl From<EmbeddingDimension> for usize {
+    fn from(dimension: EmbeddingDimension) -> usize {
+        dimension.0
+    }
+}
+
+impl std::fmt::Display for EmbeddingDimension {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Default chunking configuration constants
 pub const DEFAULT_TARGET_CHUNK_SIZE_TOKENS: usize = 300;
 pub const DEFAULT_OVERLAP_TOKENS: usize = 50;
@@ -165,7 +360,7 @@ impl ChunkIndex {
     }
 }
 
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() {
         return 0.0;
     }
@@ -274,10 +469,13 @@ mod tests {
 
     #[test]
     fn test_search_result() {
+        // Test-specific constant for content preview length
+        const TEST_CONTENT_PREVIEW_LENGTH: usize = 100;
+        
         let chunk = ContentChunk {
-            id: "test-chunk".to_string(),
+            id: "test-chunk".into(),
             content: "This is a test chunk with some content".to_string(),
-            token_count: 8,
+            token_count: 8.into(),
             source_location: SourceLocation {
                 file_path: PathBuf::from("test.rs"),
                 start_line: 10,
@@ -285,7 +483,7 @@ mod tests {
                 start_char: 0,
                 end_char: 38,
             },
-            chunk_index: 0,
+            chunk_index: 0.into(),
             total_chunks: 1,
         };
 
@@ -301,7 +499,7 @@ mod tests {
         assert_eq!(result.location_display(), "test.rs:10");
         assert_eq!(result.content_preview(20), "This is a test chunk...");
         assert_eq!(
-            result.content_preview(100),
+            result.content_preview(TEST_CONTENT_PREVIEW_LENGTH),
             "This is a test chunk with some content"
         );
     }
@@ -311,9 +509,9 @@ mod tests {
         let chunks = vec![
             IndexedChunk {
                 chunk: ContentChunk {
-                    id: "chunk1".to_string(),
+                    id: "chunk1".into(),
                     content: "First chunk".to_string(),
-                    token_count: 2,
+                    token_count: 2.into(),
                     source_location: SourceLocation {
                         file_path: PathBuf::from("file1.rs"),
                         start_line: 1,
@@ -321,16 +519,16 @@ mod tests {
                         start_char: 0,
                         end_char: 11,
                     },
-                    chunk_index: 0,
+                    chunk_index: 0.into(),
                     total_chunks: 2,
                 },
                 embedding: vec![0.1, 0.2],
             },
             IndexedChunk {
                 chunk: ContentChunk {
-                    id: "chunk2".to_string(),
+                    id: "chunk2".into(),
                     content: "Second chunk with more tokens".to_string(),
-                    token_count: 5,
+                    token_count: 5.into(),
                     source_location: SourceLocation {
                         file_path: PathBuf::from("file1.rs"),
                         start_line: 2,
@@ -338,16 +536,16 @@ mod tests {
                         start_char: 0,
                         end_char: 29,
                     },
-                    chunk_index: 1,
+                    chunk_index: 1.into(),
                     total_chunks: 2,
                 },
                 embedding: vec![0.3, 0.4],
             },
             IndexedChunk {
                 chunk: ContentChunk {
-                    id: "chunk3".to_string(),
+                    id: "chunk3".into(),
                     content: "Third chunk from different file".to_string(),
-                    token_count: 6,
+                    token_count: 6.into(),
                     source_location: SourceLocation {
                         file_path: PathBuf::from("file2.rs"),
                         start_line: 1,
@@ -355,7 +553,7 @@ mod tests {
                         start_char: 0,
                         end_char: 31,
                     },
-                    chunk_index: 0,
+                    chunk_index: 0.into(),
                     total_chunks: 1,
                 },
                 embedding: vec![0.5, 0.6],
@@ -394,11 +592,11 @@ pub struct SourceLocation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentChunk {
-    pub id: String,
+    pub id: ChunkId,
     pub content: String,
-    pub token_count: usize,
+    pub token_count: TokenCount,
     pub source_location: SourceLocation,
-    pub chunk_index: usize,
+    pub chunk_index: ChunkIndexNum,
     pub total_chunks: usize,
 }
 
@@ -573,7 +771,7 @@ impl IndexStats {
 
         let total_tokens: usize = indexed_chunks
             .iter()
-            .map(|chunk| chunk.chunk.token_count)
+            .map(|chunk| chunk.chunk.token_count.get())
             .sum();
 
         let average_chunk_size = if total_chunks > 0 {

@@ -1,5 +1,5 @@
 use crate::content::{ContentProcessor, ProcessedContent};
-use crate::types::{ChunkingConfig, ContentChunk, SourceLocation};
+use crate::types::{ChunkingConfig, ChunkIndexNum, ContentChunk, SourceLocation};
 use anyhow::{Context, Result};
 use std::path::Path;
 use unicode_segmentation::UnicodeSegmentation;
@@ -64,11 +64,11 @@ impl ChunkingStrategy {
             };
 
             let chunk = ContentChunk {
-                id: format!("{}:0", file_path.display()),
+                id: format!("{}:0", file_path.display()).into(),
                 content: content.clone(),
-                token_count,
+                token_count: token_count.into(),
                 source_location,
-                chunk_index: 0,
+                chunk_index: 0.into(),
                 total_chunks: 1,
             };
 
@@ -146,11 +146,11 @@ impl ChunkingStrategy {
             };
 
             let chunk = ContentChunk {
-                id: format!("{}:{}", file_path.display(), chunk_index),
+                id: format!("{}:{}", file_path.display(), chunk_index).into(),
                 content: chunk_content,
-                token_count: chunk_tokens.len(),
+                token_count: chunk_tokens.len().into(),
                 source_location,
-                chunk_index,
+                chunk_index: chunk_index.into(),
                 total_chunks: 0,
             };
 
@@ -279,7 +279,7 @@ mod tests {
         let chunks = strategy.chunk_file(temp_file.path()).unwrap();
 
         assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0].chunk_index, 0);
+        assert_eq!(chunks[0].chunk_index, ChunkIndexNum::from(0));
         assert_eq!(chunks[0].total_chunks, 1);
         assert_eq!(chunks[0].source_location.start_line, 1);
     }
@@ -300,12 +300,12 @@ mod tests {
         assert!(chunks.len() > 1);
 
         for chunk in &chunks {
-            assert!(chunk.token_count <= 8);
+            assert!(chunk.token_count.get() <= 8);
             assert!(chunk.total_chunks == chunks.len());
         }
 
         for (i, chunk) in chunks.iter().enumerate() {
-            assert_eq!(chunk.chunk_index, i);
+            assert_eq!(chunk.chunk_index, ChunkIndexNum::from(i));
         }
     }
 

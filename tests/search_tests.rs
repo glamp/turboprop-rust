@@ -4,12 +4,15 @@
 //! similarity calculations, result filtering, and integration with the CLI.
 
 use anyhow::Result;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tempfile::TempDir;
 use tp::config::TurboPropConfig;
 use tp::index::PersistentChunkIndex;
 use tp::search::{search_index, SearchConfig, SearchEngine};
 use tp::{build_persistent_index, search_with_config};
+
+/// Maximum allowed duration for performance tests in seconds
+const PERFORMANCE_TEST_TIMEOUT_SECONDS: u64 = 30;
 
 /// Helper function to create a test directory with sample files
 fn create_test_repo() -> Result<TempDir> {
@@ -334,7 +337,7 @@ async fn test_empty_query_handling() -> Result<()> {
 #[tokio::test]
 async fn test_invalid_threshold_handling() -> Result<()> {
     let temp_dir = create_test_repo()?;
-    let temp_path = temp_dir.path();
+    let _temp_path = temp_dir.path();
 
     // Test threshold validation in SearchConfig
     let config = SearchConfig::default().with_threshold(-0.5);
@@ -427,8 +430,8 @@ async fn test_search_performance_baseline() -> Result<()> {
         Ok(_results) => {
             let duration = start.elapsed();
             assert!(
-                duration.as_secs() < 30,
-                "Search should complete within 30 seconds"
+                duration.as_secs() < PERFORMANCE_TEST_TIMEOUT_SECONDS,
+                "Search should complete within {} seconds", PERFORMANCE_TEST_TIMEOUT_SECONDS
             );
             println!("Search completed in {:?}", duration);
         }
@@ -470,10 +473,10 @@ fn test_search_result_formatting() {
     use tp::types::*;
 
     let chunk = ContentChunk {
-        id: "test-chunk".to_string(),
+        id: "test-chunk".to_string().into(),
         content: "This is a test chunk with some content for testing the preview functionality"
             .to_string(),
-        token_count: 15,
+        token_count: 15.into(),
         source_location: SourceLocation {
             file_path: PathBuf::from("src/test.rs"),
             start_line: 42,
@@ -481,7 +484,7 @@ fn test_search_result_formatting() {
             start_char: 0,
             end_char: 77,
         },
-        chunk_index: 0,
+        chunk_index: 0.into(),
         total_chunks: 1,
     };
 

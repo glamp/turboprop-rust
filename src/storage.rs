@@ -65,15 +65,15 @@ pub struct ChunkMetadata {
 impl From<&ContentChunk> for ChunkMetadata {
     fn from(chunk: &ContentChunk) -> Self {
         Self {
-            id: chunk.id.clone(),
+            id: chunk.id.to_string(),
             file_path: chunk.source_location.file_path.clone(),
             start_line: chunk.source_location.start_line,
             end_line: chunk.source_location.end_line,
             start_char: chunk.source_location.start_char,
             end_char: chunk.source_location.end_char,
-            chunk_index: chunk.chunk_index,
+            chunk_index: chunk.chunk_index.into(),
             total_chunks: chunk.total_chunks,
-            token_count: chunk.token_count,
+            token_count: chunk.token_count.into(),
             content_length: chunk.content.len(),
         }
     }
@@ -234,14 +234,14 @@ impl IndexStorage {
             // Note: We don't store the actual content text to save space
             // Using a placeholder that can be detected via has_real_content()
             let content_chunk = ContentChunk {
-                id: chunk_meta.id.clone(),
+                id: chunk_meta.id.clone().into(),
                 content: format!(
                     "{}{}:{}]",
                     ContentChunk::PLACEHOLDER_CONTENT_PREFIX,
                     chunk_meta.file_path.display(),
                     chunk_meta.start_line
                 ),
-                token_count: chunk_meta.token_count,
+                token_count: chunk_meta.token_count.into(),
                 source_location: crate::types::SourceLocation {
                     file_path: chunk_meta.file_path.clone(),
                     start_line: chunk_meta.start_line,
@@ -249,7 +249,7 @@ impl IndexStorage {
                     start_char: chunk_meta.start_char,
                     end_char: chunk_meta.end_char,
                 },
-                chunk_index: chunk_meta.chunk_index,
+                chunk_index: chunk_meta.chunk_index.into(),
                 total_chunks: chunk_meta.total_chunks,
             };
 
@@ -527,7 +527,7 @@ impl IndexStorage {
         }
 
         // Phase 2: Create backup references for rollback (store paths for error reporting)
-        let backup_paths: Vec<_> = files_to_delete.iter().cloned().collect();
+        let backup_paths: Vec<_> = files_to_delete.to_vec();
 
         // Phase 3: Perform deletions with detailed error context
         let mut deleted_files = Vec::new();
@@ -583,9 +583,9 @@ mod tests {
 
     fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
         ContentChunk {
-            id: id.to_string(),
+            id: id.into(),
             content: content.to_string(),
-            token_count: content.split_whitespace().count(),
+            token_count: content.split_whitespace().count().into(),
             source_location: SourceLocation {
                 file_path: PathBuf::from(file_path),
                 start_line: 1,
@@ -593,7 +593,7 @@ mod tests {
                 start_char: 0,
                 end_char: content.len(),
             },
-            chunk_index: 0,
+            chunk_index: 0.into(),
             total_chunks: 1,
         }
     }
@@ -656,8 +656,8 @@ mod tests {
         assert_eq!(loaded_chunks[1].embedding, vec![0.4, 0.5, 0.6]);
 
         // Check that chunk IDs match
-        assert_eq!(loaded_chunks[0].chunk.id, "chunk1");
-        assert_eq!(loaded_chunks[1].chunk.id, "chunk2");
+        assert_eq!(loaded_chunks[0].chunk.id, "chunk1".into());
+        assert_eq!(loaded_chunks[1].chunk.id, "chunk2".into());
     }
 
     #[test]

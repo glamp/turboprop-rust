@@ -11,6 +11,9 @@ use crate::config::TurboPropConfig;
 use crate::embeddings::EmbeddingGenerator;
 use crate::index::PersistentChunkIndex;
 
+/// Maximum allowed length for search queries
+const MAX_QUERY_LENGTH: usize = 1000;
+
 /// Query processor that generates embeddings for search queries
 pub struct QueryProcessor {
     embedding_generator: EmbeddingGenerator,
@@ -88,8 +91,8 @@ pub fn validate_query(query: &str) -> Result<()> {
         anyhow::bail!("Search query cannot be empty");
     }
 
-    if trimmed.len() > 1000 {
-        anyhow::bail!("Search query is too long (maximum 1000 characters)");
+    if trimmed.len() > MAX_QUERY_LENGTH {
+        anyhow::bail!("Search query is too long (maximum {} characters)", MAX_QUERY_LENGTH);
     }
 
     Ok(())

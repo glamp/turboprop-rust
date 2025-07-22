@@ -4,6 +4,9 @@ use tp::config::{CliConfigOverrides, TurboPropConfig};
 use tp::types::parse_filesize;
 use tp::{index_files_with_config, search_with_config};
 
+/// Default content preview length for search results in CLI
+const DEFAULT_CONTENT_PREVIEW_LENGTH: usize = 80;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -94,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
                     );
 
                     // Show content preview
-                    let preview = result.content_preview(80);
+                    let preview = result.content_preview(DEFAULT_CONTENT_PREVIEW_LENGTH);
                     let preview_lines: Vec<&str> = preview.lines().take(2).collect();
                     for line in preview_lines {
                         println!("    {}", line.trim());

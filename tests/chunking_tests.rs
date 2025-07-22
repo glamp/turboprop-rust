@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::path::Path;
 use tempfile::NamedTempFile;
-use tp::{chunking::ChunkingStrategy, content::ContentProcessor, types::ChunkingConfig};
+use tp::{chunking::ChunkingStrategy, content::ContentProcessor, types::{ChunkingConfig, ChunkIndexNum}};
 
 #[test]
 fn test_chunking_poker_typescript_files() {
@@ -39,7 +39,7 @@ fn test_chunking_small_file() {
     let chunks = strategy.chunk_file(temp_file.path()).unwrap();
 
     assert_eq!(chunks.len(), 1, "Small file should result in single chunk");
-    assert_eq!(chunks[0].chunk_index, 0);
+    assert_eq!(chunks[0].chunk_index, ChunkIndexNum::from(0));
     assert_eq!(chunks[0].total_chunks, 1);
     assert_eq!(chunks[0].source_location.start_line, 1);
     assert!(chunks[0].content.contains("greet"));
@@ -165,7 +165,7 @@ fn test_chunk_metadata_consistency() {
     if chunks.len() > 1 {
         // Test chunk indexing
         for (i, chunk) in chunks.iter().enumerate() {
-            assert_eq!(chunk.chunk_index, i);
+            assert_eq!(chunk.chunk_index, ChunkIndexNum::from(i));
             assert_eq!(chunk.total_chunks, chunks.len());
         }
 

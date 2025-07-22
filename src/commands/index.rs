@@ -37,7 +37,7 @@ const HELP_FREE_SPACE: &str = "Free up disk space or try indexing a smaller dire
 const HELP_USE_MAX_FILESIZE: &str =
     "Consider using --max-filesize to limit the files being processed.";
 
-const MSG_NETWORK_TIMEOUT: &str = "Network or timeout issue";
+const MSG_NETWORK_TIMEOUT: &str = "Network timeout or connection issue";
 const HELP_MODEL_DOWNLOAD_ISSUE: &str = "This usually occurs when downloading embedding models.";
 const HELP_CHECK_CONNECTION: &str = "Check your internet connection and try again.";
 const HELP_USE_CACHE_DIR: &str = "Consider using a local cache directory with --cache-dir.";
@@ -202,60 +202,90 @@ fn format_user_error(error: &anyhow::Error, path: &Path) -> String {
     let error_str = error.to_string().to_lowercase();
 
     if error_str.contains("no files found") {
-        format_error_message(
-            &format!("No files found to index in '{}'", path.display()),
-            &[HELP_NO_FILES_FOUND, HELP_CHECK_GITIGNORE],
-            None,
-        )
+        format_no_files_found_error(path)
     } else if error_str.contains("failed to initialize embedding generator") {
-        format_error_message(
-            MSG_EMBEDDING_INIT_FAILED,
-            &[
-                HELP_MODEL_DOWNLOAD,
-                HELP_RETRY_CONNECTION,
-                HELP_TRY_DIFFERENT_MODEL,
-            ],
-            Some(error),
-        )
+        format_embedding_init_error(error)
     } else if error_str.contains("permission denied") {
-        format_error_message(
-            MSG_PERMISSION_DENIED,
-            &[
-                &format!(
-                    "Make sure you have read permissions for the directory: {}",
-                    path.display()
-                ),
-                HELP_RUN_WITH_PERMISSIONS,
-            ],
-            Some(error),
-        )
+        format_permission_denied_error(error, path)
     } else if error_str.contains("disk") || error_str.contains("space") {
-        format_error_message(
-            MSG_DISK_SPACE,
-            &[HELP_DISK_SPACE, HELP_FREE_SPACE, HELP_USE_MAX_FILESIZE],
-            Some(error),
-        )
+        format_disk_space_error(error)
     } else if error_str.contains("timeout") || error_str.contains("network") {
-        format_error_message(
-            MSG_NETWORK_TIMEOUT,
-            &[
-                HELP_MODEL_DOWNLOAD_ISSUE,
-                HELP_CHECK_CONNECTION,
-                HELP_USE_CACHE_DIR,
-            ],
-            Some(error),
-        )
+        format_network_error(error)
     } else {
-        format_error_message(
-            &format!("Indexing failed for '{}'", path.display()),
-            &[
-                HELP_USE_VERBOSE,
-                HELP_EXCLUDE_LARGE_FILES,
-                HELP_CHECK_DIRECTORY,
-            ],
-            Some(error),
-        )
+        format_generic_error(error, path)
     }
+}
+
+/// Format error message for when no files are found to index
+fn format_no_files_found_error(path: &Path) -> String {
+    format_error_message(
+        &format!("No files found to index in '{}'", path.display()),
+        &[HELP_NO_FILES_FOUND, HELP_CHECK_GITIGNORE],
+        None,
+    )
+}
+
+/// Format error message for embedding initialization failures
+fn format_embedding_init_error(error: &anyhow::Error) -> String {
+    format_error_message(
+        MSG_EMBEDDING_INIT_FAILED,
+        &[
+            HELP_MODEL_DOWNLOAD,
+            HELP_RETRY_CONNECTION,
+            HELP_TRY_DIFFERENT_MODEL,
+        ],
+        Some(error),
+    )
+}
+
+/// Format error message for permission denied errors
+fn format_permission_denied_error(error: &anyhow::Error, path: &Path) -> String {
+    format_error_message(
+        MSG_PERMISSION_DENIED,
+        &[
+            &format!(
+                "Make sure you have read permissions for the directory: {}",
+                path.display()
+            ),
+            HELP_RUN_WITH_PERMISSIONS,
+        ],
+        Some(error),
+    )
+}
+
+/// Format error message for disk space related errors
+fn format_disk_space_error(error: &anyhow::Error) -> String {
+    format_error_message(
+        MSG_DISK_SPACE,
+        &[HELP_DISK_SPACE, HELP_FREE_SPACE, HELP_USE_MAX_FILESIZE],
+        Some(error),
+    )
+}
+
+/// Format error message for network and timeout errors
+fn format_network_error(error: &anyhow::Error) -> String {
+    format_error_message(
+        MSG_NETWORK_TIMEOUT,
+        &[
+            HELP_MODEL_DOWNLOAD_ISSUE,
+            HELP_CHECK_CONNECTION,
+            HELP_USE_CACHE_DIR,
+        ],
+        Some(error),
+    )
+}
+
+/// Format generic error message for unclassified errors
+fn format_generic_error(error: &anyhow::Error, path: &Path) -> String {
+    format_error_message(
+        &format!("Indexing failed for '{}'", path.display()),
+        &[
+            HELP_USE_VERBOSE,
+            HELP_EXCLUDE_LARGE_FILES,
+            HELP_CHECK_DIRECTORY,
+        ],
+        Some(error),
+    )
 }
 
 #[cfg(test)]

@@ -7,7 +7,6 @@ use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
-use tp::types::{ChunkId, ContentChunk, IndexedChunk, SourceLocation};
 
 /// Create a temporary directory with sample Rust codebase for testing
 pub fn create_test_codebase() -> Result<TempDir> {
@@ -153,31 +152,3 @@ pub fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
     file_path
 }
 
-/// Create a test ContentChunk for testing
-pub fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
-    ContentChunk {
-        id: ChunkId::new(id),
-        content: content.to_string(),
-        source_location: SourceLocation {
-            file_path: PathBuf::from(file_path),
-            start_line: 1,
-            end_line: content.lines().count(),
-            start_char: 0,
-            end_char: content.len(),
-        },
-        token_count: content.split_whitespace().count().into(),
-        chunk_index: 0.into(),
-        total_chunks: 1,
-    }
-}
-
-/// Create a test IndexedChunk for testing
-pub fn create_test_indexed_chunk(
-    id: &str,
-    content: &str,
-    file_path: &str,
-    embedding: Vec<f32>,
-) -> IndexedChunk {
-    let chunk = create_test_chunk(id, content, file_path);
-    IndexedChunk { chunk, embedding }
-}

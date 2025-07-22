@@ -329,10 +329,12 @@ mod tests {
 
     #[test]
     fn test_stats_calculation() {
-        let mut stats = IndexingStats::default();
-        stats.files_discovered = 10;
-        stats.files_processed = 8;
-        stats.files_failed = 2;
+        let stats = IndexingStats {
+            files_discovered: 10,
+            files_processed: 8,
+            files_failed: 2,
+            ..Default::default()
+        };
 
         assert_eq!(stats.success_rate(), 80.0);
         assert_eq!(stats.total_attempted_files(), 10);

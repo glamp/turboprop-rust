@@ -12,18 +12,54 @@ use crate::embeddings::EmbeddingConfig;
 use crate::models::ModelManager;
 use crate::types::{ChunkingConfig, FileDiscoveryConfig};
 
+/// Configuration thresholds for validation warnings and limits.
+#[derive(Debug, Clone)]
+pub struct ValidationConfig {
+    /// Batch size warning threshold (default: 1000)
+    pub batch_size_warning_threshold: usize,
+    /// Large file size threshold in bytes (default: 100MB)
+    pub large_file_threshold: u64,
+    /// Search limit warning threshold (default: 10000)
+    pub search_limit_warning_threshold: usize,
+    /// Worker threads warning threshold (default: 1000)
+    pub worker_threads_warning_threshold: usize,
+    /// CPU multiplier for thread count warnings (default: 4)
+    pub cpu_multiplier_threshold: usize,
+}
+
+impl Default for ValidationConfig {
+    fn default() -> Self {
+        Self {
+            batch_size_warning_threshold: 1000,
+            large_file_threshold: 100 * 1024 * 1024, // 100MB
+            search_limit_warning_threshold: 10000,
+            worker_threads_warning_threshold: 1000,
+            cpu_multiplier_threshold: 4,
+        }
+    }
+}
+
 /// Validate a complete TurboPropConfig
 pub fn validate_config(config: &TurboPropConfig) -> Result<()> {
-    validate_embedding_config(&config.embedding).context("Invalid embedding configuration")?;
+    let validation_config = ValidationConfig::default();
+    validate_config_with_validation_config(config, &validation_config)
+}
+
+/// Validate a complete TurboPropConfig with custom validation thresholds
+pub fn validate_config_with_validation_config(
+    config: &TurboPropConfig,
+    validation_config: &ValidationConfig,
+) -> Result<()> {
+    validate_embedding_config(&config.embedding, validation_config).context("Invalid embedding configuration")?;
 
     validate_chunking_config(&config.chunking).context("Invalid chunking configuration")?;
 
-    validate_file_discovery_config(&config.file_discovery)
+    validate_file_discovery_config(&config.file_discovery, validation_config)
         .context("Invalid file discovery configuration")?;
 
-    validate_search_config(&config.search).context("Invalid search configuration")?;
+    validate_search_config(&config.search, validation_config).context("Invalid search configuration")?;
 
-    validate_general_config(config).context("Invalid general configuration")?;
+    validate_general_config(config, validation_config).context("Invalid general configuration")?;
 
     validate_config_consistency(config).context("Configuration consistency check failed")?;
 
@@ -31,7 +67,10 @@ pub fn validate_config(config: &TurboPropConfig) -> Result<()> {
 }
 
 /// Validate embedding configuration
-pub fn validate_embedding_config(config: &EmbeddingConfig) -> Result<()> {
+pub fn validate_embedding_config(
+    config: &EmbeddingConfig,
+    validation_config: &ValidationConfig,
+) -> Result<()> {
     // Validate model name
     let available_models = ModelManager::get_available_models();
     if !available_models.iter().any(|m| m.name == config.model_name) {
@@ -49,7 +88,7 @@ pub fn validate_embedding_config(config: &EmbeddingConfig) -> Result<()> {
         );
     }
 
-    if config.batch_size > 1000 {
+    if config.batch_size > validation_config.batch_size_warning_threshold {
         warn!(
             "Large batch size ({}) may cause memory issues. Consider reducing to 32-128.",
             config.batch_size
@@ -129,7 +168,10 @@ pub fn validate_chunking_config(config: &ChunkingConfig) -> Result<()> {
 }
 
 /// Validate file discovery configuration
-pub fn validate_file_discovery_config(config: &FileDiscoveryConfig) -> Result<()> {
+pub fn validate_file_discovery_config(
+    config: &FileDiscoveryConfig,
+    validation_config: &ValidationConfig,
+) -> Result<()> {
     // Validate max file size
     if let Some(max_size) = config.max_filesize_bytes {
         if max_size == 0 {
@@ -140,8 +182,7 @@ pub fn validate_file_discovery_config(config: &FileDiscoveryConfig) -> Result<()
         }
 
         // Warn about very large file size limits
-        const LARGE_FILE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100MB
-        if max_size > LARGE_FILE_THRESHOLD {
+        if max_size > validation_config.large_file_threshold {
             warn!(
                 "Large maximum file size ({} bytes) may cause memory issues when processing files",
                 max_size
@@ -153,7 +194,10 @@ pub fn validate_file_discovery_config(config: &FileDiscoveryConfig) -> Result<()
 }
 
 /// Validate search configuration
-pub fn validate_search_config(config: &SearchConfig) -> Result<()> {
+pub fn validate_search_config(
+    config: &SearchConfig,
+    validation_config: &ValidationConfig,
+) -> Result<()> {
     // Validate default limit
     if config.default_limit == 0 {
         anyhow::bail!(
@@ -162,7 +206,7 @@ pub fn validate_search_config(config: &SearchConfig) -> Result<()> {
         );
     }
 
-    if config.default_limit > 10000 {
+    if config.default_limit > validation_config.search_limit_warning_threshold {
         warn!(
             "Very large default search limit ({}) may impact performance",
             config.default_limit
@@ -181,7 +225,10 @@ pub fn validate_search_config(config: &SearchConfig) -> Result<()> {
 }
 
 /// Validate general configuration settings
-pub fn validate_general_config(config: &TurboPropConfig) -> Result<()> {
+pub fn validate_general_config(
+    config: &TurboPropConfig,
+    validation_config: &ValidationConfig,
+) -> Result<()> {
     // Validate paths
     validate_directory_path(
         &config.general.default_index_path,
@@ -198,7 +245,7 @@ pub fn validate_general_config(config: &TurboPropConfig) -> Result<()> {
             );
         }
 
-        if threads > 1000 {
+        if threads > validation_config.worker_threads_warning_threshold {
             warn!(
                 "Very high number of worker threads ({}) may cause system issues",
                 threads
@@ -209,7 +256,7 @@ pub fn validate_general_config(config: &TurboPropConfig) -> Result<()> {
             .map(|n| n.get())
             .unwrap_or(1);
 
-        if threads > cpu_count * 4 {
+        if threads > cpu_count * validation_config.cpu_multiplier_threshold {
             warn!(
                 "Worker threads ({}) significantly exceed CPU count ({}), which may degrade performance",
                 threads, cpu_count

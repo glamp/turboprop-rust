@@ -18,6 +18,39 @@ pub const CONFIG_FILE_NAME: &str = "turboprop.json";
 /// YAML configuration file name
 pub const YAML_CONFIG_FILE_NAME: &str = ".turboprop.yml";
 
+/// A type-safe wrapper for embedding model names
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelName(String);
+
+impl ModelName {
+    /// Create a new ModelName
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    /// Get the model name as a string
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Convert into the inner String
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl From<String> for ModelName {
+    fn from(name: String) -> Self {
+        Self(name)
+    }
+}
+
+impl From<&str> for ModelName {
+    fn from(name: &str) -> Self {
+        Self(name.to_string())
+    }
+}
+
 /// Search configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchConfig {
@@ -49,29 +82,83 @@ pub struct YamlConfig {
     pub directories: Option<YamlDirectoriesConfig>,
 }
 
+/// Configuration for embedding generation settings in YAML format
+///
+/// This struct maps to the `embedding` section in .turboprop.yml files.
+/// All fields are optional and will use defaults if not specified.
+///
+/// # Example
+/// ```yaml
+/// embedding:
+///   model: "sentence-transformers/all-MiniLM-L6-v2"
+///   batch_size: 32
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlEmbeddingConfig {
-    pub model: Option<String>,
+    /// Name of the embedding model to use (e.g., "sentence-transformers/all-MiniLM-L6-v2")
+    pub model: Option<ModelName>,
+    /// Batch size for embedding generation (default: 32)
     pub batch_size: Option<usize>,
 }
 
+/// Configuration for indexing behavior in YAML format
+///
+/// This struct maps to the `indexing` section in .turboprop.yml files.
+/// Controls how files are processed and chunked for indexing.
+///
+/// # Example
+/// ```yaml
+/// indexing:
+///   max_filesize: "10MB"
+///   chunk_size: 512
+///   chunk_overlap: 50
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlIndexingConfig {
+    /// Maximum file size to index (e.g., "10MB", "1GB")
     pub max_filesize: Option<String>,
+    /// Target size for text chunks in tokens (default: 512)
     pub chunk_size: Option<usize>,
+    /// Number of overlapping tokens between chunks (default: 50)
     pub chunk_overlap: Option<usize>,
 }
 
+/// Configuration for search behavior in YAML format
+///
+/// This struct maps to the `search` section in .turboprop.yml files.
+/// Controls default search parameters and result filtering.
+///
+/// # Example
+/// ```yaml
+/// search:
+///   default_limit: 10
+///   min_similarity: 0.5
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlSearchConfig {
+    /// Default maximum number of search results to return (default: 10)
     pub default_limit: Option<usize>,
+    /// Minimum similarity threshold for search results (0.0-1.0, default: 0.3)
     pub min_similarity: Option<f32>,
 }
 
+/// Configuration for directory paths in YAML format
+///
+/// This struct maps to the `directories` section in .turboprop.yml files.
+/// Specifies where indexes and models are stored.
+///
+/// # Example
+/// ```yaml
+/// directories:
+///   index_dir: "./my-index"
+///   models_dir: "~/.cache/turboprop/models"
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlDirectoriesConfig {
-    pub index_dir: Option<String>,
-    pub models_dir: Option<String>,
+    /// Directory where indexes are stored (default: "./turboprop-index")
+    pub index_dir: Option<PathBuf>,
+    /// Directory where embedding models are cached (default: system cache dir)
+    pub models_dir: Option<PathBuf>,
 }
 
 /// Main configuration structure for TurboProp
@@ -124,20 +211,35 @@ impl YamlConfig {
 
         let mut config = TurboPropConfig::default();
 
-        // Apply embedding configuration
-        if let Some(embedding) = self.embedding {
-            if let Some(model) = embedding.model {
-                config.embedding.model_name = model;
+        // Apply each configuration section
+        self.apply_embedding_config(&mut config);
+        self.apply_indexing_config(&mut config)?;
+        self.apply_search_config(&mut config);
+        self.apply_directories_config(&mut config);
+
+        // Validate the final configuration
+        validation::validate_config(&config).context("Final configuration validation failed")?;
+
+        Ok(config)
+    }
+
+    /// Apply embedding configuration to the base config
+    fn apply_embedding_config(&self, config: &mut TurboPropConfig) {
+        if let Some(embedding) = &self.embedding {
+            if let Some(model) = &embedding.model {
+                config.embedding.model_name = model.as_str().to_string();
             }
             if let Some(batch_size) = embedding.batch_size {
                 config.embedding.batch_size = batch_size;
             }
         }
+    }
 
-        // Apply indexing configuration
-        if let Some(indexing) = self.indexing {
-            if let Some(max_filesize_str) = indexing.max_filesize {
-                let max_filesize = parse_filesize(&max_filesize_str)
+    /// Apply indexing configuration to the base config
+    fn apply_indexing_config(&self, config: &mut TurboPropConfig) -> Result<()> {
+        if let Some(indexing) = &self.indexing {
+            if let Some(max_filesize_str) = &indexing.max_filesize {
+                let max_filesize = parse_filesize(max_filesize_str)
                     .map_err(|e| anyhow::anyhow!("Failed to parse max_filesize: {}", e))?;
                 config.file_discovery.max_filesize_bytes = Some(max_filesize);
             }
@@ -148,9 +250,12 @@ impl YamlConfig {
                 config.chunking.overlap_tokens = chunk_overlap;
             }
         }
+        Ok(())
+    }
 
-        // Apply search configuration
-        if let Some(search) = self.search {
+    /// Apply search configuration to the base config
+    fn apply_search_config(&self, config: &mut TurboPropConfig) {
+        if let Some(search) = &self.search {
             if let Some(default_limit) = search.default_limit {
                 config.search.default_limit = default_limit;
             }
@@ -158,22 +263,19 @@ impl YamlConfig {
                 config.search.min_similarity = min_similarity;
             }
         }
+    }
 
-        // Apply directories configuration
-        if let Some(directories) = self.directories {
-            if let Some(index_dir) = directories.index_dir {
-                config.general.default_index_path = PathBuf::from(index_dir);
+    /// Apply directories configuration to the base config
+    fn apply_directories_config(&self, config: &mut TurboPropConfig) {
+        if let Some(directories) = &self.directories {
+            if let Some(index_dir) = &directories.index_dir {
+                config.general.default_index_path = index_dir.clone();
             }
-            if let Some(models_dir) = directories.models_dir {
-                config.general.cache_dir = PathBuf::from(&models_dir);
-                config.embedding.cache_dir = PathBuf::from(models_dir);
+            if let Some(models_dir) = &directories.models_dir {
+                config.general.cache_dir = models_dir.clone();
+                config.embedding.cache_dir = models_dir.clone();
             }
         }
-
-        // Validate the final configuration
-        validation::validate_config(&config).context("Final configuration validation failed")?;
-
-        Ok(config)
     }
 }
 
@@ -225,15 +327,28 @@ impl TurboPropConfig {
 
     /// Load configuration searching in default locations
     fn load_from_default_paths() -> Result<Self> {
-        // Search order (CLI args > .turboprop.yml > turboprop.json > defaults):
-        // 1. Current directory: ./.turboprop.yml
-        // 2. Current directory: ./turboprop.json
-        // 3. User config directory: ~/.config/turboprop/.turboprop.yml
-        // 4. User config directory: ~/.config/turboprop/turboprop.json
-        // 5. User home directory: ~/.turboprop.yml
-        // 6. User home directory: ~/turboprop.json
+        let search_paths = Self::get_config_search_paths();
 
-        let search_paths = vec![
+        for path in search_paths {
+            if path.exists() {
+                return Self::load_from_file(&path);
+            }
+        }
+
+        debug!("No configuration file found, using defaults");
+        Ok(Self::default())
+    }
+
+    /// Build the list of paths to search for configuration files
+    /// Search order (CLI args > .turboprop.yml > turboprop.json > defaults):
+    /// 1. Current directory: ./.turboprop.yml
+    /// 2. Current directory: ./turboprop.json
+    /// 3. User config directory: ~/.config/turboprop/.turboprop.yml
+    /// 4. User config directory: ~/.config/turboprop/turboprop.json
+    /// 5. User home directory: ~/.turboprop.yml
+    /// 6. User home directory: ~/turboprop.json
+    fn get_config_search_paths() -> Vec<PathBuf> {
+        vec![
             // Current directory - YAML first
             PathBuf::from(YAML_CONFIG_FILE_NAME),
             PathBuf::from(CONFIG_FILE_NAME),
@@ -253,16 +368,7 @@ impl TurboPropConfig {
             dirs::home_dir()
                 .map(|p| p.join(CONFIG_FILE_NAME))
                 .unwrap_or_else(|| PathBuf::from("~").join(CONFIG_FILE_NAME)),
-        ];
-
-        for path in search_paths {
-            if path.exists() {
-                return Self::load_from_file(&path);
-            }
-        }
-
-        debug!("No configuration file found, using defaults");
-        Ok(Self::default())
+        ]
     }
 
     /// Save configuration to a specific file

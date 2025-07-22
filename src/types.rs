@@ -716,7 +716,7 @@ impl SearchResult {
     /// Create a new search result
     pub fn new(similarity: f32, chunk: IndexedChunk, rank: usize) -> Self {
         Self {
-            similarity,
+            similarity: similarity.max(0.0), // Clamp negative values to 0.0
             chunk,
             rank,
         }

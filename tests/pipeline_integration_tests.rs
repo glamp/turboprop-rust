@@ -244,7 +244,7 @@ async fn test_index_command_with_small_codebase() {
                         "Successfully created and loaded index with {} chunks",
                         index.len()
                     );
-                    assert!(index.len() > 0, "Index should contain chunks");
+                    assert!(!index.is_empty(), "Index should contain chunks");
                 }
                 Err(e) => {
                     println!(

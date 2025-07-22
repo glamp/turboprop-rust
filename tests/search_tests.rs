@@ -3,9 +3,10 @@
 //! These tests verify the complete search pipeline including query processing,
 //! similarity calculations, result filtering, and integration with the CLI.
 
+mod common;
+
 use anyhow::Result;
 use std::path::Path;
-use tempfile::TempDir;
 use tp::config::TurboPropConfig;
 use tp::index::PersistentChunkIndex;
 use tp::search::{search_index, SearchConfig, SearchEngine};
@@ -17,168 +18,16 @@ const PERFORMANCE_TEST_TIMEOUT_SECONDS: u64 = 30;
 // Test constants for similarity thresholds and limits
 const HIGH_SIMILARITY_THRESHOLD: f32 = 0.7;
 const MEDIUM_SIMILARITY_THRESHOLD: f32 = 0.5;
-#[allow(dead_code)]
-const LOW_SIMILARITY_THRESHOLD: f32 = 0.1;
 const TEST_SIMILARITY_SCORE: f32 = 0.85;
-#[allow(dead_code)]
-const SIMILARITY_COMPARISON_TOLERANCE: f32 = 1e-6;
 
 // Test result limits
 const SMALL_RESULT_LIMIT: usize = 3;
 const STANDARD_RESULT_LIMIT: usize = 5;
-#[allow(dead_code)]
-const DEFAULT_RESULT_LIMIT: usize = 10;
-#[allow(dead_code)]
-const LARGE_RESULT_LIMIT: usize = 100;
 
 // Query length validation
-#[allow(dead_code)]
-const MAX_QUERY_LENGTH: usize = 1000;
-#[allow(dead_code)]
-const OVER_MAX_QUERY_LENGTH: usize = 1001;
 
 // Test file location constants
-#[allow(dead_code)]
-const TEST_FILE_START_LINE: usize = 42;
-#[allow(dead_code)]
-const TEST_FILE_END_LINE: usize = 44;
-#[allow(dead_code)]
-const TEST_FILE_START_CHAR: usize = 0;
-#[allow(dead_code)]
-const TEST_FILE_END_CHAR: usize = 77;
 
-/// Helper function to create a test directory with sample files
-fn create_test_repo() -> Result<TempDir> {
-    let temp_dir = TempDir::new()?;
-    let temp_path = temp_dir.path();
-
-    // Create sample Rust files with different content
-    let rust_content_1 = r#"
-fn main() {
-    println!("Hello, world!");
-    let result = calculate_total(vec![1, 2, 3]);
-    println!("Total: {}", result);
-}
-
-fn calculate_total(numbers: Vec<i32>) -> i32 {
-    numbers.iter().sum()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_calculate_total() {
-        assert_eq!(calculate_total(vec![1, 2, 3]), 6);
-    }
-}
-"#;
-
-    let rust_content_2 = r#"
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct User {
-    pub id: u64,
-    pub name: String,
-    pub email: String,
-}
-
-impl User {
-    pub fn new(id: u64, name: String, email: String) -> Self {
-        Self { id, name, email }
-    }
-    
-    pub fn authenticate(&self, password: &str) -> Result<bool, String> {
-        // Simple authentication logic
-        if password.len() < 8 {
-            return Err("Password too short".to_string());
-        }
-        Ok(true)
-    }
-}
-
-pub fn create_user_database() -> HashMap<u64, User> {
-    let mut users = HashMap::new();
-    users.insert(1, User::new(1, "Alice".to_string(), "alice@example.com".to_string()));
-    users.insert(2, User::new(2, "Bob".to_string(), "bob@example.com".to_string()));
-    users
-}
-"#;
-
-    let javascript_content = r#"
-function authenticateUser(username, password) {
-    if (!username || !password) {
-        throw new Error('Username and password are required');
-    }
-    
-    // Simple authentication
-    const users = getUserDatabase();
-    const user = users.find(u => u.username === username);
-    
-    if (!user) {
-        return { success: false, error: 'User not found' };
-    }
-    
-    if (user.password !== password) {
-        return { success: false, error: 'Invalid password' };
-    }
-    
-    return { success: true, user: user };
-}
-
-function getUserDatabase() {
-    return [
-        { id: 1, username: 'alice', password: 'secret123', email: 'alice@example.com' },
-        { id: 2, username: 'bob', password: 'password456', email: 'bob@example.com' }
-    ];
-}
-
-module.exports = { authenticateUser, getUserDatabase };
-"#;
-
-    // Write the test files
-    std::fs::write(temp_path.join("main.rs"), rust_content_1)?;
-    std::fs::write(temp_path.join("user.rs"), rust_content_2)?;
-    std::fs::write(temp_path.join("auth.js"), javascript_content)?;
-
-    // Create a subdirectory with more content
-    let subdir = temp_path.join("lib");
-    std::fs::create_dir(&subdir)?;
-
-    let lib_content = r#"
-pub mod utils;
-pub mod config;
-
-use std::collections::HashMap;
-
-pub fn process_data(input: &str) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
-    let mut result = HashMap::new();
-    
-    for line in input.lines() {
-        if let Some((key, value)) = line.split_once(':') {
-            result.insert(key.trim().to_string(), value.trim().to_string());
-        }
-    }
-    
-    Ok(result)
-}
-
-pub fn format_output(data: &HashMap<String, String>) -> String {
-    let mut output = String::new();
-    for (key, value) in data {
-        output.push_str(&format!("{}: {}\n", key, value));
-    }
-    output
-}
-"#;
-
-    std::fs::write(subdir.join("mod.rs"), lib_content)?;
-
-    Ok(temp_dir)
-}
 
 /// Build a test index for the given directory
 async fn build_test_index(path: &Path) -> Result<PersistentChunkIndex> {
@@ -202,13 +51,13 @@ async fn test_search_config() -> Result<()> {
 
 #[tokio::test]
 async fn test_basic_search_functionality() -> Result<()> {
-    let temp_dir = create_test_repo()?;
+    let temp_dir = common::create_test_codebase()?;
     let temp_path = temp_dir.path();
 
     // This test might fail in CI without model access, so we handle that gracefully
     match build_test_index(temp_path).await {
         Ok(index) => {
-            assert!(index.len() > 0, "Index should contain chunks");
+            assert!(!index.is_empty(), "Index should contain chunks");
 
             // Try to create a search engine
             let search_config = SearchConfig::default().with_limit(5);
@@ -251,7 +100,7 @@ async fn test_basic_search_functionality() -> Result<()> {
 
 #[tokio::test]
 async fn test_search_with_threshold() -> Result<()> {
-    let temp_dir = create_test_repo()?;
+    let temp_dir = common::create_test_codebase()?;
     let temp_path = temp_dir.path();
 
     // Test the search_index function with threshold
@@ -291,7 +140,7 @@ async fn test_search_with_threshold() -> Result<()> {
 
 #[tokio::test]
 async fn test_search_result_ranking() -> Result<()> {
-    let temp_dir = create_test_repo()?;
+    let temp_dir = common::create_test_codebase()?;
     let temp_path = temp_dir.path();
 
     match search_with_config("calculate_total", temp_path, Some(10), None).await {
@@ -319,7 +168,7 @@ async fn test_search_result_ranking() -> Result<()> {
 
 #[tokio::test]
 async fn test_search_result_limiting() -> Result<()> {
-    let temp_dir = create_test_repo()?;
+    let temp_dir = common::create_test_codebase()?;
     let temp_path = temp_dir.path();
 
     // Test different limits
@@ -346,7 +195,7 @@ async fn test_search_result_limiting() -> Result<()> {
 
 #[tokio::test]
 async fn test_empty_query_handling() -> Result<()> {
-    let temp_dir = create_test_repo()?;
+    let temp_dir = common::create_test_codebase()?;
     let temp_path = temp_dir.path();
 
     // Test empty query
@@ -376,7 +225,7 @@ async fn test_empty_query_handling() -> Result<()> {
 
 #[tokio::test]
 async fn test_invalid_threshold_handling() -> Result<()> {
-    let temp_dir = create_test_repo()?;
+    let temp_dir = common::create_test_codebase()?;
     let _temp_path = temp_dir.path();
 
     // Test threshold validation in SearchConfig
@@ -399,7 +248,7 @@ async fn test_invalid_threshold_handling() -> Result<()> {
 
 #[tokio::test]
 async fn test_deterministic_search_results() -> Result<()> {
-    let temp_dir = create_test_repo()?;
+    let temp_dir = common::create_test_codebase()?;
     let temp_path = temp_dir.path();
 
     // Perform the same search multiple times and verify results are identical
@@ -460,7 +309,7 @@ async fn test_deterministic_search_results() -> Result<()> {
 
 #[tokio::test]
 async fn test_search_performance_baseline() -> Result<()> {
-    let temp_dir = create_test_repo()?;
+    let temp_dir = common::create_test_codebase()?;
     let temp_path = temp_dir.path();
 
     // This is a baseline performance test - we just verify it completes in reasonable time

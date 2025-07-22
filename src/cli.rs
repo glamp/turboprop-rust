@@ -40,5 +40,14 @@ pub enum Commands {
     Search {
         /// Search query
         query: String,
+        /// Repository path to search in
+        #[arg(long, default_value = crate::DEFAULT_INDEX_PATH)]
+        repo: PathBuf,
+        /// Maximum number of results to return (default: 10)
+        #[arg(short, long, default_value = "10")]
+        limit: usize,
+        /// Minimum similarity threshold (0.0 to 1.0)
+        #[arg(short, long)]
+        threshold: Option<f32>,
     },
 }

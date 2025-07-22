@@ -97,12 +97,12 @@ impl ChunkIndex {
     pub fn add_chunk(&mut self, chunk: ContentChunk, embedding: Vec<f32>) {
         self.chunks.push(IndexedChunk { chunk, embedding });
     }
-    
+
     /// Add an already-created IndexedChunk efficiently without cloning
     pub fn add_indexed_chunk(&mut self, indexed_chunk: IndexedChunk) {
         self.chunks.push(indexed_chunk);
     }
-    
+
     /// Add multiple IndexedChunks efficiently without cloning  
     pub fn add_indexed_chunks(&mut self, indexed_chunks: Vec<IndexedChunk>) {
         self.chunks.extend(indexed_chunks);
@@ -136,19 +136,19 @@ impl ChunkIndex {
             tracing::warn!("Empty query embedding provided to similarity search");
             return Vec::new();
         }
-        
+
         // Check for non-finite values in query embedding
         if query_embedding.iter().any(|&x| !x.is_finite()) {
             tracing::warn!("Non-finite values detected in query embedding");
             return Vec::new();
         }
-        
+
         // Validate limit bounds
         if limit == 0 {
             tracing::debug!("Zero limit provided to similarity search");
             return Vec::new();
         }
-        
+
         let mut results: Vec<(f32, &IndexedChunk)> = self
             .chunks
             .iter()
@@ -159,10 +159,8 @@ impl ChunkIndex {
             .collect();
 
         // Safe sorting that handles NaN values properly
-        results.sort_by(|a, b| {
-            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        
+        results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
         results.into_iter().take(limit).collect()
     }
 }
@@ -176,14 +174,14 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let mut dot_product = 0.0_f32;
     let mut sum_a_squared = 0.0_f32;
     let mut sum_b_squared = 0.0_f32;
-    
+
     for (x, y) in a.iter().zip(b.iter()) {
         // Check for infinity or NaN before operations
         if !x.is_finite() || !y.is_finite() {
             tracing::warn!("Non-finite values detected in cosine similarity calculation");
             return 0.0;
         }
-        
+
         // Safely compute dot product with overflow checking
         let product = x * y;
         if !product.is_finite() {
@@ -191,7 +189,7 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
             return 0.0;
         }
         dot_product += product;
-        
+
         // Safely compute squared magnitudes with overflow checking
         let x_squared = x * x;
         let y_squared = y * y;
@@ -211,18 +209,22 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let magnitude_a = sum_a_squared.sqrt();
     let magnitude_b = sum_b_squared.sqrt();
 
-    if magnitude_a == 0.0 || magnitude_b == 0.0 || !magnitude_a.is_finite() || !magnitude_b.is_finite() {
+    if magnitude_a == 0.0
+        || magnitude_b == 0.0
+        || !magnitude_a.is_finite()
+        || !magnitude_b.is_finite()
+    {
         return 0.0;
     }
 
     let result = dot_product / (magnitude_a * magnitude_b);
-    
+
     // Final check for valid result
     if !result.is_finite() {
         tracing::warn!("Invalid result in cosine similarity calculation");
         return 0.0;
     }
-    
+
     result
 }
 
@@ -292,7 +294,7 @@ mod tests {
             embedding: vec![0.1, 0.2, 0.3],
         };
 
-        let result = SearchResult::new(0.85, &indexed_chunk, 0);
+        let result = SearchResult::new(0.85, indexed_chunk, 0);
 
         assert_eq!(result.similarity, 0.85);
         assert_eq!(result.rank, 0);
@@ -403,12 +405,12 @@ pub struct ContentChunk {
 impl ContentChunk {
     /// Marker for placeholder content used when actual content is not stored
     pub const PLACEHOLDER_CONTENT_PREFIX: &'static str = "[PLACEHOLDER_CONTENT_FROM:";
-    
+
     /// Check if this chunk contains actual content or just a placeholder
     pub fn has_real_content(&self) -> bool {
         !self.content.starts_with(Self::PLACEHOLDER_CONTENT_PREFIX)
     }
-    
+
     /// Get the content if real, or None if this is a placeholder
     pub fn real_content(&self) -> Option<&str> {
         if self.has_real_content() {
@@ -501,20 +503,20 @@ impl From<&str> for IndexId {
     }
 }
 
-/// Search result with similarity score and chunk reference
+/// Search result with similarity score and owned chunk data
 #[derive(Debug, Clone)]
-pub struct SearchResult<'a> {
+pub struct SearchResult {
     /// Similarity score (0.0 to 1.0, higher is more similar)
     pub similarity: f32,
-    /// Reference to the matching chunk
-    pub chunk: &'a IndexedChunk,
+    /// The matching chunk (owned)
+    pub chunk: IndexedChunk,
     /// Rank in the result set (0-based)
     pub rank: usize,
 }
 
-impl<'a> SearchResult<'a> {
+impl SearchResult {
     /// Create a new search result
-    pub fn new(similarity: f32, chunk: &'a IndexedChunk, rank: usize) -> Self {
+    pub fn new(similarity: f32, chunk: IndexedChunk, rank: usize) -> Self {
         Self {
             similarity,
             chunk,

@@ -140,11 +140,11 @@ impl PersistentChunkIndex {
                 .zip(embeddings.into_iter())
                 .map(|(chunk, embedding)| IndexedChunk { chunk, embedding })
                 .collect();
-            
+
             // Add to chunk_index efficiently without cloning (takes ownership)
             let chunks_for_index = batch_indexed_chunks.clone(); // This clone is necessary due to dual usage
             chunk_index.add_indexed_chunks(chunks_for_index);
-            
+
             // Move the original chunks to the final collection
             all_indexed_chunks.extend(batch_indexed_chunks);
         }
@@ -225,23 +225,32 @@ impl PersistentChunkIndex {
                                 }
                                 Err(_) => {
                                     // If timestamp comparison fails, err on the side of updating
-                                    warn!("Failed to compare timestamps for {}, updating file", file.path.display());
+                                    warn!(
+                                        "Failed to compare timestamps for {}, updating file",
+                                        file.path.display()
+                                    );
                                     true
                                 }
                             }
                         }
                         None => {
                             // No stored timestamp, assume file needs update
-                            debug!("No stored timestamp for {}, updating file", file.path.display());
+                            debug!(
+                                "No stored timestamp for {}, updating file",
+                                file.path.display()
+                            );
                             true
                         }
                     }
                 } else {
                     // No metadata available (using in-memory data), always update
-                    debug!("No metadata available for timestamp comparison, updating file: {}", file.path.display());
+                    debug!(
+                        "No metadata available for timestamp comparison, updating file: {}",
+                        file.path.display()
+                    );
                     true
                 };
-                
+
                 if needs_update {
                     files_to_update.push(file.clone());
                 }
@@ -290,7 +299,7 @@ impl PersistentChunkIndex {
 
         let mut failed_files = Vec::new();
         let mut processed_files = Vec::new();
-        
+
         for file in files_to_process {
             info!("Processing: {}", file.path.display());
 
@@ -298,7 +307,11 @@ impl PersistentChunkIndex {
             let chunks = match chunking_strategy.chunk_file(&file.path) {
                 Ok(chunks) => chunks,
                 Err(e) => {
-                    warn!("Failed to chunk file {}: {}. Skipping file.", file.path.display(), e);
+                    warn!(
+                        "Failed to chunk file {}: {}. Skipping file.",
+                        file.path.display(),
+                        e
+                    );
                     failed_files.push(file.path.clone());
                     continue;
                 }
@@ -311,12 +324,16 @@ impl PersistentChunkIndex {
 
             let chunk_texts: Vec<String> =
                 chunks.iter().map(|chunk| chunk.content.clone()).collect();
-            
+
             // Handle embedding generation failures gracefully
             let embeddings = match embedding_generator.embed_batch(&chunk_texts) {
                 Ok(embeddings) => embeddings,
                 Err(e) => {
-                    warn!("Failed to generate embeddings for {}: {}. Skipping file.", file.path.display(), e);
+                    warn!(
+                        "Failed to generate embeddings for {}: {}. Skipping file.",
+                        file.path.display(),
+                        e
+                    );
                     failed_files.push(file.path.clone());
                     continue;
                 }
@@ -326,21 +343,21 @@ impl PersistentChunkIndex {
             for (chunk, embedding) in chunks.into_iter().zip(embeddings.into_iter()) {
                 filtered_chunks.push(IndexedChunk { chunk, embedding });
             }
-            
+
             processed_files.push(file.path.clone());
             debug!("Successfully processed: {}", file.path.display());
         }
-        
+
         // Report processing results
         if !failed_files.is_empty() {
             warn!(
                 "Failed to process {} files: {:?}. Continuing with {} successfully processed files.", 
-                failed_files.len(), 
+                failed_files.len(),
                 failed_files,
                 processed_files.len()
             );
         }
-        
+
         info!(
             "Batch processing completed: {} files processed successfully, {} files failed",
             processed_files.len(),
@@ -353,7 +370,7 @@ impl PersistentChunkIndex {
         let mut new_chunk_index = ChunkIndex::new();
         // Use efficient bulk addition instead of individual clones
         new_chunk_index.add_indexed_chunks(filtered_chunks.clone());
-        
+
         // Atomically replace the in-memory index only after it's fully built
         self.chunk_index = new_chunk_index;
 

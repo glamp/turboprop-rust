@@ -12,6 +12,8 @@ pub mod files;
 pub mod git;
 pub mod index;
 pub mod models;
+pub mod query;
+pub mod search;
 pub mod storage;
 pub mod types;
 
@@ -278,6 +280,81 @@ pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> R
 pub fn search_files(query: &str) -> Result<()> {
     info!("Searching for: {}", query);
     Ok(())
+}
+
+/// Advanced search function with configurable parameters.
+///
+/// This is the enhanced search functionality that supports similarity thresholds,
+/// result limits, and returns detailed results with similarity scores.
+///
+/// # Arguments
+///
+/// * `query` - The search query string
+/// * `repo_path` - Path to the repository/directory to search in
+/// * `limit` - Maximum number of results to return (default: 10)
+/// * `threshold` - Minimum similarity threshold (0.0 to 1.0, optional)
+///
+/// # Returns
+///
+/// * `Result<Vec<SearchResult>>` - Vector of search results with similarity scores
+///
+/// # Examples
+///
+/// Basic search with default parameters:
+/// ```no_run
+/// use std::path::Path;
+/// use tp::search_with_config;
+///
+/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// let results = search_with_config("jwt authentication", Path::new("."), None, None).await;
+/// if let Ok(results) = results {
+///     for result in results {
+///         println!("{} ({:.3}): {}",
+///                  result.location_display(),
+///                  result.similarity,
+///                  result.content_preview(50));
+///     }
+/// }
+/// # });
+/// ```
+///
+/// Search with custom limit and threshold:
+/// ```no_run
+/// use std::path::Path;
+/// use tp::search_with_config;
+///
+/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// let results = search_with_config(
+///     "error handling",
+///     Path::new("./src"),
+///     Some(5),      // limit: 5 results
+///     Some(0.7)     // threshold: minimum 70% similarity
+/// ).await;
+/// # });
+/// ```
+pub async fn search_with_config(
+    query: &str,
+    repo_path: &Path,
+    limit: Option<usize>,
+    threshold: Option<f32>,
+) -> Result<Vec<crate::types::SearchResult>> {
+    use crate::search::search_index;
+
+    info!("Performing advanced search for: '{}'", query);
+    info!("Repository path: {}", repo_path.display());
+
+    if let Some(limit) = limit {
+        info!("Result limit: {}", limit);
+    }
+    if let Some(threshold) = threshold {
+        info!("Similarity threshold: {:.3}", threshold);
+    }
+
+    let results = search_index(repo_path, query, limit, threshold).await?;
+
+    info!("Search completed: {} results found", results.len());
+
+    Ok(results)
 }
 
 /// Build a persistent vector index for the specified path.

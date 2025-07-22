@@ -306,7 +306,7 @@ impl IndexStorage {
             // In practice, you might want to store the actual file modification time
             file_timestamps.insert(file_path.clone(), std::time::SystemTime::now());
         }
-        
+
         let metadata = StoredIndexMetadata {
             version: storage_version.to_string(),
             chunk_count: indexed_chunks.len(),
@@ -366,7 +366,7 @@ impl IndexStorage {
             .metadata()
             .with_context(|| "Failed to get vectors file metadata")?
             .len();
-        
+
         // Set reasonable limits for memory mapping
         if file_size > MAX_MMAP_SIZE {
             anyhow::bail!(
@@ -382,9 +382,12 @@ impl IndexStorage {
 
         // Use memory mapping for efficient loading with proper bounds checking
         let mmap = unsafe {
-            MmapOptions::new()
-                .map(&file)
-                .with_context(|| format!("Failed to create memory map for vectors file (size: {} bytes)", file_size))?
+            MmapOptions::new().map(&file).with_context(|| {
+                format!(
+                    "Failed to create memory map for vectors file (size: {} bytes)",
+                    file_size
+                )
+            })?
         };
 
         // Deserialize from memory-mapped data
@@ -480,8 +483,12 @@ impl IndexStorage {
 
         // First, collect all files that need to be deleted
         let mut files_to_delete = Vec::new();
-        for entry in std::fs::read_dir(&self.index_dir)
-            .with_context(|| format!("Failed to read index directory: {}", self.index_dir.display()))? {
+        for entry in std::fs::read_dir(&self.index_dir).with_context(|| {
+            format!(
+                "Failed to read index directory: {}",
+                self.index_dir.display()
+            )
+        })? {
             let entry = entry.with_context(|| "Failed to read directory entry")?;
             let path = entry.path();
 
@@ -534,13 +541,13 @@ impl IndexStorage {
                 }
                 Err(e) => {
                     let error_msg = format!(
-                        "Failed to delete file: {}. Error: {}. {} files were already deleted.", 
-                        path.display(), 
+                        "Failed to delete file: {}. Error: {}. {} files were already deleted.",
+                        path.display(),
                         e,
                         deleted_files.len()
                     );
                     deletion_errors.push(error_msg.clone());
-                    
+
                     // Log which files were successfully deleted for manual cleanup if needed
                     if !deleted_files.is_empty() {
                         warn!(
@@ -550,7 +557,7 @@ impl IndexStorage {
                             path.display()
                         );
                     }
-                    
+
                     return Err(anyhow::anyhow!(
                         "{}. Index is in partially deleted state. You may need to manually clean up remaining files: {:?}. Consider backing up important data before retrying.",
                         error_msg,
@@ -560,7 +567,10 @@ impl IndexStorage {
             }
         }
 
-        info!("Successfully cleared {} files from index", deleted_files.len());
+        info!(
+            "Successfully cleared {} files from index",
+            deleted_files.len()
+        );
         Ok(())
     }
 }

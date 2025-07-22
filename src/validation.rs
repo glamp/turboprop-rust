@@ -3,12 +3,12 @@
 //! This module provides comprehensive validation of configuration values
 //! with detailed error messages to help users fix configuration issues.
 
-use anyhow::{Context, Result};
 use std::path::Path;
 use tracing::warn;
 
 use crate::config::{SearchConfig, TurboPropConfig, YamlConfig};
 use crate::embeddings::EmbeddingConfig;
+use crate::error::{TurboPropError, TurboPropResult};
 use crate::models::ModelManager;
 use crate::types::{ChunkingConfig, FileDiscoveryConfig};
 
@@ -40,7 +40,7 @@ impl Default for ValidationConfig {
 }
 
 /// Validate a complete TurboPropConfig
-pub fn validate_config(config: &TurboPropConfig) -> Result<()> {
+pub fn validate_config(config: &TurboPropConfig) -> TurboPropResult<()> {
     let validation_config = ValidationConfig::default();
     validate_config_with_validation_config(config, &validation_config)
 }
@@ -49,21 +49,13 @@ pub fn validate_config(config: &TurboPropConfig) -> Result<()> {
 pub fn validate_config_with_validation_config(
     config: &TurboPropConfig,
     validation_config: &ValidationConfig,
-) -> Result<()> {
-    validate_embedding_config(&config.embedding, validation_config)
-        .context("Invalid embedding configuration")?;
-
-    validate_chunking_config(&config.chunking).context("Invalid chunking configuration")?;
-
-    validate_file_discovery_config(&config.file_discovery, validation_config)
-        .context("Invalid file discovery configuration")?;
-
-    validate_search_config(&config.search, validation_config)
-        .context("Invalid search configuration")?;
-
-    validate_general_config(config, validation_config).context("Invalid general configuration")?;
-
-    validate_config_consistency(config).context("Configuration consistency check failed")?;
+) -> TurboPropResult<()> {
+    validate_embedding_config(&config.embedding, validation_config)?;
+    validate_chunking_config(&config.chunking)?;
+    validate_file_discovery_config(&config.file_discovery, validation_config)?;
+    validate_search_config(&config.search, validation_config)?;
+    validate_general_config(config, validation_config)?;
+    validate_config_consistency(config)?;
 
     Ok(())
 }
@@ -72,7 +64,7 @@ pub fn validate_config_with_validation_config(
 pub fn validate_embedding_config(
     config: &EmbeddingConfig,
     validation_config: &ValidationConfig,
-) -> Result<()> {
+) -> TurboPropResult<()> {
     // Validate model name
     let available_models = ModelManager::get_available_models();
     if !available_models.iter().any(|m| m.name == config.model_name) {
@@ -84,10 +76,11 @@ pub fn validate_embedding_config(
 
     // Validate batch size
     if config.batch_size == 0 {
-        anyhow::bail!(
-            "Invalid batch size {}: Batch size must be greater than 0",
-            config.batch_size
-        );
+        return Err(TurboPropError::config_validation(
+            "embedding.batch_size",
+            config.batch_size.to_string(),
+            "positive integer greater than 0"
+        ));
     }
 
     if config.batch_size > validation_config.batch_size_warning_threshold {
@@ -102,8 +95,10 @@ pub fn validate_embedding_config(
 
     // Validate embedding dimensions
     if config.embedding_dimensions == 0 {
-        return Err(anyhow::anyhow!(
-            "Embedding dimensions must be greater than 0"
+        return Err(TurboPropError::config_validation(
+            "embedding.embedding_dimensions",
+            config.embedding_dimensions.to_string(),
+            "positive integer greater than 0"
         ));
     }
 
@@ -111,51 +106,58 @@ pub fn validate_embedding_config(
 }
 
 /// Validate chunking configuration
-pub fn validate_chunking_config(config: &ChunkingConfig) -> Result<()> {
+pub fn validate_chunking_config(config: &ChunkingConfig) -> TurboPropResult<()> {
     // Validate chunk sizes
     if config.target_chunk_size_tokens == 0 {
-        anyhow::bail!(
-            "Invalid target chunk size {}: Target chunk size must be greater than 0",
-            config.target_chunk_size_tokens
-        );
+        return Err(TurboPropError::config_validation(
+            "chunking.target_chunk_size_tokens",
+            config.target_chunk_size_tokens.to_string(),
+            "positive integer greater than 0"
+        ));
     }
 
     if config.max_chunk_size_tokens == 0 {
-        anyhow::bail!(
-            "Invalid max chunk size {}: Maximum chunk size must be greater than 0",
-            config.max_chunk_size_tokens
-        );
+        return Err(TurboPropError::config_validation(
+            "chunking.max_chunk_size_tokens",
+            config.max_chunk_size_tokens.to_string(),
+            "positive integer greater than 0"
+        ));
     }
 
     if config.min_chunk_size_tokens == 0 {
-        anyhow::bail!(
-            "Invalid min chunk size {}: Minimum chunk size must be greater than 0",
-            config.min_chunk_size_tokens
-        );
+        return Err(TurboPropError::config_validation(
+            "chunking.min_chunk_size_tokens",
+            config.min_chunk_size_tokens.to_string(),
+            "positive integer greater than 0"
+        ));
     }
 
     // Validate chunk size relationships
     if config.target_chunk_size_tokens > config.max_chunk_size_tokens {
-        anyhow::bail!(
-            "Invalid chunk size configuration: Target chunk size ({}) cannot exceed maximum chunk size ({})",
-            config.target_chunk_size_tokens, config.max_chunk_size_tokens
-        );
+        return Err(TurboPropError::config_validation(
+            "chunking",
+            format!("target_chunk_size_tokens ({}) > max_chunk_size_tokens ({})", 
+                config.target_chunk_size_tokens, config.max_chunk_size_tokens),
+            "target_chunk_size_tokens must not exceed max_chunk_size_tokens"
+        ));
     }
 
     if config.min_chunk_size_tokens > config.target_chunk_size_tokens {
-        anyhow::bail!(
-            "Invalid chunk size configuration: Minimum chunk size ({}) cannot exceed target chunk size ({})",
-            config.min_chunk_size_tokens, config.target_chunk_size_tokens
-        );
+        return Err(TurboPropError::config_validation(
+            "chunking",
+            format!("min_chunk_size_tokens ({}) > target_chunk_size_tokens ({})", 
+                config.min_chunk_size_tokens, config.target_chunk_size_tokens),
+            "min_chunk_size_tokens must not exceed target_chunk_size_tokens"
+        ));
     }
 
     // Validate overlap
     if config.overlap_tokens >= config.target_chunk_size_tokens {
-        anyhow::bail!(
-            "Invalid chunk overlap {}: Chunk overlap must be less than target chunk size ({})",
-            config.overlap_tokens,
-            config.target_chunk_size_tokens
-        );
+        return Err(TurboPropError::config_validation(
+            "chunking.overlap_tokens",
+            config.overlap_tokens.to_string(),
+            format!("less than target_chunk_size_tokens ({})", config.target_chunk_size_tokens)
+        ));
     }
 
     // Warn about potentially problematic values
@@ -173,14 +175,15 @@ pub fn validate_chunking_config(config: &ChunkingConfig) -> Result<()> {
 pub fn validate_file_discovery_config(
     config: &FileDiscoveryConfig,
     validation_config: &ValidationConfig,
-) -> Result<()> {
+) -> TurboPropResult<()> {
     // Validate max file size
     if let Some(max_size) = config.max_filesize_bytes {
         if max_size == 0 {
-            anyhow::bail!(
-                "Invalid max file size {}: Maximum file size must be greater than 0",
-                max_size
-            );
+            return Err(TurboPropError::config_validation(
+                "file_discovery.max_filesize_bytes",
+                max_size.to_string(),
+                "positive integer greater than 0"
+            ));
         }
 
         // Warn about very large file size limits
@@ -199,13 +202,14 @@ pub fn validate_file_discovery_config(
 pub fn validate_search_config(
     config: &SearchConfig,
     validation_config: &ValidationConfig,
-) -> Result<()> {
+) -> TurboPropResult<()> {
     // Validate default limit
     if config.default_limit == 0 {
-        anyhow::bail!(
-            "Invalid search limit {}: Default search limit must be greater than 0",
-            config.default_limit
-        );
+        return Err(TurboPropError::config_validation(
+            "search.default_limit",
+            config.default_limit.to_string(),
+            "positive integer greater than 0"
+        ));
     }
 
     if config.default_limit > validation_config.search_limit_warning_threshold {
@@ -217,10 +221,11 @@ pub fn validate_search_config(
 
     // Validate similarity threshold
     if !(0.0..=1.0).contains(&config.min_similarity) {
-        anyhow::bail!(
-            "Invalid similarity threshold {}: Similarity threshold must be between 0.0 and 1.0",
-            config.min_similarity
-        );
+        return Err(TurboPropError::config_validation(
+            "search.min_similarity",
+            config.min_similarity.to_string(),
+            "number between 0.0 and 1.0"
+        ));
     }
 
     Ok(())
@@ -230,7 +235,7 @@ pub fn validate_search_config(
 pub fn validate_general_config(
     config: &TurboPropConfig,
     validation_config: &ValidationConfig,
-) -> Result<()> {
+) -> TurboPropResult<()> {
     // Validate paths
     validate_directory_path(
         &config.general.default_index_path,
@@ -241,10 +246,11 @@ pub fn validate_general_config(
     // Validate worker threads
     if let Some(threads) = config.general.worker_threads {
         if threads == 0 {
-            anyhow::bail!(
-                "Invalid worker threads {}: Worker threads must be greater than 0",
-                threads
-            );
+            return Err(TurboPropError::config_validation(
+                "general.worker_threads",
+                threads.to_string(),
+                "positive integer greater than 0"
+            ));
         }
 
         if threads > validation_config.worker_threads_warning_threshold {
@@ -270,7 +276,7 @@ pub fn validate_general_config(
 }
 
 /// Validate configuration consistency across different sections
-pub fn validate_config_consistency(config: &TurboPropConfig) -> Result<()> {
+pub fn validate_config_consistency(config: &TurboPropConfig) -> TurboPropResult<()> {
     // Ensure cache directories are consistent
     let general_cache = &config.general.cache_dir;
     let embedding_cache = &config.embedding.cache_dir;
@@ -287,24 +293,25 @@ pub fn validate_config_consistency(config: &TurboPropConfig) -> Result<()> {
 }
 
 /// Validate that a directory path is reasonable
-fn validate_directory_path(path: &Path, description: &str) -> Result<()> {
+fn validate_directory_path(path: &Path, description: &str) -> TurboPropResult<()> {
     let path_str = path.to_string_lossy();
 
     // Check for empty paths
     if path_str.is_empty() {
-        anyhow::bail!(
-            "Invalid directory path '{}': {} cannot be empty",
-            path_str,
-            description
-        );
+        return Err(TurboPropError::config_validation(
+            description,
+            "<empty>".to_string(),
+            "non-empty directory path"
+        ));
     }
 
     // Check for obviously invalid paths
     if path_str.contains('\0') {
-        anyhow::bail!(
-            "Invalid directory path '{}': Directory path contains null characters",
-            path_str
-        );
+        return Err(TurboPropError::config_validation(
+            description,
+            path_str.to_string(),
+            "path without null characters"
+        ));
     }
 
     // Check if path is absolute and warn if it might be problematic
@@ -325,15 +332,16 @@ fn validate_directory_path(path: &Path, description: &str) -> Result<()> {
 }
 
 /// Validate a YAML configuration before converting to TurboPropConfig
-pub fn validate_yaml_config(yaml_config: &YamlConfig) -> Result<()> {
+pub fn validate_yaml_config(yaml_config: &YamlConfig) -> TurboPropResult<()> {
     // Validate embedding section
     if let Some(ref embedding) = yaml_config.embedding {
         if let Some(batch_size) = embedding.batch_size {
             if batch_size == 0 {
-                anyhow::bail!(
-                    "Invalid batch size {}: Batch size must be greater than 0",
-                    batch_size
-                );
+                return Err(TurboPropError::config_validation(
+                    "embedding.batch_size",
+                    batch_size.to_string(),
+                    "positive integer greater than 0"
+                ));
             }
         }
     }
@@ -342,10 +350,11 @@ pub fn validate_yaml_config(yaml_config: &YamlConfig) -> Result<()> {
     if let Some(ref indexing) = yaml_config.indexing {
         if let Some(chunk_size) = indexing.chunk_size {
             if chunk_size == 0 {
-                anyhow::bail!(
-                    "Invalid chunk size {}: Chunk size must be greater than 0",
-                    chunk_size
-                );
+                return Err(TurboPropError::config_validation(
+                    "indexing.chunk_size",
+                    chunk_size.to_string(),
+                    "positive integer greater than 0"
+                ));
             }
         }
     }
@@ -354,16 +363,21 @@ pub fn validate_yaml_config(yaml_config: &YamlConfig) -> Result<()> {
     if let Some(ref search) = yaml_config.search {
         if let Some(limit) = search.default_limit {
             if limit == 0 {
-                anyhow::bail!(
-                    "Invalid search limit {}: Search limit must be greater than 0",
-                    limit
-                );
+                return Err(TurboPropError::config_validation(
+                    "search.default_limit",
+                    limit.to_string(),
+                    "positive integer greater than 0"
+                ));
             }
         }
 
         if let Some(threshold) = search.min_similarity {
             if !(0.0..=1.0).contains(&threshold) {
-                anyhow::bail!("Invalid similarity threshold {}: Similarity threshold must be between 0.0 and 1.0", threshold);
+                return Err(TurboPropError::config_validation(
+                    "search.min_similarity",
+                    threshold.to_string(),
+                    "number between 0.0 and 1.0"
+                ));
             }
         }
     }

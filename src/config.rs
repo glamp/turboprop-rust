@@ -453,7 +453,7 @@ impl TurboPropConfig {
 
     /// Validate the configuration and return any issues
     pub fn validate(&self) -> Result<()> {
-        validation::validate_config(self)
+        validation::validate_config(self).map_err(|e| anyhow::Error::from(e))
     }
 }
 

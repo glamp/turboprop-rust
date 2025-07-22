@@ -9,11 +9,70 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
 use crate::embeddings::EmbeddingConfig;
-use crate::models::ModelManager;
-use crate::types::{ChunkingConfig, FileDiscoveryConfig};
+use crate::types::{parse_filesize, ChunkingConfig, FileDiscoveryConfig};
+use crate::validation;
 
 /// Default configuration file name
 pub const CONFIG_FILE_NAME: &str = "turboprop.json";
+
+/// YAML configuration file name
+pub const YAML_CONFIG_FILE_NAME: &str = ".turboprop.yml";
+
+/// Search configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchConfig {
+    /// Default number of results to return
+    pub default_limit: usize,
+    /// Minimum similarity threshold for results
+    pub min_similarity: f32,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            default_limit: 10,
+            min_similarity: 0.1,
+        }
+    }
+}
+
+/// YAML configuration structure that maps to the .turboprop.yml format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlConfig {
+    /// Embedding configuration
+    pub embedding: Option<YamlEmbeddingConfig>,
+    /// Indexing configuration (combines chunking and file discovery)
+    pub indexing: Option<YamlIndexingConfig>,
+    /// Search configuration
+    pub search: Option<YamlSearchConfig>,
+    /// Directory configuration
+    pub directories: Option<YamlDirectoriesConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlEmbeddingConfig {
+    pub model: Option<String>,
+    pub batch_size: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlIndexingConfig {
+    pub max_filesize: Option<String>,
+    pub chunk_size: Option<usize>,
+    pub chunk_overlap: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlSearchConfig {
+    pub default_limit: Option<usize>,
+    pub min_similarity: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlDirectoriesConfig {
+    pub index_dir: Option<String>,
+    pub models_dir: Option<String>,
+}
 
 /// Main configuration structure for TurboProp
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -24,6 +83,8 @@ pub struct TurboPropConfig {
     pub file_discovery: FileDiscoveryConfig,
     /// Chunking configuration
     pub chunking: ChunkingConfig,
+    /// Search configuration
+    pub search: SearchConfig,
     /// General application settings
     pub general: GeneralConfig,
 }
@@ -55,6 +116,67 @@ impl Default for GeneralConfig {
     }
 }
 
+impl YamlConfig {
+    /// Convert YamlConfig to TurboPropConfig by merging with defaults
+    pub fn to_turboprop_config(self) -> Result<TurboPropConfig> {
+        // Validate the YAML configuration first
+        validation::validate_yaml_config(&self).context("YAML configuration validation failed")?;
+
+        let mut config = TurboPropConfig::default();
+
+        // Apply embedding configuration
+        if let Some(embedding) = self.embedding {
+            if let Some(model) = embedding.model {
+                config.embedding.model_name = model;
+            }
+            if let Some(batch_size) = embedding.batch_size {
+                config.embedding.batch_size = batch_size;
+            }
+        }
+
+        // Apply indexing configuration
+        if let Some(indexing) = self.indexing {
+            if let Some(max_filesize_str) = indexing.max_filesize {
+                let max_filesize = parse_filesize(&max_filesize_str)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse max_filesize: {}", e))?;
+                config.file_discovery.max_filesize_bytes = Some(max_filesize);
+            }
+            if let Some(chunk_size) = indexing.chunk_size {
+                config.chunking.target_chunk_size_tokens = chunk_size;
+            }
+            if let Some(chunk_overlap) = indexing.chunk_overlap {
+                config.chunking.overlap_tokens = chunk_overlap;
+            }
+        }
+
+        // Apply search configuration
+        if let Some(search) = self.search {
+            if let Some(default_limit) = search.default_limit {
+                config.search.default_limit = default_limit;
+            }
+            if let Some(min_similarity) = search.min_similarity {
+                config.search.min_similarity = min_similarity;
+            }
+        }
+
+        // Apply directories configuration
+        if let Some(directories) = self.directories {
+            if let Some(index_dir) = directories.index_dir {
+                config.general.default_index_path = PathBuf::from(index_dir);
+            }
+            if let Some(models_dir) = directories.models_dir {
+                config.general.cache_dir = PathBuf::from(&models_dir);
+                config.embedding.cache_dir = PathBuf::from(models_dir);
+            }
+        }
+
+        // Validate the final configuration
+        validation::validate_config(&config).context("Final configuration validation failed")?;
+
+        Ok(config)
+    }
+}
+
 impl TurboPropConfig {
     /// Load configuration from the default location
     pub fn load() -> Result<Self> {
@@ -73,25 +195,61 @@ impl TurboPropConfig {
         let config_content = std::fs::read_to_string(config_path)
             .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
 
-        let config: TurboPropConfig = serde_json::from_str(&config_content)
-            .with_context(|| format!("Failed to parse config file: {:?}", config_path))?;
+        let config = if Self::is_yaml_file(config_path) {
+            let yaml_config: YamlConfig = serde_yaml::from_str(&config_content)
+                .with_context(|| format!("Failed to parse YAML config file: {:?}", config_path))?;
+            yaml_config.to_turboprop_config()?
+        } else {
+            serde_json::from_str(&config_content)
+                .with_context(|| format!("Failed to parse JSON config file: {:?}", config_path))?
+        };
 
         debug!("Configuration loaded successfully");
         Ok(config)
     }
 
+    /// Check if a file is a YAML configuration file based on extension or name
+    fn is_yaml_file(path: &Path) -> bool {
+        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+            if filename == ".turboprop.yml" {
+                return true;
+            }
+        }
+
+        if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
+            matches!(extension, "yml" | "yaml")
+        } else {
+            false
+        }
+    }
+
     /// Load configuration searching in default locations
     fn load_from_default_paths() -> Result<Self> {
-        // Search order:
-        // 1. Current directory: ./turboprop.json
-        // 2. User config directory: ~/.config/turboprop/turboprop.json
-        // 3. User home directory: ~/turboprop.json
+        // Search order (CLI args > .turboprop.yml > turboprop.json > defaults):
+        // 1. Current directory: ./.turboprop.yml
+        // 2. Current directory: ./turboprop.json
+        // 3. User config directory: ~/.config/turboprop/.turboprop.yml
+        // 4. User config directory: ~/.config/turboprop/turboprop.json
+        // 5. User home directory: ~/.turboprop.yml
+        // 6. User home directory: ~/turboprop.json
 
         let search_paths = vec![
+            // Current directory - YAML first
+            PathBuf::from(YAML_CONFIG_FILE_NAME),
             PathBuf::from(CONFIG_FILE_NAME),
+            // User config directory - YAML first
+            dirs::config_dir()
+                .map(|p| p.join("turboprop").join(YAML_CONFIG_FILE_NAME))
+                .unwrap_or_else(|| {
+                    PathBuf::from("~/.config/turboprop").join(YAML_CONFIG_FILE_NAME)
+                }),
             dirs::config_dir()
                 .map(|p| p.join("turboprop").join(CONFIG_FILE_NAME))
                 .unwrap_or_else(|| PathBuf::from("~/.config/turboprop").join(CONFIG_FILE_NAME)),
+            // User home directory - YAML first
+            dirs::home_dir()
+                .map(|p| p.join(YAML_CONFIG_FILE_NAME))
+                .unwrap_or_else(|| PathBuf::from("~").join(YAML_CONFIG_FILE_NAME)),
             dirs::home_dir()
                 .map(|p| p.join(CONFIG_FILE_NAME))
                 .unwrap_or_else(|| PathBuf::from("~").join(CONFIG_FILE_NAME)),
@@ -164,46 +322,32 @@ impl TurboPropConfig {
             debug!("Overriding batch size from CLI: {}", batch_size);
         }
 
+        if let Some(search_limit) = args.search_limit {
+            self.search.default_limit = search_limit;
+            debug!("Overriding search limit from CLI: {}", search_limit);
+        }
+
+        if let Some(min_similarity) = args.min_similarity {
+            self.search.min_similarity = min_similarity;
+            debug!("Overriding min similarity from CLI: {}", min_similarity);
+        }
+
+        if let Some(chunk_size) = args.chunk_size {
+            self.chunking.target_chunk_size_tokens = chunk_size;
+            debug!("Overriding chunk size from CLI: {}", chunk_size);
+        }
+
+        if let Some(chunk_overlap) = args.chunk_overlap {
+            self.chunking.overlap_tokens = chunk_overlap;
+            debug!("Overriding chunk overlap from CLI: {}", chunk_overlap);
+        }
+
         self
     }
 
     /// Validate the configuration and return any issues
     pub fn validate(&self) -> Result<()> {
-        // Validate embedding model
-        let available_models = ModelManager::get_available_models();
-        if !available_models
-            .iter()
-            .any(|m| m.name == self.embedding.model_name)
-        {
-            tracing::warn!(
-                "Model '{}' is not in the list of known models. It may still work if it's a valid fastembed model.",
-                self.embedding.model_name
-            );
-        }
-
-        // Validate paths are reasonable
-        if self.general.cache_dir.as_os_str().is_empty() {
-            anyhow::bail!("Failed to validate config: cache directory cannot be empty");
-        }
-
-        if self.general.default_index_path.as_os_str().is_empty() {
-            anyhow::bail!("Failed to validate config: default index path cannot be empty");
-        }
-
-        // Validate worker threads
-        if let Some(threads) = self.general.worker_threads {
-            if threads == 0 {
-                anyhow::bail!("Failed to validate config: worker threads must be greater than 0");
-            }
-            if threads > 1000 {
-                tracing::warn!(
-                    "Very high number of worker threads ({}), this may cause issues",
-                    threads
-                );
-            }
-        }
-
-        Ok(())
+        validation::validate_config(self)
     }
 }
 
@@ -216,6 +360,10 @@ pub struct CliConfigOverrides {
     pub max_filesize: Option<u64>,
     pub worker_threads: Option<usize>,
     pub batch_size: Option<usize>,
+    pub search_limit: Option<usize>,
+    pub min_similarity: Option<f32>,
+    pub chunk_size: Option<usize>,
+    pub chunk_overlap: Option<usize>,
 }
 
 impl CliConfigOverrides {
@@ -250,6 +398,26 @@ impl CliConfigOverrides {
 
     pub fn with_batch_size(mut self, batch_size: usize) -> Self {
         self.batch_size = Some(batch_size);
+        self
+    }
+
+    pub fn with_search_limit(mut self, search_limit: usize) -> Self {
+        self.search_limit = Some(search_limit);
+        self
+    }
+
+    pub fn with_min_similarity(mut self, min_similarity: f32) -> Self {
+        self.min_similarity = Some(min_similarity);
+        self
+    }
+
+    pub fn with_chunk_size(mut self, chunk_size: usize) -> Self {
+        self.chunk_size = Some(chunk_size);
+        self
+    }
+
+    pub fn with_chunk_overlap(mut self, chunk_overlap: usize) -> Self {
+        self.chunk_overlap = Some(chunk_overlap);
         self
     }
 }
@@ -337,5 +505,88 @@ mod tests {
         let mut config = TurboPropConfig::default();
         config.general.worker_threads = Some(0);
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_load_yaml_config_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join(".turboprop.yml");
+
+        let yaml_content = r#"
+embedding:
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  batch_size: 64
+  
+indexing:
+  max_filesize: "5mb"
+  chunk_size: 500
+  chunk_overlap: 75
+
+search:
+  default_limit: 20
+  min_similarity: 0.2
+
+directories:
+  index_dir: ".turboprop"
+  models_dir: ".turboprop/models"
+"#;
+        std::fs::write(&config_path, yaml_content).unwrap();
+
+        let config = TurboPropConfig::load_from_file(&config_path).unwrap();
+
+        assert_eq!(
+            config.embedding.model_name,
+            "sentence-transformers/all-MiniLM-L6-v2"
+        );
+        assert_eq!(config.embedding.batch_size, 64);
+        assert_eq!(config.chunking.target_chunk_size_tokens, 500);
+        assert_eq!(config.chunking.overlap_tokens, 75);
+        assert_eq!(config.search.default_limit, 20);
+        assert_eq!(config.search.min_similarity, 0.2);
+        assert_eq!(
+            config.file_discovery.max_filesize_bytes,
+            Some(5 * 1024 * 1024)
+        );
+    }
+
+    #[test]
+    fn test_configuration_precedence() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join(".turboprop.yml");
+
+        // Create a YAML config with specific values
+        let yaml_content = r#"
+embedding:
+  model: "yaml-model"
+  batch_size: 32
+
+search:
+  default_limit: 15
+  min_similarity: 0.3
+"#;
+        std::fs::write(&config_path, yaml_content).unwrap();
+
+        let base_config = TurboPropConfig::load_from_file(&config_path).unwrap();
+
+        // Verify YAML values are loaded
+        assert_eq!(base_config.embedding.model_name, "yaml-model");
+        assert_eq!(base_config.embedding.batch_size, 32);
+        assert_eq!(base_config.search.default_limit, 15);
+
+        // Create CLI overrides that should take precedence
+        let cli_overrides = CliConfigOverrides::new()
+            .with_model("cli-model")
+            .with_batch_size(128)
+            .with_search_limit(50);
+
+        let final_config = base_config.merge_cli_args(&cli_overrides);
+
+        // Verify CLI args override YAML values
+        assert_eq!(final_config.embedding.model_name, "cli-model");
+        assert_eq!(final_config.embedding.batch_size, 128);
+        assert_eq!(final_config.search.default_limit, 50);
+
+        // Verify non-overridden YAML values remain
+        assert_eq!(final_config.search.min_similarity, 0.3);
     }
 }

@@ -22,6 +22,7 @@ pub mod query;
 pub mod search;
 pub mod storage;
 pub mod types;
+pub mod validation;
 
 use crate::chunking::ChunkingStrategy;
 use crate::config::TurboPropConfig;

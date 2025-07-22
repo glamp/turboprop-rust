@@ -255,7 +255,14 @@ async fn test_search_with_threshold() -> Result<()> {
     let temp_path = temp_dir.path();
 
     // Test the search_index function with threshold
-    match search_index(temp_path, "authentication", Some(SMALL_RESULT_LIMIT), Some(MEDIUM_SIMILARITY_THRESHOLD)).await {
+    match search_index(
+        temp_path,
+        "authentication",
+        Some(SMALL_RESULT_LIMIT),
+        Some(MEDIUM_SIMILARITY_THRESHOLD),
+    )
+    .await
+    {
         Ok(results) => {
             // Verify all results meet the threshold
             for result in &results {

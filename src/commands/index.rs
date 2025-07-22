@@ -185,15 +185,15 @@ fn format_error_message(
     technical_details: Option<&anyhow::Error>,
 ) -> String {
     let mut message = format!("{} {}", ERROR_ICON, main_message);
-    
+
     for tip in help_tips {
         message.push_str(&format!("\n{} {}", HELP_ICON, tip));
     }
-    
+
     if let Some(details) = technical_details {
         message.push_str(&format!("\n\nTechnical details: {}", details));
     }
-    
+
     message
 }
 
@@ -210,14 +210,21 @@ fn format_user_error(error: &anyhow::Error, path: &Path) -> String {
     } else if error_str.contains("failed to initialize embedding generator") {
         format_error_message(
             MSG_EMBEDDING_INIT_FAILED,
-            &[HELP_MODEL_DOWNLOAD, HELP_RETRY_CONNECTION, HELP_TRY_DIFFERENT_MODEL],
+            &[
+                HELP_MODEL_DOWNLOAD,
+                HELP_RETRY_CONNECTION,
+                HELP_TRY_DIFFERENT_MODEL,
+            ],
             Some(error),
         )
     } else if error_str.contains("permission denied") {
         format_error_message(
             MSG_PERMISSION_DENIED,
             &[
-                &format!("Make sure you have read permissions for the directory: {}", path.display()),
+                &format!(
+                    "Make sure you have read permissions for the directory: {}",
+                    path.display()
+                ),
                 HELP_RUN_WITH_PERMISSIONS,
             ],
             Some(error),
@@ -231,13 +238,21 @@ fn format_user_error(error: &anyhow::Error, path: &Path) -> String {
     } else if error_str.contains("timeout") || error_str.contains("network") {
         format_error_message(
             MSG_NETWORK_TIMEOUT,
-            &[HELP_MODEL_DOWNLOAD_ISSUE, HELP_CHECK_CONNECTION, HELP_USE_CACHE_DIR],
+            &[
+                HELP_MODEL_DOWNLOAD_ISSUE,
+                HELP_CHECK_CONNECTION,
+                HELP_USE_CACHE_DIR,
+            ],
             Some(error),
         )
     } else {
         format_error_message(
             &format!("Indexing failed for '{}'", path.display()),
-            &[HELP_USE_VERBOSE, HELP_EXCLUDE_LARGE_FILES, HELP_CHECK_DIRECTORY],
+            &[
+                HELP_USE_VERBOSE,
+                HELP_EXCLUDE_LARGE_FILES,
+                HELP_CHECK_DIRECTORY,
+            ],
             Some(error),
         )
     }

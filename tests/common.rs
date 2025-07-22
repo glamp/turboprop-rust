@@ -7,7 +7,7 @@ use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
-use tp::types::{ContentChunk, IndexedChunk, SourceLocation, ChunkId};
+use tp::types::{ChunkId, ContentChunk, IndexedChunk, SourceLocation};
 
 /// Create a temporary directory with sample Rust codebase for testing
 pub fn create_test_codebase() -> Result<TempDir> {

@@ -1,0 +1,38 @@
+# TurboProp Configuration File Example
+# Copy this file to .turboprop.yml and customize as needed
+
+# Embedding model configuration
+embedding:
+  # Model to use for generating embeddings
+  # See available models: https://qdrant.github.io/fastembed/examples/Supported_Models/
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  
+  # Number of texts to process in parallel (higher = more memory usage)
+  batch_size: 32
+
+# File indexing configuration  
+indexing:
+  # Maximum file size to index (supports: b, kb, mb, gb)
+  max_filesize: "2mb"
+  
+  # Target size for text chunks in tokens
+  chunk_size: 400
+  
+  # Number of overlapping tokens between chunks
+  chunk_overlap: 50
+
+# Search behavior configuration
+search:
+  # Default number of search results to return
+  default_limit: 10
+  
+  # Minimum similarity score for results (0.0-1.0)
+  min_similarity: 0.1
+
+# Directory configuration
+directories:
+  # Where to store the search index
+  index_dir: ".turboprop"
+  
+  # Where to cache downloaded models
+  models_dir: ".turboprop/models"

@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "tp")]
@@ -14,8 +15,8 @@ pub enum Commands {
     /// Index files for searching
     Index {
         /// Path to index
-        #[arg(short, long, default_value = ".")]
-        path: String,
+        #[arg(short, long, default_value = crate::DEFAULT_INDEX_PATH)]
+        path: PathBuf,
     },
     /// Search indexed files
     Search {

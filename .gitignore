@@ -1,1 +1,6 @@
 /target
+.swissarmyhammer/
+sample-codebases/
+*.log
+.env
+.DS_Store

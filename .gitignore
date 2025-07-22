@@ -19,4 +19,6 @@ Thumbs.db
 
 # Logs
 *.log
-EOF < /dev/null
+
+# Scratch/temporary directories
+.swissarmyhammer/

@@ -15,11 +15,23 @@ use tracing::{debug, error, info};
 
 use crate::git::GitignoreFilter;
 
-/// Debounce duration for file change events to batch rapid changes
-const DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
+/// Configuration for file watcher behavior
+#[derive(Debug, Clone)]
+pub struct WatcherConfig {
+    /// Debounce duration for file change events to batch rapid changes
+    pub debounce_duration: Duration,
+    /// Maximum number of events to batch in a single update
+    pub max_batch_size: usize,
+}
 
-/// Maximum number of events to batch in a single update
-const MAX_BATCH_SIZE: usize = 100;
+impl Default for WatcherConfig {
+    fn default() -> Self {
+        Self {
+            debounce_duration: Duration::from_millis(500),
+            max_batch_size: 100,
+        }
+    }
+}
 
 /// Events that trigger index updates
 #[derive(Debug, Clone)]
@@ -119,7 +131,7 @@ pub struct FileWatcher {
 }
 
 impl FileWatcher {
-    /// Create a new file watcher for the specified path
+    /// Create a new file watcher for the specified path with default configuration
     ///
     /// # Arguments
     /// * `path` - Root directory to watch
@@ -128,11 +140,24 @@ impl FileWatcher {
     /// # Returns
     /// * `Result<Self>` - The file watcher instance or error
     pub fn new(path: &Path, gitignore_filter: GitignoreFilter) -> Result<Self> {
+        Self::with_config(path, gitignore_filter, WatcherConfig::default())
+    }
+
+    /// Create a new file watcher for the specified path with custom configuration
+    ///
+    /// # Arguments
+    /// * `path` - Root directory to watch
+    /// * `gitignore_filter` - Filter to respect .gitignore rules
+    /// * `config` - Configuration for watcher behavior
+    ///
+    /// # Returns
+    /// * `Result<Self>` - The file watcher instance or error
+    pub fn with_config(path: &Path, gitignore_filter: GitignoreFilter, config: WatcherConfig) -> Result<Self> {
         let (event_sender, event_receiver) = tokio_mpsc::channel(1000);
         let (tx, rx) = mpsc::channel();
 
         // Create the debouncer in a separate thread
-        let debouncer = EventDebouncer::new(event_sender);
+        let debouncer = EventDebouncer::new(event_sender, config);
         let _debouncer_handle = debouncer.spawn(rx);
 
         // Create the file system watcher
@@ -219,12 +244,14 @@ impl FileWatcher {
 struct EventDebouncer {
     /// Sender for batched events
     event_sender: tokio_mpsc::Sender<WatchEventBatch>,
+    /// Configuration for debouncing behavior
+    config: WatcherConfig,
 }
 
 impl EventDebouncer {
     /// Create a new event debouncer
-    fn new(event_sender: tokio_mpsc::Sender<WatchEventBatch>) -> Self {
-        Self { event_sender }
+    fn new(event_sender: tokio_mpsc::Sender<WatchEventBatch>, config: WatcherConfig) -> Self {
+        Self { event_sender, config }
     }
 
     /// Spawn the debouncer in a separate thread
@@ -241,61 +268,65 @@ impl EventDebouncer {
     async fn run(self, event_receiver: Receiver<notify::Result<Event>>) {
         let mut pending_events: HashMap<PathBuf, (WatchEvent, Instant)> = HashMap::new();
         let mut last_batch_time = Instant::now();
+        
+        // Use a 50ms interval for efficient polling instead of busy waiting
+        let mut interval = tokio::time::interval(Duration::from_millis(50));
 
         loop {
-            // Check for new events (non-blocking)
-            while let Ok(event_result) = event_receiver.try_recv() {
-                match event_result {
-                    Ok(event) => {
-                        if let Some(watch_event) = self.convert_notify_event(event) {
-                            let path = watch_event.path().to_path_buf();
-                            pending_events.insert(path, (watch_event, Instant::now()));
+            tokio::select! {
+                _ = interval.tick() => {
+                    // Check for new events (non-blocking)
+                    while let Ok(event_result) = event_receiver.try_recv() {
+                        match event_result {
+                            Ok(event) => {
+                                if let Some(watch_event) = self.convert_notify_event(event) {
+                                    let path = watch_event.path().to_path_buf();
+                                    pending_events.insert(path, (watch_event, Instant::now()));
+                                }
+                            }
+                            Err(e) => {
+                                error!("File watcher error: {}", e);
+                            }
                         }
                     }
-                    Err(e) => {
-                        error!("File watcher error: {}", e);
+
+                    // Check if we should send a batch
+                    let now = Instant::now();
+                    let should_send_batch = !pending_events.is_empty()
+                        && (now.duration_since(last_batch_time) >= self.config.debounce_duration
+                            || pending_events.len() >= self.config.max_batch_size);
+
+                    if should_send_batch {
+                        // Collect events that are ready (older than debounce duration)
+                        let mut ready_events = Vec::new();
+                        let mut keys_to_remove = Vec::new();
+
+                        for (path, (event, timestamp)) in &pending_events {
+                            if now.duration_since(*timestamp) >= self.config.debounce_duration {
+                                ready_events.push(event.clone());
+                                keys_to_remove.push(path.clone());
+                            }
+                        }
+
+                        // Remove the processed events
+                        for key in keys_to_remove {
+                            pending_events.remove(&key);
+                        }
+
+                        if !ready_events.is_empty() {
+                            let batch = WatchEventBatch::new(ready_events);
+                            debug!("Sending batch with {} events", batch.events.len());
+
+                            if let Err(e) = self.event_sender.send(batch).await {
+                                error!("Failed to send event batch: {}", e);
+                                break;
+                            }
+
+                            last_batch_time = now;
+                        }
                     }
                 }
             }
-
-            // Check if we should send a batch
-            let now = Instant::now();
-            let should_send_batch = !pending_events.is_empty()
-                && (now.duration_since(last_batch_time) >= DEBOUNCE_DURATION
-                    || pending_events.len() >= MAX_BATCH_SIZE);
-
-            if should_send_batch {
-                // Collect events that are ready (older than debounce duration)
-                let mut ready_events = Vec::new();
-                let mut keys_to_remove = Vec::new();
-
-                for (path, (event, timestamp)) in &pending_events {
-                    if now.duration_since(*timestamp) >= DEBOUNCE_DURATION {
-                        ready_events.push(event.clone());
-                        keys_to_remove.push(path.clone());
-                    }
-                }
-
-                // Remove the processed events
-                for key in keys_to_remove {
-                    pending_events.remove(&key);
-                }
-
-                if !ready_events.is_empty() {
-                    let batch = WatchEventBatch::new(ready_events);
-                    debug!("Sending batch with {} events", batch.events.len());
-
-                    if let Err(e) = self.event_sender.send(batch).await {
-                        error!("Failed to send event batch: {}", e);
-                        break;
-                    }
-
-                    last_batch_time = now;
-                }
-            }
-
-            // Small sleep to avoid busy waiting
-            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 
@@ -344,12 +375,17 @@ impl SignalHandler {
         let shutdown_sender = std::sync::Arc::new(std::sync::Mutex::new(Some(shutdown_sender)));
         let shutdown_sender_clone = shutdown_sender.clone();
 
-        signal_hook::flag::register(signal_hook::consts::SIGINT, std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))
-            .context("Failed to register SIGINT handler")?;
+        signal_hook::flag::register(
+            signal_hook::consts::SIGINT,
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .context("Failed to register SIGINT handler")?;
 
         // Spawn a task to handle the signal
         tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl-c");
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to listen for ctrl-c");
             if let Some(sender) = shutdown_sender_clone.lock().unwrap().take() {
                 let _ = sender.send(());
             }
@@ -368,7 +404,6 @@ impl SignalHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use tempfile::TempDir;
 
     #[test]
@@ -397,7 +432,7 @@ mod tests {
 
         let batch = WatchEventBatch::new(events);
         let unique_paths = batch.unique_paths();
-        
+
         assert_eq!(unique_paths.len(), 2);
         assert!(unique_paths.contains(&PathBuf::from("/path1")));
         assert!(unique_paths.contains(&PathBuf::from("/path2")));
@@ -416,7 +451,10 @@ mod tests {
         let (modified, created, deleted) = batch.group_by_type();
 
         assert_eq!(modified, vec![PathBuf::from("/modified")]);
-        assert_eq!(created, vec![PathBuf::from("/created"), PathBuf::from("/dir_created")]);
+        assert_eq!(
+            created,
+            vec![PathBuf::from("/created"), PathBuf::from("/dir_created")]
+        );
         assert_eq!(deleted, vec![PathBuf::from("/deleted")]);
     }
 

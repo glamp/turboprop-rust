@@ -3,12 +3,9 @@
 //! These tests verify the complete file watching functionality including
 //! file detection, event processing, index updates, and error handling.
 
-use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use tempfile::TempDir;
-use tokio::time::sleep;
 
 use tp::config::TurboPropConfig;
 use tp::git::GitignoreFilter;
@@ -27,6 +24,7 @@ fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
 }
 
 /// Helper function to create a test directory
+#[allow(dead_code)]
 fn create_test_dir(dir: &Path, name: &str) -> PathBuf {
     let dir_path = dir.join(name);
     fs::create_dir_all(&dir_path).unwrap();
@@ -72,23 +70,23 @@ async fn test_file_watcher_with_gitignore() {
 #[test]
 fn test_watch_event_properties() {
     let path = PathBuf::from("/test/file.rs");
-    
+
     let modified = WatchEvent::Modified(path.clone());
     assert_eq!(modified.path(), path);
     assert!(modified.is_file_event());
-    
+
     let created = WatchEvent::Created(path.clone());
     assert_eq!(created.path(), path);
     assert!(created.is_file_event());
-    
+
     let deleted = WatchEvent::Deleted(path.clone());
     assert_eq!(deleted.path(), path);
     assert!(deleted.is_file_event());
-    
+
     let dir_created = WatchEvent::DirectoryCreated(path.clone());
     assert_eq!(dir_created.path(), path);
     assert!(!dir_created.is_file_event());
-    
+
     let dir_deleted = WatchEvent::DirectoryDeleted(path.clone());
     assert_eq!(dir_deleted.path(), path);
     assert!(!dir_deleted.is_file_event());
@@ -105,21 +103,21 @@ fn test_watch_event_batch() {
     ];
 
     let batch = WatchEventBatch::new(events);
-    
+
     // Test unique paths (should deduplicate)
     let unique_paths = batch.unique_paths();
     assert_eq!(unique_paths.len(), 4);
-    
+
     // Test grouping by type
     let (modified, created, deleted) = batch.group_by_type();
     assert_eq!(modified.len(), 2); // Two modified events for same file
     assert_eq!(modified[0], PathBuf::from("/file1.rs"));
     assert_eq!(modified[1], PathBuf::from("/file1.rs"));
-    
+
     assert_eq!(created.len(), 2);
     assert!(created.contains(&PathBuf::from("/file2.rs")));
     assert!(created.contains(&PathBuf::from("/dir1")));
-    
+
     assert_eq!(deleted.len(), 1);
     assert_eq!(deleted[0], PathBuf::from("/file3.rs"));
 }
@@ -147,9 +145,9 @@ async fn test_incremental_updater_creation() {
 #[test]
 fn test_incremental_stats() {
     let mut stats = IncrementalStats::default();
-    
+
     assert_eq!(stats.success_rate(), 100.0);
-    
+
     stats.files_processed = 10;
     stats.files_failed = 2;
     stats.files_added = 3;
@@ -157,9 +155,9 @@ fn test_incremental_stats() {
     stats.files_removed = 1;
     stats.chunks_added = 15;
     stats.chunks_removed = 5;
-    
+
     assert_eq!(stats.success_rate(), 80.0);
-    
+
     let other_stats = IncrementalStats {
         files_processed: 5,
         files_failed: 1,
@@ -169,9 +167,9 @@ fn test_incremental_stats() {
         chunks_added: 10,
         chunks_removed: 3,
     };
-    
+
     stats.merge(other_stats);
-    
+
     assert_eq!(stats.files_processed, 15);
     assert_eq!(stats.files_failed, 3);
     assert_eq!(stats.files_added, 5);
@@ -183,7 +181,6 @@ fn test_incremental_stats() {
 }
 
 // Integration tests that require a real file system and index
-#[cfg(feature = "integration_tests")]
 mod integration_tests {
     use super::*;
     use tp::commands::index::execute_index_command;
@@ -194,7 +191,11 @@ mod integration_tests {
         let config = TurboPropConfig::default();
 
         // Create initial test file
-        let test_file = create_test_file(temp_dir.path(), "test.rs", "fn hello() { println!(\"Hello\"); }");
+        let test_file = create_test_file(
+            temp_dir.path(),
+            "test.rs",
+            "fn hello() { println!(\"Hello\"); }",
+        );
 
         // Build initial index
         let result = execute_index_command(temp_dir.path(), &config, false).await;
@@ -205,10 +206,12 @@ mod integration_tests {
 
         // Load the persistent index
         let mut persistent_index = PersistentIndex::load(temp_dir.path()).unwrap();
-        let initial_chunks = persistent_index.len();
+        let _initial_chunks = persistent_index.len();
 
         // Initialize incremental updater
-        let mut updater = IncrementalUpdater::new(config, temp_dir.path()).await.unwrap();
+        let mut updater = IncrementalUpdater::new(config, temp_dir.path())
+            .await
+            .unwrap();
 
         // Modify the file
         modify_test_file(&test_file, "fn hello() { println!(\"Hello, World!\"); }");
@@ -218,7 +221,10 @@ mod integration_tests {
         let batch = WatchEventBatch::new(events);
 
         // Process the batch
-        let stats = updater.process_batch(&batch, &mut persistent_index).await.unwrap();
+        let stats = updater
+            .process_batch(&batch, &mut persistent_index)
+            .await
+            .unwrap();
 
         assert_eq!(stats.files_modified, 1);
         assert!(stats.chunks_removed > 0);
@@ -242,7 +248,9 @@ mod integration_tests {
 
         // Load the persistent index
         let mut persistent_index = PersistentIndex::load(temp_dir.path()).unwrap();
-        let mut updater = IncrementalUpdater::new(config, temp_dir.path()).await.unwrap();
+        let mut updater = IncrementalUpdater::new(config, temp_dir.path())
+            .await
+            .unwrap();
 
         // Create a new file
         let test_file = create_test_file(temp_dir.path(), "new_file.rs", "fn new_function() {}");
@@ -251,7 +259,10 @@ mod integration_tests {
         let create_events = vec![WatchEvent::Created(test_file.clone())];
         let create_batch = WatchEventBatch::new(create_events);
 
-        let create_stats = updater.process_batch(&create_batch, &mut persistent_index).await.unwrap();
+        let create_stats = updater
+            .process_batch(&create_batch, &mut persistent_index)
+            .await
+            .unwrap();
         assert_eq!(create_stats.files_added, 1);
         assert!(create_stats.chunks_added > 0);
 
@@ -265,7 +276,10 @@ mod integration_tests {
         let delete_events = vec![WatchEvent::Deleted(test_file)];
         let delete_batch = WatchEventBatch::new(delete_events);
 
-        let delete_stats = updater.process_batch(&delete_batch, &mut persistent_index).await.unwrap();
+        let delete_stats = updater
+            .process_batch(&delete_batch, &mut persistent_index)
+            .await
+            .unwrap();
         assert_eq!(delete_stats.files_removed, 1);
         assert!(delete_stats.chunks_removed > 0);
 
@@ -286,7 +300,9 @@ mod integration_tests {
         }
 
         let mut persistent_index = PersistentIndex::load(temp_dir.path()).unwrap();
-        let mut updater = IncrementalUpdater::new(config, temp_dir.path()).await.unwrap();
+        let mut updater = IncrementalUpdater::new(config, temp_dir.path())
+            .await
+            .unwrap();
 
         // Create a new directory with files
         let new_dir = create_test_dir(temp_dir.path(), "new_module");
@@ -297,7 +313,10 @@ mod integration_tests {
         let events = vec![WatchEvent::DirectoryCreated(new_dir)];
         let batch = WatchEventBatch::new(events);
 
-        let stats = updater.process_batch(&batch, &mut persistent_index).await.unwrap();
+        let stats = updater
+            .process_batch(&batch, &mut persistent_index)
+            .await
+            .unwrap();
         assert!(stats.files_added >= 2); // At least the 2 files we created
         assert!(stats.chunks_added > 0);
     }
@@ -314,7 +333,9 @@ mod integration_tests {
         }
 
         let mut persistent_index = PersistentIndex::load(temp_dir.path()).unwrap();
-        let mut updater = IncrementalUpdater::new(config, temp_dir.path()).await.unwrap();
+        let mut updater = IncrementalUpdater::new(config, temp_dir.path())
+            .await
+            .unwrap();
 
         // Create multiple files
         let file1 = create_test_file(temp_dir.path(), "file1.rs", "fn func1() {}");
@@ -332,7 +353,10 @@ mod integration_tests {
         ];
         let batch = WatchEventBatch::new(events);
 
-        let stats = updater.process_batch(&batch, &mut persistent_index).await.unwrap();
+        let stats = updater
+            .process_batch(&batch, &mut persistent_index)
+            .await
+            .unwrap();
         assert_eq!(stats.files_added, 2);
         assert_eq!(stats.files_modified, 1);
         assert!(stats.chunks_added > 0);
@@ -343,11 +367,11 @@ mod integration_tests {
 #[tokio::test]
 async fn test_watch_error_handling() {
     let temp_dir = TempDir::new().unwrap();
-    
+
     // Try to create a watcher for a non-existent directory
     let non_existent = temp_dir.path().join("does_not_exist");
     let gitignore_filter = GitignoreFilter::new(&non_existent);
-    
+
     // GitignoreFilter creation might succeed even for non-existent path
     if let Ok(filter) = gitignore_filter {
         let result = FileWatcher::new(&non_existent, filter);
@@ -359,10 +383,10 @@ async fn test_watch_error_handling() {
 #[test]
 fn test_watch_event_batch_empty() {
     let batch = WatchEventBatch::new(vec![]);
-    
+
     assert_eq!(batch.events.len(), 0);
     assert_eq!(batch.unique_paths().len(), 0);
-    
+
     let (modified, created, deleted) = batch.group_by_type();
     assert_eq!(modified.len(), 0);
     assert_eq!(created.len(), 0);
@@ -372,7 +396,7 @@ fn test_watch_event_batch_empty() {
 #[test]
 fn test_incremental_stats_default() {
     let stats = IncrementalStats::default();
-    
+
     assert_eq!(stats.files_processed, 0);
     assert_eq!(stats.files_added, 0);
     assert_eq!(stats.files_modified, 0);

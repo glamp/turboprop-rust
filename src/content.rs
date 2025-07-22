@@ -124,7 +124,7 @@ impl FileContent {
     pub fn size(&self) -> u64 {
         self.file_size
     }
-    
+
     /// Get the detected language (if any)
     pub fn language(&self) -> Option<&str> {
         self.language.as_deref()
@@ -136,9 +136,10 @@ pub fn extract_content(path: &Path, _config: &FileDiscoveryConfig) -> Result<Fil
     let processor = ContentProcessor::new();
     let processed = processor.process_file(path)?;
     let metadata = fs::metadata(path)?;
-    
+
     // Simple language detection based on file extension
-    let language = path.extension()
+    let language = path
+        .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_lowercase())
         .and_then(|ext| match ext.as_str() {

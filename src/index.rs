@@ -602,6 +602,12 @@ pub struct SearchIndex {
     chunks: HashMap<ChunkId, DocumentChunk>,
 }
 
+impl Default for SearchIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SearchIndex {
     /// Create a new empty search index
     pub fn new() -> Self {
@@ -612,7 +618,11 @@ impl SearchIndex {
 
     /// Add a chunk to the index
     pub fn add_chunk(&mut self, chunk: DocumentChunk) {
-        let chunk_id = ChunkId::from(format!("{}:{}", chunk.metadata.file_path.display(), chunk.metadata.start_line));
+        let chunk_id = ChunkId::from(format!(
+            "{}:{}",
+            chunk.metadata.file_path.display(),
+            chunk.metadata.start_line
+        ));
         self.chunks.insert(chunk_id, chunk);
     }
 

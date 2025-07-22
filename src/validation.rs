@@ -50,14 +50,16 @@ pub fn validate_config_with_validation_config(
     config: &TurboPropConfig,
     validation_config: &ValidationConfig,
 ) -> Result<()> {
-    validate_embedding_config(&config.embedding, validation_config).context("Invalid embedding configuration")?;
+    validate_embedding_config(&config.embedding, validation_config)
+        .context("Invalid embedding configuration")?;
 
     validate_chunking_config(&config.chunking).context("Invalid chunking configuration")?;
 
     validate_file_discovery_config(&config.file_discovery, validation_config)
         .context("Invalid file discovery configuration")?;
 
-    validate_search_config(&config.search, validation_config).context("Invalid search configuration")?;
+    validate_search_config(&config.search, validation_config)
+        .context("Invalid search configuration")?;
 
     validate_general_config(config, validation_config).context("Invalid general configuration")?;
 

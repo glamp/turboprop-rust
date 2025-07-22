@@ -114,7 +114,7 @@ impl GitignoreFilter {
     pub fn should_include(&self, path: &Path) -> bool {
         if let Some(ref repo) = self.git_repo {
             // If we can't determine if it's ignored, include it by default
-            repo.is_ignored(path).unwrap_or(false) == false
+            !repo.is_ignored(path).unwrap_or(false)
         } else {
             // No git repo, include all files
             true

@@ -13,7 +13,7 @@ use crate::content::{extract_content, FileContent};
 use crate::embeddings::EmbeddingGenerator;
 use crate::files::discover_files;
 use crate::storage::{ChunkMetadata, PersistentIndex};
-use crate::types::{ChunkId, DocumentChunk};
+use crate::types::DocumentChunk;
 use crate::watcher::WatchEventBatch;
 
 /// Statistics for incremental index updates
@@ -41,7 +41,8 @@ impl IncrementalStats {
         if self.files_processed == 0 {
             100.0
         } else {
-            ((self.files_processed - self.files_failed) as f64 / self.files_processed as f64) * 100.0
+            ((self.files_processed - self.files_failed) as f64 / self.files_processed as f64)
+                * 100.0
         }
     }
 
@@ -117,7 +118,11 @@ impl IncrementalUpdater {
                 Ok(removed_chunks) => {
                     stats.files_removed += 1;
                     stats.chunks_removed += removed_chunks;
-                    info!("Removed {} chunks for deleted file: {}", removed_chunks, path.display());
+                    info!(
+                        "Removed {} chunks for deleted file: {}",
+                        removed_chunks,
+                        path.display()
+                    );
                 }
                 Err(e) => {
                     warn!("Failed to process deleted file {}: {}", path.display(), e);
@@ -134,7 +139,11 @@ impl IncrementalUpdater {
                     Ok(added_chunks) => {
                         stats.files_added += 1;
                         stats.chunks_added += added_chunks;
-                        info!("Added {} chunks for new file: {}", added_chunks, path.display());
+                        info!(
+                            "Added {} chunks for new file: {}",
+                            added_chunks,
+                            path.display()
+                        );
                     }
                     Err(e) => {
                         warn!("Failed to process created file {}: {}", path.display(), e);
@@ -144,17 +153,26 @@ impl IncrementalUpdater {
                 stats.files_processed += 1;
             } else if path.is_dir() {
                 // For new directories, discover and process all files within
-                match self.process_created_directory(&path, persistent_index).await {
+                match self
+                    .process_created_directory(&path, persistent_index)
+                    .await
+                {
                     Ok((files_added, chunks_added)) => {
                         stats.files_added += files_added;
                         stats.chunks_added += chunks_added;
                         info!(
                             "Added {} files ({} chunks) from new directory: {}",
-                            files_added, chunks_added, path.display()
+                            files_added,
+                            chunks_added,
+                            path.display()
                         );
                     }
                     Err(e) => {
-                        warn!("Failed to process created directory {}: {}", path.display(), e);
+                        warn!(
+                            "Failed to process created directory {}: {}",
+                            path.display(),
+                            e
+                        );
                         stats.files_failed += 1;
                     }
                 }
@@ -171,7 +189,9 @@ impl IncrementalUpdater {
                         stats.chunks_added += added_chunks;
                         info!(
                             "Updated file {} (removed: {}, added: {} chunks)",
-                            path.display(), removed_chunks, added_chunks
+                            path.display(),
+                            removed_chunks,
+                            added_chunks
                         );
                     }
                     Err(e) => {
@@ -216,7 +236,11 @@ impl IncrementalUpdater {
             persistent_index.remove_chunk(chunk_id);
         }
 
-        debug!("Removed {} chunks for deleted file: {}", removed_count, relative_path.display());
+        debug!(
+            "Removed {} chunks for deleted file: {}",
+            removed_count,
+            relative_path.display()
+        );
         Ok(removed_count)
     }
 
@@ -235,7 +259,9 @@ impl IncrementalUpdater {
             .with_context(|| format!("Failed to extract content from: {}", path.display()))?;
 
         // Generate chunks and embeddings
-        let chunks = self.create_chunks_for_file(&file_content, relative_path).await?;
+        let chunks = self
+            .create_chunks_for_file(&file_content, relative_path)
+            .await?;
         let added_count = chunks.len();
 
         // Add chunks to the index
@@ -243,7 +269,11 @@ impl IncrementalUpdater {
             persistent_index.add_chunk(chunk);
         }
 
-        debug!("Added {} chunks for created file: {}", added_count, relative_path.display());
+        debug!(
+            "Added {} chunks for created file: {}",
+            added_count,
+            relative_path.display()
+        );
         Ok(added_count)
     }
 
@@ -261,20 +291,29 @@ impl IncrementalUpdater {
         let mut chunks_added = 0;
 
         for file_path in discovered_files {
-            match self.process_created_file(&file_path, persistent_index).await {
+            match self
+                .process_created_file(&file_path, persistent_index)
+                .await
+            {
                 Ok(file_chunks) => {
                     files_added += 1;
                     chunks_added += file_chunks;
                 }
                 Err(e) => {
-                    warn!("Failed to process file in new directory {}: {}", file_path.display(), e);
+                    warn!(
+                        "Failed to process file in new directory {}: {}",
+                        file_path.display(),
+                        e
+                    );
                 }
             }
         }
 
         debug!(
             "Processed new directory {} - added {} files with {} chunks",
-            path.display(), files_added, chunks_added
+            path.display(),
+            files_added,
+            chunks_added
         );
         Ok((files_added, chunks_added))
     }
@@ -297,7 +336,9 @@ impl IncrementalUpdater {
 
         debug!(
             "Modified file {} - removed: {}, added: {} chunks",
-            relative_path.display(), removed_count, added_count
+            relative_path.display(),
+            removed_count,
+            added_count
         );
         Ok((removed_count, added_count))
     }
@@ -310,8 +351,12 @@ impl IncrementalUpdater {
     ) -> Result<Vec<DocumentChunk>> {
         use crate::chunking::create_chunks;
 
-        let chunks = create_chunks(file_content, &self.config.chunking)
-            .with_context(|| format!("Failed to create chunks for file: {}", relative_path.display()))?;
+        let chunks = create_chunks(file_content, &self.config.chunking).with_context(|| {
+            format!(
+                "Failed to create chunks for file: {}",
+                relative_path.display()
+            )
+        })?;
 
         let mut document_chunks = Vec::new();
 
@@ -326,7 +371,11 @@ impl IncrementalUpdater {
 
             for (chunk, embedding) in chunk_batch.iter().zip(embeddings.iter()) {
                 let metadata = ChunkMetadata {
-                    id: format!("{}:{}", relative_path.display(), chunk.source_location.start_line),
+                    id: format!(
+                        "{}:{}",
+                        relative_path.display(),
+                        chunk.source_location.start_line
+                    ),
                     file_path: relative_path.to_path_buf(),
                     start_line: chunk.source_location.start_line,
                     end_line: chunk.source_location.end_line,
@@ -360,7 +409,6 @@ mod tests {
     use super::*;
     use crate::config::TurboPropConfig;
     use crate::watcher::WatchEvent;
-    use std::fs;
     use tempfile::TempDir;
 
     #[test]

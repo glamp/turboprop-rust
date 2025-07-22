@@ -28,7 +28,6 @@ const STANDARD_RESULT_LIMIT: usize = 5;
 
 // Test file location constants
 
-
 /// Build a test index for the given directory
 async fn build_test_index(path: &Path) -> Result<PersistentChunkIndex> {
     let config = TurboPropConfig::default();

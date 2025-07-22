@@ -369,7 +369,10 @@ mod tests {
 }
 
 /// Create chunks from file content using the provided chunking configuration
-pub fn create_chunks(file_content: &crate::content::FileContent, config: &ChunkingConfig) -> Result<Vec<ContentChunk>> {
+pub fn create_chunks(
+    file_content: &crate::content::FileContent,
+    config: &ChunkingConfig,
+) -> Result<Vec<ContentChunk>> {
     let processed_content = ProcessedContent {
         content: file_content.content.clone(),
         encoding: file_content.encoding.clone(),
@@ -377,7 +380,7 @@ pub fn create_chunks(file_content: &crate::content::FileContent, config: &Chunki
         line_count: file_content.line_count,
         char_count: file_content.char_count,
     };
-    
+
     let strategy = ChunkingStrategy::new(config.clone());
     strategy.chunk_content(&processed_content, &file_content.file_path)
 }

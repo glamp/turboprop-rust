@@ -52,6 +52,74 @@ const HELP_EXCLUDE_LARGE_FILES: &str =
 const HELP_CHECK_DIRECTORY: &str =
     "Check that the directory is accessible and contains readable files.";
 
+/// Enum for classifying different error types for structured error handling
+#[derive(Debug)]
+enum ErrorType {
+    NoFilesFound,
+    EmbeddingInit,
+    PermissionDenied,
+    DiskSpace,
+    Network,
+    Generic,
+}
+
+/// Error classification and formatting configuration
+struct ErrorInfo {
+    message: &'static str,
+    help_texts: &'static [&'static str],
+}
+
+impl ErrorType {
+    /// Get error information for formatting
+    fn get_info(&self) -> ErrorInfo {
+        match self {
+            ErrorType::NoFilesFound => ErrorInfo {
+                message: "No files found to index",
+                help_texts: &[HELP_NO_FILES_FOUND, HELP_CHECK_GITIGNORE],
+            },
+            ErrorType::EmbeddingInit => ErrorInfo {
+                message: MSG_EMBEDDING_INIT_FAILED,
+                help_texts: &[HELP_MODEL_DOWNLOAD, HELP_RETRY_CONNECTION, HELP_TRY_DIFFERENT_MODEL],
+            },
+            ErrorType::PermissionDenied => ErrorInfo {
+                message: MSG_PERMISSION_DENIED,
+                help_texts: &[HELP_RUN_WITH_PERMISSIONS],
+            },
+            ErrorType::DiskSpace => ErrorInfo {
+                message: MSG_DISK_SPACE,
+                help_texts: &[HELP_DISK_SPACE, HELP_FREE_SPACE, HELP_USE_MAX_FILESIZE],
+            },
+            ErrorType::Network => ErrorInfo {
+                message: MSG_NETWORK_TIMEOUT,
+                help_texts: &[HELP_MODEL_DOWNLOAD_ISSUE, HELP_CHECK_CONNECTION, HELP_USE_CACHE_DIR],
+            },
+            ErrorType::Generic => ErrorInfo {
+                message: "Indexing failed",
+                help_texts: &[HELP_USE_VERBOSE, HELP_EXCLUDE_LARGE_FILES, HELP_CHECK_DIRECTORY],
+            },
+        }
+    }
+
+    /// Classify an error based on its message content
+    fn classify(error: &anyhow::Error) -> Self {
+        let error_str = error.to_string().to_lowercase();
+        
+        if error_str.contains("no files found") {
+            ErrorType::NoFilesFound
+        } else if error_str.contains("failed to initialize embedding generator") {
+            ErrorType::EmbeddingInit
+        } else if error_str.contains("permission denied") {
+            ErrorType::PermissionDenied
+        } else if error_str.contains("disk") || error_str.contains("space") {
+            ErrorType::DiskSpace
+        } else if error_str.contains("timeout") || error_str.contains("network") {
+            ErrorType::Network
+        } else {
+            ErrorType::Generic
+        }
+    }
+}
+
 /// Execute the index command with the provided configuration
 ///
 /// This is the main entry point for the `tp index` command that replaces the
@@ -230,12 +298,14 @@ pub async fn execute_watch_command(
     } else {
         info!("Building initial index...");
         // Build the initial index using the same logic as the regular index command
-        execute_index_command(path, config, show_progress).await
+        execute_index_command(path, config, show_progress)
+            .await
             .context("Failed to build initial index for watch mode")?;
-        
+
         // Now load the index that was just created
-        PersistentIndex::load(path)
-            .with_context(|| format!("Failed to load newly created index for: {}", path.display()))?
+        PersistentIndex::load(path).with_context(|| {
+            format!("Failed to load newly created index for: {}", path.display())
+        })?
     };
 
     // Initialize file watcher
@@ -246,55 +316,53 @@ pub async fn execute_watch_command(
         .with_context(|| format!("Failed to create file watcher for: {}", path.display()))?;
 
     // Initialize incremental updater
-    let mut incremental_updater = IncrementalUpdater::new(config.clone(), path).await
+    let mut incremental_updater = IncrementalUpdater::new(config.clone(), path)
+        .await
         .context("Failed to initialize incremental updater")?;
 
     // Set up signal handler for graceful shutdown
-    let signal_handler = SignalHandler::new()
-        .context("Failed to set up signal handler")?;
+    let signal_handler = SignalHandler::new().context("Failed to set up signal handler")?;
 
     if show_progress {
-        println!("✓ Watching for changes in {} (Press Ctrl+C to stop)", path.display());
+        println!(
+            "✓ Watching for changes in {} (Press Ctrl+C to stop)",
+            path.display()
+        );
         println!("  Initial index: {} chunks", persistent_index.len());
     }
 
     // Main watch loop
     let mut total_stats = IncrementalStats::default();
-    
+
     tokio::select! {
         _ = signal_handler.wait_for_shutdown() => {
             info!("Received shutdown signal, stopping watch mode");
         }
         _ = async {
-            loop {
-                if let Some(batch) = file_watcher.next_batch().await {
-                    if show_progress {
-                        println!("🔄 Processing {} file changes...", batch.events.len());
-                    }
+            while let Some(batch) = file_watcher.next_batch().await {
+                if show_progress {
+                    println!("🔄 Processing {} file changes...", batch.events.len());
+                }
 
-                    match incremental_updater.process_batch(&batch, &mut persistent_index).await {
-                        Ok(stats) => {
-                            if show_progress && (stats.files_added > 0 || stats.files_modified > 0 || stats.files_removed > 0) {
-                                println!(
-                                    "✓ Updated index - {} added, {} modified, {} removed ({} chunks)",
-                                    stats.files_added,
-                                    stats.files_modified, 
-                                    stats.files_removed,
-                                    persistent_index.len()
-                                );
-                            }
-                            total_stats.merge(stats);
+                match incremental_updater.process_batch(&batch, &mut persistent_index).await {
+                    Ok(stats) => {
+                        if show_progress && (stats.files_added > 0 || stats.files_modified > 0 || stats.files_removed > 0) {
+                            println!(
+                                "✓ Updated index - {} added, {} modified, {} removed ({} chunks)",
+                                stats.files_added,
+                                stats.files_modified,
+                                stats.files_removed,
+                                persistent_index.len()
+                            );
                         }
-                        Err(e) => {
-                            warn!("Failed to process file changes: {}", e);
-                            if show_progress {
-                                eprintln!("⚠️  Error processing changes: {}", e);
-                            }
+                        total_stats.merge(stats);
+                    }
+                    Err(e) => {
+                        warn!("Failed to process file changes: {}", e);
+                        if show_progress {
+                            eprintln!("⚠️  Error processing changes: {}", e);
                         }
                     }
-                } else {
-                    // File watcher closed, break the loop
-                    break;
                 }
             }
         } => {
@@ -305,9 +373,7 @@ pub async fn execute_watch_command(
     info!("Watch mode shutting down...");
     info!(
         "Total changes processed - added: {}, modified: {}, removed: {}",
-        total_stats.files_added,
-        total_stats.files_modified,
-        total_stats.files_removed
+        total_stats.files_added, total_stats.files_modified, total_stats.files_removed
     );
 
     if show_progress {
@@ -393,95 +459,31 @@ fn format_watch_error(error: &anyhow::Error, path: &Path) -> String {
     }
 }
 
-/// Format technical errors into user-friendly messages
+/// Format technical errors into user-friendly messages using structured error classification
 fn format_user_error(error: &anyhow::Error, path: &Path) -> String {
-    let error_str = error.to_string().to_lowercase();
-
-    if error_str.contains("no files found") {
-        format_no_files_found_error(path)
-    } else if error_str.contains("failed to initialize embedding generator") {
-        format_embedding_init_error(error)
-    } else if error_str.contains("permission denied") {
-        format_permission_denied_error(error, path)
-    } else if error_str.contains("disk") || error_str.contains("space") {
-        format_disk_space_error(error)
-    } else if error_str.contains("timeout") || error_str.contains("network") {
-        format_network_error(error)
+    let error_type = ErrorType::classify(error);
+    let error_info = error_type.get_info();
+    
+    let message = match error_type {
+        ErrorType::NoFilesFound => format!("No files found to index in '{}'", path.display()),
+        ErrorType::Generic => format!("Indexing failed for '{}'", path.display()),
+        _ => error_info.message.to_string(),
+    };
+    
+    // For permission errors, we need to add path-specific help
+    if matches!(error_type, ErrorType::PermissionDenied) {
+        let path_help = format!("Make sure you have read permissions for the directory: {}", path.display());
+        let mut help_with_path = vec![path_help.as_str()];
+        help_with_path.extend_from_slice(error_info.help_texts);
+        format_error_message(&message, &help_with_path, Some(error))
     } else {
-        format_generic_error(error, path)
+        let error_ref = if matches!(error_type, ErrorType::NoFilesFound) {
+            None
+        } else {
+            Some(error)
+        };
+        format_error_message(&message, error_info.help_texts, error_ref)
     }
-}
-
-/// Format error message for when no files are found to index
-fn format_no_files_found_error(path: &Path) -> String {
-    format_error_message(
-        &format!("No files found to index in '{}'", path.display()),
-        &[HELP_NO_FILES_FOUND, HELP_CHECK_GITIGNORE],
-        None,
-    )
-}
-
-/// Format error message for embedding initialization failures
-fn format_embedding_init_error(error: &anyhow::Error) -> String {
-    format_error_message(
-        MSG_EMBEDDING_INIT_FAILED,
-        &[
-            HELP_MODEL_DOWNLOAD,
-            HELP_RETRY_CONNECTION,
-            HELP_TRY_DIFFERENT_MODEL,
-        ],
-        Some(error),
-    )
-}
-
-/// Format error message for permission denied errors
-fn format_permission_denied_error(error: &anyhow::Error, path: &Path) -> String {
-    format_error_message(
-        MSG_PERMISSION_DENIED,
-        &[
-            &format!(
-                "Make sure you have read permissions for the directory: {}",
-                path.display()
-            ),
-            HELP_RUN_WITH_PERMISSIONS,
-        ],
-        Some(error),
-    )
-}
-
-/// Format error message for disk space related errors
-fn format_disk_space_error(error: &anyhow::Error) -> String {
-    format_error_message(
-        MSG_DISK_SPACE,
-        &[HELP_DISK_SPACE, HELP_FREE_SPACE, HELP_USE_MAX_FILESIZE],
-        Some(error),
-    )
-}
-
-/// Format error message for network and timeout errors
-fn format_network_error(error: &anyhow::Error) -> String {
-    format_error_message(
-        MSG_NETWORK_TIMEOUT,
-        &[
-            HELP_MODEL_DOWNLOAD_ISSUE,
-            HELP_CHECK_CONNECTION,
-            HELP_USE_CACHE_DIR,
-        ],
-        Some(error),
-    )
-}
-
-/// Format generic error message for unclassified errors
-fn format_generic_error(error: &anyhow::Error, path: &Path) -> String {
-    format_error_message(
-        &format!("Indexing failed for '{}'", path.display()),
-        &[
-            HELP_USE_VERBOSE,
-            HELP_EXCLUDE_LARGE_FILES,
-            HELP_CHECK_DIRECTORY,
-        ],
-        Some(error),
-    )
 }
 
 #[cfg(test)]

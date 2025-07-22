@@ -219,9 +219,7 @@ impl IndexingPipeline {
                     );
                 }
                 Err(e) => {
-                    if let Err(processing_error) = self.handle_file_processing_error(file, e) {
-                        return Err(processing_error);
-                    }
+                    self.handle_file_processing_error(file, e)?;
                 }
             }
 
@@ -346,9 +344,7 @@ impl IndexingPipeline {
                     );
                 }
                 Err(e) => {
-                    if let Err(processing_error) = self.handle_file_processing_error(file, e) {
-                        return Err(processing_error);
-                    }
+                    self.handle_file_processing_error(file, e)?;
                 }
             }
 
@@ -374,7 +370,7 @@ impl IndexingPipeline {
         // Create indexed chunks
         let indexed_chunks: Vec<IndexedChunk> = chunks
             .into_iter()
-            .zip(embeddings.into_iter())
+            .zip(embeddings)
             .map(|(chunk, embedding)| IndexedChunk { chunk, embedding })
             .collect();
 

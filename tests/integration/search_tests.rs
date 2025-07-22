@@ -11,6 +11,10 @@ use tp::config::TurboPropConfig;
 use tp::output::OutputFormat;
 use tp::{build_persistent_index, index_exists};
 
+// Import shared test utilities
+mod common;
+use common::create_test_codebase;
+
 /// Helper function to create a test directory with sample files
 fn create_test_codebase() -> Result<TempDir> {
     let temp_dir = TempDir::new()?;

@@ -178,85 +178,67 @@ fn validate_index_inputs(path: &Path, config: &TurboPropConfig) -> Result<()> {
     Ok(())
 }
 
+/// Format a user error message with optional help tips and technical details
+fn format_error_message(
+    main_message: &str,
+    help_tips: &[&str],
+    technical_details: Option<&anyhow::Error>,
+) -> String {
+    let mut message = format!("{} {}", ERROR_ICON, main_message);
+    
+    for tip in help_tips {
+        message.push_str(&format!("\n{} {}", HELP_ICON, tip));
+    }
+    
+    if let Some(details) = technical_details {
+        message.push_str(&format!("\n\nTechnical details: {}", details));
+    }
+    
+    message
+}
+
 /// Format technical errors into user-friendly messages
 fn format_user_error(error: &anyhow::Error, path: &Path) -> String {
     let error_str = error.to_string().to_lowercase();
 
     if error_str.contains("no files found") {
-        format!(
-            "{} {}\n{} {}\n{} {}",
-            ERROR_ICON,
-            format!("No files found to index in '{}'", path.display()),
-            HELP_ICON,
-            HELP_NO_FILES_FOUND,
-            HELP_ICON,
-            HELP_CHECK_GITIGNORE
+        format_error_message(
+            &format!("No files found to index in '{}'", path.display()),
+            &[HELP_NO_FILES_FOUND, HELP_CHECK_GITIGNORE],
+            None,
         )
     } else if error_str.contains("failed to initialize embedding generator") {
-        format!(
-            "{} {}\n{} {}\n{} {}\n{} {}\n\n{}",
-            ERROR_ICON,
+        format_error_message(
             MSG_EMBEDDING_INIT_FAILED,
-            HELP_ICON,
-            HELP_MODEL_DOWNLOAD,
-            HELP_ICON,
-            HELP_RETRY_CONNECTION,
-            HELP_ICON,
-            HELP_TRY_DIFFERENT_MODEL,
-            format!("Technical details: {}", error)
+            &[HELP_MODEL_DOWNLOAD, HELP_RETRY_CONNECTION, HELP_TRY_DIFFERENT_MODEL],
+            Some(error),
         )
     } else if error_str.contains("permission denied") {
-        format!(
-            "{} {}\n{} {}\n{} {}\n\n{}",
-            ERROR_ICON,
+        format_error_message(
             MSG_PERMISSION_DENIED,
-            HELP_ICON,
-            format!(
-                "Make sure you have read permissions for the directory: {}",
-                path.display()
-            ),
-            HELP_ICON,
-            HELP_RUN_WITH_PERMISSIONS,
-            format!("Technical details: {}", error)
+            &[
+                &format!("Make sure you have read permissions for the directory: {}", path.display()),
+                HELP_RUN_WITH_PERMISSIONS,
+            ],
+            Some(error),
         )
     } else if error_str.contains("disk") || error_str.contains("space") {
-        format!(
-            "{} {}\n{} {}\n{} {}\n{} {}\n\n{}",
-            ERROR_ICON,
+        format_error_message(
             MSG_DISK_SPACE,
-            HELP_ICON,
-            HELP_DISK_SPACE,
-            HELP_ICON,
-            HELP_FREE_SPACE,
-            HELP_ICON,
-            HELP_USE_MAX_FILESIZE,
-            format!("Technical details: {}", error)
+            &[HELP_DISK_SPACE, HELP_FREE_SPACE, HELP_USE_MAX_FILESIZE],
+            Some(error),
         )
     } else if error_str.contains("timeout") || error_str.contains("network") {
-        format!(
-            "{} {}\n{} {}\n{} {}\n{} {}\n\n{}",
-            ERROR_ICON,
+        format_error_message(
             MSG_NETWORK_TIMEOUT,
-            HELP_ICON,
-            HELP_MODEL_DOWNLOAD_ISSUE,
-            HELP_ICON,
-            HELP_CHECK_CONNECTION,
-            HELP_ICON,
-            HELP_USE_CACHE_DIR,
-            format!("Technical details: {}", error)
+            &[HELP_MODEL_DOWNLOAD_ISSUE, HELP_CHECK_CONNECTION, HELP_USE_CACHE_DIR],
+            Some(error),
         )
     } else {
-        format!(
-            "{} {}\n{} {}\n{} {}\n{} {}\n\n{}",
-            ERROR_ICON,
-            format!("Indexing failed for '{}'", path.display()),
-            HELP_ICON,
-            HELP_USE_VERBOSE,
-            HELP_ICON,
-            HELP_EXCLUDE_LARGE_FILES,
-            HELP_ICON,
-            HELP_CHECK_DIRECTORY,
-            format!("Technical details: {}", error)
+        format_error_message(
+            &format!("Indexing failed for '{}'", path.display()),
+            &[HELP_USE_VERBOSE, HELP_EXCLUDE_LARGE_FILES, HELP_CHECK_DIRECTORY],
+            Some(error),
         )
     }
 }

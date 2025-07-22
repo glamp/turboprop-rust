@@ -14,6 +14,39 @@ use tp::{build_persistent_index, search_with_config};
 /// Maximum allowed duration for performance tests in seconds
 const PERFORMANCE_TEST_TIMEOUT_SECONDS: u64 = 30;
 
+// Test constants for similarity thresholds and limits
+const HIGH_SIMILARITY_THRESHOLD: f32 = 0.7;
+const MEDIUM_SIMILARITY_THRESHOLD: f32 = 0.5;
+#[allow(dead_code)]
+const LOW_SIMILARITY_THRESHOLD: f32 = 0.1;
+const TEST_SIMILARITY_SCORE: f32 = 0.85;
+#[allow(dead_code)]
+const SIMILARITY_COMPARISON_TOLERANCE: f32 = 1e-6;
+
+// Test result limits
+const SMALL_RESULT_LIMIT: usize = 3;
+const STANDARD_RESULT_LIMIT: usize = 5;
+#[allow(dead_code)]
+const DEFAULT_RESULT_LIMIT: usize = 10;
+#[allow(dead_code)]
+const LARGE_RESULT_LIMIT: usize = 100;
+
+// Query length validation
+#[allow(dead_code)]
+const MAX_QUERY_LENGTH: usize = 1000;
+#[allow(dead_code)]
+const OVER_MAX_QUERY_LENGTH: usize = 1001;
+
+// Test file location constants
+#[allow(dead_code)]
+const TEST_FILE_START_LINE: usize = 42;
+#[allow(dead_code)]
+const TEST_FILE_END_LINE: usize = 44;
+#[allow(dead_code)]
+const TEST_FILE_START_CHAR: usize = 0;
+#[allow(dead_code)]
+const TEST_FILE_END_CHAR: usize = 77;
+
 /// Helper function to create a test directory with sample files
 fn create_test_repo() -> Result<TempDir> {
     let temp_dir = TempDir::new()?;
@@ -156,12 +189,12 @@ async fn build_test_index(path: &Path) -> Result<PersistentChunkIndex> {
 #[tokio::test]
 async fn test_search_config() -> Result<()> {
     let config = SearchConfig::default()
-        .with_limit(5)
-        .with_threshold(0.7)
+        .with_limit(STANDARD_RESULT_LIMIT)
+        .with_threshold(HIGH_SIMILARITY_THRESHOLD)
         .with_parallel(true);
 
-    assert_eq!(config.limit, 5);
-    assert_eq!(config.threshold, Some(0.7));
+    assert_eq!(config.limit, STANDARD_RESULT_LIMIT);
+    assert_eq!(config.threshold, Some(HIGH_SIMILARITY_THRESHOLD));
     assert!(config.parallel);
 
     Ok(())
@@ -222,7 +255,7 @@ async fn test_search_with_threshold() -> Result<()> {
     let temp_path = temp_dir.path();
 
     // Test the search_index function with threshold
-    match search_index(temp_path, "authentication", Some(3), Some(0.5)).await {
+    match search_index(temp_path, "authentication", Some(SMALL_RESULT_LIMIT), Some(MEDIUM_SIMILARITY_THRESHOLD)).await {
         Ok(results) => {
             // Verify all results meet the threshold
             for result in &results {
@@ -494,7 +527,7 @@ fn test_search_result_formatting() {
         embedding: vec![0.1, 0.2, 0.3],
     };
 
-    let result = SearchResult::new(0.85, indexed_chunk, 0);
+    let result = SearchResult::new(TEST_SIMILARITY_SCORE, indexed_chunk, 0);
 
     // Test location display
     assert_eq!(result.location_display(), "src/test.rs:42");
@@ -507,7 +540,7 @@ fn test_search_result_formatting() {
     );
 
     // Test similarity and rank
-    assert_eq!(result.similarity, 0.85);
+    assert_eq!(result.similarity, TEST_SIMILARITY_SCORE);
     assert_eq!(result.rank, 0);
 }
 

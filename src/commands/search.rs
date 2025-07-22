@@ -11,6 +11,9 @@ use crate::filters::SearchFilter;
 use crate::output::{OutputFormat, ResultFormatter};
 use crate::search_with_config;
 
+/// Threshold for warning about large result limits that may impact performance
+const LARGE_RESULT_LIMIT_WARNING_THRESHOLD: usize = 1000;
+
 /// Configuration for the search command
 #[derive(Debug, Clone)]
 pub struct SearchCommandConfig {
@@ -71,7 +74,7 @@ impl SearchCommandConfig {
             anyhow::bail!("Limit must be greater than 0, got: {}", self.limit);
         }
 
-        if self.limit > 1000 {
+        if self.limit > LARGE_RESULT_LIMIT_WARNING_THRESHOLD {
             warn!(
                 "Large result limit specified ({}), this may impact performance",
                 self.limit
@@ -81,7 +84,7 @@ impl SearchCommandConfig {
         // Validate file extension if provided
         if let Some(ref filetype) = self.filetype {
             crate::filters::normalize_file_extension(filetype)
-                .context("Invalid file extension format")?;
+                .with_context(|| format!("File extension validation failed for '{}'", filetype))?;
         }
 
         Ok(())

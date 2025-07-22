@@ -8,6 +8,9 @@ use std::path::Path;
 
 use crate::types::SearchResult;
 
+/// Maximum allowed length for file extensions (including the dot)
+const MAX_EXTENSION_LENGTH: usize = 10;
+
 /// Configuration for filtering search results
 #[derive(Debug, Clone, Default)]
 pub struct FilterConfig {
@@ -74,15 +77,13 @@ impl SearchFilter {
         results: Vec<SearchResult>,
         extension: &str,
     ) -> Result<Vec<SearchResult>> {
-        let filtered: Vec<SearchResult> = results
+        Ok(results
             .into_iter()
             .filter(|result| {
                 let file_path = &result.chunk.chunk.source_location.file_path;
                 self.matches_extension(file_path, extension)
             })
-            .collect();
-
-        Ok(filtered)
+            .collect())
     }
 
     /// Check if a file path matches the given extension
@@ -146,10 +147,11 @@ pub fn normalize_file_extension(input: &str) -> Result<String> {
         );
     }
 
-    if normalized.len() > 10 {
+    if normalized.len() > MAX_EXTENSION_LENGTH {
         anyhow::bail!(
-            "File extension too long: '{}'. Must be 10 characters or less",
-            input
+            "File extension too long: '{}'. Must be {} characters or less",
+            input,
+            MAX_EXTENSION_LENGTH
         );
     }
 

@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::SearchResult;
 
+/// Default number of content lines to show in text output
+pub const DEFAULT_MAX_CONTENT_LINES: usize = 3;
+
 /// Supported output formats for search results
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -67,7 +70,7 @@ impl From<&SearchResult> for JsonSearchResult {
                 .source_location
                 .file_path
                 .to_string_lossy()
-                .to_string(),
+                .into_owned(),
             line_start: result.chunk.chunk.source_location.start_line,
             line_end: result.chunk.chunk.source_location.end_line,
             score: result.similarity,
@@ -80,12 +83,24 @@ impl From<&SearchResult> for JsonSearchResult {
 /// Result formatter that handles different output formats
 pub struct ResultFormatter {
     format: OutputFormat,
+    max_content_lines: usize,
 }
 
 impl ResultFormatter {
-    /// Create a new result formatter with the specified format
+    /// Create a new result formatter with the specified format and default settings
     pub fn new(format: OutputFormat) -> Self {
-        Self { format }
+        Self {
+            format,
+            max_content_lines: DEFAULT_MAX_CONTENT_LINES,
+        }
+    }
+
+    /// Create a new result formatter with custom configuration
+    pub fn with_config(format: OutputFormat, max_content_lines: usize) -> Self {
+        Self {
+            format,
+            max_content_lines,
+        }
     }
 
     /// Format and print search results to stdout
@@ -128,7 +143,7 @@ impl ResultFormatter {
 
             // Content preview with proper indentation
             let lines: Vec<&str> = result.chunk.chunk.content.lines().collect();
-            let max_lines = 3; // Show up to 3 lines of content
+            let max_lines = self.max_content_lines;
 
             for (line_idx, line) in lines.iter().take(max_lines).enumerate() {
                 let line_number = result.chunk.chunk.source_location.start_line + line_idx;

@@ -30,6 +30,7 @@ impl QueryProcessor {
             cache_dir: std::path::PathBuf::from(".turboprop/models"),
             batch_size: index_config.batch_size,
             embedding_dimensions: index_config.embedding_dimensions,
+            batch_size_warning_threshold: 1000, // Use default threshold for query processing
         };
 
         let embedding_generator = EmbeddingGenerator::new(embedding_config)
@@ -92,7 +93,10 @@ pub fn validate_query(query: &str) -> Result<()> {
     }
 
     if trimmed.len() > MAX_QUERY_LENGTH {
-        anyhow::bail!("Search query is too long (maximum {} characters)", MAX_QUERY_LENGTH);
+        anyhow::bail!(
+            "Search query is too long (maximum {} characters)",
+            MAX_QUERY_LENGTH
+        );
     }
 
     Ok(())

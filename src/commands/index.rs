@@ -10,6 +10,35 @@ use tracing::{info, warn};
 use crate::config::TurboPropConfig;
 use crate::pipeline::{IndexingPipeline, PipelineConfig};
 
+// Error message constants for user-friendly error formatting
+const ERROR_ICON: &str = "❌";
+const HELP_ICON: &str = "💡";
+
+const HELP_NO_FILES_FOUND: &str = "Make sure the directory contains files that match the configured file discovery settings.";
+const HELP_CHECK_GITIGNORE: &str = "Check if your .gitignore is excluding too many files, or try --include-untracked.";
+
+const MSG_EMBEDDING_INIT_FAILED: &str = "Failed to initialize the embedding model";
+const HELP_MODEL_DOWNLOAD: &str = "This usually means the model needs to be downloaded or there's a network issue.";
+const HELP_RETRY_CONNECTION: &str = "Try running the command again with a stable internet connection.";
+const HELP_TRY_DIFFERENT_MODEL: &str = "Consider using a different model with --model if the issue persists.";
+
+const MSG_PERMISSION_DENIED: &str = "Permission denied while accessing files";
+const HELP_RUN_WITH_PERMISSIONS: &str = "Try running with appropriate permissions or choose a different directory.";
+
+const MSG_DISK_SPACE: &str = "Insufficient disk space for indexing";
+const HELP_DISK_SPACE: &str = "The indexing process requires space to store the generated index.";
+const HELP_FREE_SPACE: &str = "Free up disk space or try indexing a smaller directory.";
+const HELP_USE_MAX_FILESIZE: &str = "Consider using --max-filesize to limit the files being processed.";
+
+const MSG_NETWORK_TIMEOUT: &str = "Network or timeout issue";
+const HELP_MODEL_DOWNLOAD_ISSUE: &str = "This usually occurs when downloading embedding models.";
+const HELP_CHECK_CONNECTION: &str = "Check your internet connection and try again.";
+const HELP_USE_CACHE_DIR: &str = "Consider using a local cache directory with --cache-dir.";
+
+const HELP_USE_VERBOSE: &str = "Try running with --verbose for more detailed error information.";
+const HELP_EXCLUDE_LARGE_FILES: &str = "Consider using --max-filesize to exclude large files that might be causing issues.";
+const HELP_CHECK_DIRECTORY: &str = "Check that the directory is accessible and contains readable files.";
+
 /// Execute the index command with the provided configuration
 ///
 /// This is the main entry point for the `tp index` command that replaces the
@@ -39,7 +68,7 @@ use crate::pipeline::{IndexingPipeline, PipelineConfig};
 /// # });
 /// ```
 pub async fn execute_index_command(
-    path: &Path, 
+    path: &Path,
     config: &TurboPropConfig,
     show_progress: bool,
 ) -> Result<()> {
@@ -53,29 +82,29 @@ pub async fn execute_index_command(
 
     // Create and execute the indexing pipeline
     let mut pipeline = IndexingPipeline::new(config.clone(), pipeline_config);
-    
+
     match pipeline.execute_persistent(path).await {
         Ok((persistent_index, stats)) => {
             info!("Index command completed successfully");
             info!("Final index size: {} chunks", persistent_index.len());
-            info!("Index saved to: {}", persistent_index.storage_path().display());
-            
+            info!(
+                "Index saved to: {}",
+                persistent_index.storage_path().display()
+            );
+
             // Show warnings if there were any failures, but don't fail the command
             if stats.files_failed > 0 {
                 warn!(
-                    "⚠️  {} out of {} files failed to process, but indexing completed successfully", 
-                    stats.files_failed, 
-                    stats.files_discovered
+                    "⚠️  {} out of {} files failed to process, but indexing completed successfully",
+                    stats.files_failed, stats.files_discovered
                 );
                 warn!("Success rate: {:.1}%", stats.success_rate());
             }
-            
+
             Ok(())
         }
         Err(e) => {
-            Err(e).with_context(|| {
-                format!("Index command failed for path: {}", path.display())
-            })
+            Err(e).with_context(|| format!("Index command failed for path: {}", path.display()))
         }
     }
 }
@@ -116,7 +145,8 @@ fn validate_index_inputs(path: &Path, config: &TurboPropConfig) -> Result<()> {
     }
 
     // Validate configuration
-    config.validate()
+    config
+        .validate()
         .with_context(|| "Invalid configuration provided")?;
 
     // Check if embedding model is reasonable
@@ -129,8 +159,12 @@ fn validate_index_inputs(path: &Path, config: &TurboPropConfig) -> Result<()> {
     }
 
     // Warn about very large batch sizes that might cause memory issues
-    if config.embedding.batch_size > 1000 {
-        warn!("Large batch size ({}), this may cause memory issues", config.embedding.batch_size);
+    if config.embedding.batch_size > config.embedding.batch_size_warning_threshold {
+        warn!(
+            "Large batch size ({}) exceeds threshold ({}), this may cause memory issues",
+            config.embedding.batch_size,
+            config.embedding.batch_size_warning_threshold
+        );
     }
 
     Ok(())
@@ -139,64 +173,79 @@ fn validate_index_inputs(path: &Path, config: &TurboPropConfig) -> Result<()> {
 /// Format technical errors into user-friendly messages
 fn format_user_error(error: &anyhow::Error, path: &Path) -> String {
     let error_str = error.to_string().to_lowercase();
-    
+
     if error_str.contains("no files found") {
         format!(
-            "❌ No files found to index in '{}'\n\
-             💡 Make sure the directory contains files that match the configured file discovery settings.\n\
-             💡 Check if your .gitignore is excluding too many files, or try --include-untracked.",
-            path.display()
+            "{} {}\n{} {}\n{} {}",
+            ERROR_ICON,
+            format!("No files found to index in '{}'", path.display()),
+            HELP_ICON, 
+            HELP_NO_FILES_FOUND,
+            HELP_ICON, 
+            HELP_CHECK_GITIGNORE
         )
     } else if error_str.contains("failed to initialize embedding generator") {
         format!(
-            "❌ Failed to initialize the embedding model\n\
-             💡 This usually means the model needs to be downloaded or there's a network issue.\n\
-             💡 Try running the command again with a stable internet connection.\n\
-             💡 Consider using a different model with --model if the issue persists.\n\
-             \n\
-             Technical details: {}", 
-            error
+            "{} {}\n{} {}\n{} {}\n{} {}\n\n{}",
+            ERROR_ICON,
+            MSG_EMBEDDING_INIT_FAILED,
+            HELP_ICON,
+            HELP_MODEL_DOWNLOAD,
+            HELP_ICON,
+            HELP_RETRY_CONNECTION,
+            HELP_ICON,
+            HELP_TRY_DIFFERENT_MODEL,
+            format!("Technical details: {}", error)
         )
     } else if error_str.contains("permission denied") {
         format!(
-            "❌ Permission denied while accessing files\n\
-             💡 Make sure you have read permissions for the directory: {}\n\
-             💡 Try running with appropriate permissions or choose a different directory.\n\
-             \n\
-             Technical details: {}", 
-            path.display(), 
-            error
+            "{} {}\n{} {}\n{} {}\n\n{}",
+            ERROR_ICON,
+            MSG_PERMISSION_DENIED,
+            HELP_ICON,
+            format!("Make sure you have read permissions for the directory: {}", path.display()),
+            HELP_ICON,
+            HELP_RUN_WITH_PERMISSIONS,
+            format!("Technical details: {}", error)
         )
     } else if error_str.contains("disk") || error_str.contains("space") {
         format!(
-            "❌ Insufficient disk space for indexing\n\
-             💡 The indexing process requires space to store the generated index.\n\
-             💡 Free up disk space or try indexing a smaller directory.\n\
-             💡 Consider using --max-filesize to limit the files being processed.\n\
-             \n\
-             Technical details: {}", 
-            error
+            "{} {}\n{} {}\n{} {}\n{} {}\n\n{}",
+            ERROR_ICON,
+            MSG_DISK_SPACE,
+            HELP_ICON,
+            HELP_DISK_SPACE,
+            HELP_ICON,
+            HELP_FREE_SPACE,
+            HELP_ICON,
+            HELP_USE_MAX_FILESIZE,
+            format!("Technical details: {}", error)
         )
     } else if error_str.contains("timeout") || error_str.contains("network") {
         format!(
-            "❌ Network or timeout issue\n\
-             💡 This usually occurs when downloading embedding models.\n\
-             💡 Check your internet connection and try again.\n\
-             💡 Consider using a local cache directory with --cache-dir.\n\
-             \n\
-             Technical details: {}", 
-            error
+            "{} {}\n{} {}\n{} {}\n{} {}\n\n{}",
+            ERROR_ICON,
+            MSG_NETWORK_TIMEOUT,
+            HELP_ICON,
+            HELP_MODEL_DOWNLOAD_ISSUE,
+            HELP_ICON,
+            HELP_CHECK_CONNECTION,
+            HELP_ICON,
+            HELP_USE_CACHE_DIR,
+            format!("Technical details: {}", error)
         )
     } else {
         format!(
-            "❌ Indexing failed for '{}'\n\
-             💡 Try running with --verbose for more detailed error information.\n\
-             💡 Consider using --max-filesize to exclude large files that might be causing issues.\n\
-             💡 Check that the directory is accessible and contains readable files.\n\
-             \n\
-             Technical details: {}", 
-            path.display(),
-            error
+            "{} {}\n{} {}\n{} {}\n{} {}\n\n{}", 
+            ERROR_ICON,
+            format!("Indexing failed for '{}'", path.display()),
+            HELP_ICON,
+            HELP_USE_VERBOSE,
+            HELP_ICON,
+            HELP_EXCLUDE_LARGE_FILES,
+            HELP_ICON,
+            HELP_CHECK_DIRECTORY,
+            format!("Technical details: {}", error)
         )
     }
 }
@@ -234,7 +283,7 @@ mod tests {
     #[test]
     fn test_validate_config() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Config with zero embedding dimensions should fail
         let mut bad_config = TurboPropConfig::default();
         bad_config.embedding.embedding_dimensions = 0;
@@ -254,7 +303,7 @@ mod tests {
         // Empty directory should fail with "no files found" error
         let result = execute_index_command(temp_dir.path(), &config, false).await;
         assert!(result.is_err());
-        
+
         // Check the full error chain, not just the top-level context
         let error = result.unwrap_err();
         let mut error_chain = vec![error.to_string()];
@@ -263,16 +312,20 @@ mod tests {
             error_chain.push(source.to_string());
             current = source.source();
         }
-        
+
         // Look for "No files found" in any part of the error chain
         let contains_no_files_found = error_chain.iter().any(|msg| msg.contains("No files found"));
-        assert!(contains_no_files_found, "Expected error chain to contain 'No files found', got: {:?}", error_chain);
+        assert!(
+            contains_no_files_found,
+            "Expected error chain to contain 'No files found', got: {:?}",
+            error_chain
+        );
     }
 
     #[test]
     fn test_format_user_error() {
         let temp_path = Path::new("/test/path");
-        
+
         // Test no files found error
         let error = anyhow::anyhow!("No files found to index");
         let formatted = format_user_error(&error, temp_path);
@@ -303,23 +356,31 @@ mod tests {
         let config = TurboPropConfig::default();
 
         // Create test files
-        create_test_file(temp_dir.path(), "test1.txt", "Hello world this is test content");
-        create_test_file(temp_dir.path(), "test2.rs", "fn main() { println!(\"Hello\"); }");
+        create_test_file(
+            temp_dir.path(),
+            "test1.txt",
+            "Hello world this is test content",
+        );
+        create_test_file(
+            temp_dir.path(),
+            "test2.rs",
+            "fn main() { println!(\"Hello\"); }",
+        );
 
         // This test requires network access for embedding model
         // In a real environment, this should work
         let result = execute_index_command(temp_dir.path(), &config, false).await;
-        
+
         // We expect this might fail due to network/model requirements in test environment
         // So we just verify the error message is reasonable if it fails
         if let Err(e) = result {
             let error_str = e.to_string();
             // Common acceptable errors in test environment
             assert!(
-                error_str.contains("embedding") || 
-                error_str.contains("model") || 
-                error_str.contains("network") ||
-                error_str.contains("Failed to initialize")
+                error_str.contains("embedding")
+                    || error_str.contains("model")
+                    || error_str.contains("network")
+                    || error_str.contains("Failed to initialize")
             );
         }
     }

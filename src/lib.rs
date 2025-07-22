@@ -9,6 +9,7 @@ pub mod commands;
 pub mod config;
 pub mod content;
 pub mod embeddings;
+pub mod error_utils;
 pub mod files;
 pub mod git;
 pub mod index;

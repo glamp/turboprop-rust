@@ -30,6 +30,8 @@ pub struct EmbeddingConfig {
     pub batch_size: usize,
     /// Expected embedding dimensions for the model
     pub embedding_dimensions: usize,
+    /// Threshold for warning about large batch sizes that might cause memory issues
+    pub batch_size_warning_threshold: usize,
 }
 
 impl Default for EmbeddingConfig {
@@ -39,6 +41,7 @@ impl Default for EmbeddingConfig {
             cache_dir: PathBuf::from(".turboprop/models"),
             batch_size: 32,
             embedding_dimensions: DEFAULT_EMBEDDING_DIMENSIONS,
+            batch_size_warning_threshold: 1000,
         }
     }
 }
@@ -77,6 +80,12 @@ impl EmbeddingConfig {
     /// Set the embedding dimensions for the model
     pub fn with_embedding_dimensions(mut self, dimensions: usize) -> Self {
         self.embedding_dimensions = dimensions;
+        self
+    }
+
+    /// Set the batch size warning threshold
+    pub fn with_batch_size_warning_threshold(mut self, threshold: usize) -> Self {
+        self.batch_size_warning_threshold = threshold;
         self
     }
 }
@@ -157,10 +166,10 @@ impl EmbeddingGenerator {
         let embeddings = self.model.embed(vec![text], None).with_context(|| {
             format!(
                 "Failed to generate embedding for text: {}",
-                if text.len() > ERROR_MESSAGE_TEXT_PREVIEW_LENGTH { 
-                    &text[..ERROR_MESSAGE_TEXT_PREVIEW_LENGTH] 
-                } else { 
-                    text 
+                if text.len() > ERROR_MESSAGE_TEXT_PREVIEW_LENGTH {
+                    &text[..ERROR_MESSAGE_TEXT_PREVIEW_LENGTH]
+                } else {
+                    text
                 }
             )
         })?;

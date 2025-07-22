@@ -2,8 +2,8 @@ use clap::Parser;
 use tp::cli::{Cli, Commands};
 use tp::commands::execute_index_command_cli;
 use tp::config::{CliConfigOverrides, TurboPropConfig};
-use tp::types::parse_filesize;
 use tp::search_with_config;
+use tp::types::parse_filesize;
 
 /// Default content preview length for search results in CLI
 const DEFAULT_CONTENT_PREVIEW_LENGTH: usize = 80;

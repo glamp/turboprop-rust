@@ -1,7 +1,7 @@
 //! Processing pipeline coordination for indexing operations.
 //!
 //! This module coordinates the complete indexing pipeline from file discovery
-//! through chunking, embedding generation, and persistent storage, with 
+//! through chunking, embedding generation, and persistent storage, with
 //! comprehensive progress reporting and error handling.
 
 use anyhow::{Context, Result};
@@ -11,6 +11,7 @@ use tracing::{debug, info, warn};
 use crate::chunking::ChunkingStrategy;
 use crate::config::TurboPropConfig;
 use crate::embeddings::EmbeddingGenerator;
+use crate::error_utils::{DirectoryErrorContext, ProcessingErrorContext};
 use crate::files::FileDiscovery;
 use crate::index::PersistentChunkIndex;
 use crate::progress::IndexingProgress;
@@ -103,11 +104,12 @@ impl IndexingPipeline {
         // Phase 2: Processing Pipeline
         self.progress.start_processing(files.len())?;
         let index = self.process_files(&files).await?;
-        
+
         // Phase 3: Persistent Storage (if using persistent index)
         let index_path = self.save_persistent_index(path, &index).await?;
-        
-        self.progress.finish_processing(index_path.as_ref().unwrap_or(&PathBuf::from(".turboprop")))?;
+
+        self.progress
+            .finish_processing(index_path.as_ref().unwrap_or(&PathBuf::from(".turboprop")))?;
 
         Ok(PipelineResult {
             index,
@@ -117,8 +119,14 @@ impl IndexingPipeline {
     }
 
     /// Execute pipeline and return a persistent index
-    pub async fn execute_persistent(&mut self, path: &Path) -> Result<(PersistentChunkIndex, crate::progress::IndexingStats)> {
-        info!("Starting persistent indexing pipeline for: {}", path.display());
+    pub async fn execute_persistent(
+        &mut self,
+        path: &Path,
+    ) -> Result<(PersistentChunkIndex, crate::progress::IndexingStats)> {
+        info!(
+            "Starting persistent indexing pipeline for: {}",
+            path.display()
+        );
 
         // Validate input path
         self.validate_path(path)?;
@@ -134,8 +142,10 @@ impl IndexingPipeline {
 
         // Phase 2: Build Persistent Index with Progress Tracking
         self.progress.start_processing(files.len())?;
-        let persistent_index = self.build_persistent_index_with_progress(path, &files).await?;
-        
+        let persistent_index = self
+            .build_persistent_index_with_progress(path, &files)
+            .await?;
+
         let index_path = persistent_index.storage_path();
         self.progress.finish_processing(index_path)?;
 
@@ -158,8 +168,9 @@ impl IndexingPipeline {
     /// Discover files to be indexed
     fn discover_files(&self, path: &Path) -> Result<Vec<FileMetadata>> {
         let discovery = FileDiscovery::new(self.config.file_discovery.clone());
-        let files = discovery.discover_files(path)
-            .with_context(|| format!("Failed to discover files in: {}", path.display()))?;
+        let files = discovery
+            .discover_files(path)
+            .with_dir_read_context(path)?;
 
         debug!("Discovered {} files for indexing", files.len());
         Ok(files)
@@ -167,40 +178,43 @@ impl IndexingPipeline {
 
     /// Process all discovered files through the chunking and embedding pipeline
     async fn process_files(&mut self, files: &[FileMetadata]) -> Result<ChunkIndex> {
-        // Initialize components
-        let mut embedding_generator = EmbeddingGenerator::new(self.config.embedding.clone())
+        let (embedding_generator, chunking_strategy) = self.initialize_processing_components().await?;
+        self.process_files_to_index(files, &chunking_strategy, embedding_generator).await
+    }
+
+    /// Initialize components for file processing
+    async fn initialize_processing_components(&self) -> Result<(EmbeddingGenerator, ChunkingStrategy)> {
+        let embedding_generator = EmbeddingGenerator::new(self.config.embedding.clone())
             .await
             .context("Failed to initialize embedding generator")?;
 
         let chunking_strategy = ChunkingStrategy::new(self.config.chunking.clone());
+        
+        Ok((embedding_generator, chunking_strategy))
+    }
+
+    /// Process files and build in-memory chunk index
+    async fn process_files_to_index(
+        &mut self,
+        files: &[FileMetadata],
+        chunking_strategy: &ChunkingStrategy,
+        mut embedding_generator: EmbeddingGenerator,
+    ) -> Result<ChunkIndex> {
         let mut chunk_index = ChunkIndex::new();
 
-        // Process files with error handling
         for file in files {
-            let result = self.process_single_file(file, &chunking_strategy, &mut embedding_generator).await;
-            
+            let result = self
+                .process_single_file(file, chunking_strategy, &mut embedding_generator)
+                .await;
+
             match result {
                 Ok((chunks, embeddings)) => {
-                    // Record success
-                    self.progress.record_file_success(chunks.len(), embeddings.len());
-                    
-                    // Add to index
-                    chunk_index.add_chunks(chunks, embeddings);
-                    
-                    debug!("Successfully processed: {} ({} chunks)", 
-                        file.path.display(), chunk_index.len());
+                    self.handle_successful_file_processing_for_index(file, chunks, embeddings, &mut chunk_index);
                 }
                 Err(e) => {
-                    // Record failure
-                    self.progress.record_file_failure(&file.path, &e);
-                    
-                    if !self.pipeline_config.continue_on_error {
-                        return Err(e).with_context(|| {
-                            format!("Failed to process file: {}", file.path.display())
-                        });
+                    if let Err(processing_error) = self.handle_file_processing_error(file, e) {
+                        return Err(processing_error);
                     }
-                    
-                    warn!("Skipping file due to error: {} - {}", file.path.display(), e);
                 }
             }
 
@@ -211,6 +225,28 @@ impl IndexingPipeline {
         Ok(chunk_index)
     }
 
+    /// Handle successful file processing for in-memory index
+    fn handle_successful_file_processing_for_index(
+        &mut self,
+        file: &FileMetadata,
+        chunks: Vec<crate::types::ContentChunk>,
+        embeddings: Vec<Vec<f32>>,
+        chunk_index: &mut ChunkIndex,
+    ) {
+        // Record success
+        self.progress
+            .record_file_success(chunks.len(), embeddings.len());
+
+        // Add to index
+        chunk_index.add_chunks(chunks, embeddings);
+
+        debug!(
+            "Successfully processed: {} ({} chunks)",
+            file.path.display(),
+            chunk_index.len()
+        );
+    }
+
     /// Process a single file through the chunking and embedding pipeline
     async fn process_single_file(
         &self,
@@ -219,8 +255,9 @@ impl IndexingPipeline {
         embedding_generator: &mut EmbeddingGenerator,
     ) -> Result<(Vec<crate::types::ContentChunk>, Vec<Vec<f32>>)> {
         // Generate chunks
-        let chunks = chunking_strategy.chunk_file(&file.path)
-            .with_context(|| format!("Failed to chunk file: {}", file.path.display()))?;
+        let chunks = chunking_strategy
+            .chunk_file(&file.path)
+            .with_chunking_context(&file.path)?;
 
         if chunks.is_empty() {
             debug!("No chunks generated for: {}", file.path.display());
@@ -228,13 +265,12 @@ impl IndexingPipeline {
         }
 
         // Prepare text for embedding
-        let chunk_texts: Vec<String> = chunks.iter()
-            .map(|chunk| chunk.content.clone())
-            .collect();
+        let chunk_texts: Vec<String> = chunks.iter().map(|chunk| chunk.content.clone()).collect();
 
         // Generate embeddings
-        let embeddings = embedding_generator.embed_batch(&chunk_texts)
-            .with_context(|| format!("Failed to generate embeddings for: {}", file.path.display()))?;
+        let embeddings = embedding_generator
+            .embed_batch(&chunk_texts)
+            .with_embedding_context(&file.path)?;
 
         Ok((chunks, embeddings))
     }
@@ -245,49 +281,67 @@ impl IndexingPipeline {
         path: &Path,
         files: &[FileMetadata],
     ) -> Result<PersistentChunkIndex> {
-        // Initialize components
-        let mut embedding_generator = EmbeddingGenerator::new(self.config.embedding.clone())
+        let (embedding_generator, chunking_strategy, mut persistent_index) =
+            self.initialize_indexing_components(path).await?;
+
+        let all_indexed_chunks = self
+            .process_files_to_chunks(files, &chunking_strategy, embedding_generator)
+            .await?;
+
+        if !all_indexed_chunks.is_empty() {
+            persistent_index = self.build_and_save_index(path, &all_indexed_chunks).await?;
+        }
+
+        info!(
+            "Built persistent index with {} chunks",
+            persistent_index.len()
+        );
+        Ok(persistent_index)
+    }
+
+    /// Initialize all components needed for indexing
+    async fn initialize_indexing_components(
+        &self,
+        path: &Path,
+    ) -> Result<(EmbeddingGenerator, ChunkingStrategy, PersistentChunkIndex)> {
+        let embedding_generator = EmbeddingGenerator::new(self.config.embedding.clone())
             .await
             .context("Failed to initialize embedding generator")?;
 
         let chunking_strategy = ChunkingStrategy::new(self.config.chunking.clone());
-        let mut persistent_index = PersistentChunkIndex::new(path)
-            .context("Failed to create persistent index")?;
+        let persistent_index =
+            PersistentChunkIndex::new(path).context("Failed to create persistent index")?;
 
+        Ok((embedding_generator, chunking_strategy, persistent_index))
+    }
+
+    /// Process all files and collect indexed chunks
+    async fn process_files_to_chunks(
+        &mut self,
+        files: &[FileMetadata],
+        chunking_strategy: &ChunkingStrategy,
+        mut embedding_generator: EmbeddingGenerator,
+    ) -> Result<Vec<IndexedChunk>> {
         let mut all_indexed_chunks = Vec::new();
 
-        // Process files with error handling
         for file in files {
-            let result = self.process_single_file(file, &chunking_strategy, &mut embedding_generator).await;
-            
+            let result = self
+                .process_single_file(file, chunking_strategy, &mut embedding_generator)
+                .await;
+
             match result {
                 Ok((chunks, embeddings)) => {
-                    // Record success
-                    self.progress.record_file_success(chunks.len(), embeddings.len());
-                    
-                    // Create indexed chunks
-                    let indexed_chunks: Vec<IndexedChunk> = chunks
-                        .into_iter()
-                        .zip(embeddings.into_iter())
-                        .map(|(chunk, embedding)| IndexedChunk { chunk, embedding })
-                        .collect();
-
-                    all_indexed_chunks.extend(indexed_chunks);
-                    
-                    debug!("Successfully processed: {} ({} total chunks)", 
-                        file.path.display(), all_indexed_chunks.len());
+                    self.handle_successful_file_processing(
+                        file,
+                        chunks,
+                        embeddings,
+                        &mut all_indexed_chunks,
+                    );
                 }
                 Err(e) => {
-                    // Record failure
-                    self.progress.record_file_failure(&file.path, &e);
-                    
-                    if !self.pipeline_config.continue_on_error {
-                        return Err(e).with_context(|| {
-                            format!("Failed to process file: {}", file.path.display())
-                        });
+                    if let Err(processing_error) = self.handle_file_processing_error(file, e) {
+                        return Err(processing_error);
                     }
-                    
-                    warn!("Skipping file due to error: {} - {}", file.path.display(), e);
                 }
             }
 
@@ -295,36 +349,93 @@ impl IndexingPipeline {
             self.progress.update_processing(&file.path)?;
         }
 
-        // Save the accumulated chunks to the persistent index
-        if !all_indexed_chunks.is_empty() {
-            // Build the index configuration
-            let index_config = crate::storage::IndexConfig {
-                model_name: self.config.embedding.model_name.clone(),
-                embedding_dimensions: self.config.embedding.embedding_dimensions,
-                batch_size: self.config.embedding.batch_size,
-                respect_gitignore: self.config.file_discovery.respect_gitignore,
-                include_untracked: self.config.file_discovery.include_untracked,
-            };
+        Ok(all_indexed_chunks)
+    }
 
-            // Save to storage
-            persistent_index.storage_path(); // Ensure storage is initialized
-            let storage = crate::storage::IndexStorage::new(path)?;
-            storage.save_index(
-                &all_indexed_chunks,
-                &index_config,
-                &self.config.general.storage_version,
-            )?;
+    /// Handle successful file processing
+    fn handle_successful_file_processing(
+        &mut self,
+        file: &FileMetadata,
+        chunks: Vec<crate::types::ContentChunk>,
+        embeddings: Vec<Vec<f32>>,
+        all_indexed_chunks: &mut Vec<IndexedChunk>,
+    ) {
+        // Record success
+        self.progress
+            .record_file_success(chunks.len(), embeddings.len());
 
-            // Load the saved index to return a properly initialized PersistentChunkIndex
-            persistent_index = PersistentChunkIndex::load(path)?;
+        // Create indexed chunks
+        let indexed_chunks: Vec<IndexedChunk> = chunks
+            .into_iter()
+            .zip(embeddings.into_iter())
+            .map(|(chunk, embedding)| IndexedChunk { chunk, embedding })
+            .collect();
+
+        all_indexed_chunks.extend(indexed_chunks);
+
+        debug!(
+            "Successfully processed: {} ({} total chunks)",
+            file.path.display(),
+            all_indexed_chunks.len()
+        );
+    }
+
+    /// Handle file processing errors
+    fn handle_file_processing_error(
+        &mut self,
+        file: &FileMetadata,
+        e: anyhow::Error,
+    ) -> Result<()> {
+        // Record failure
+        self.progress.record_file_failure(&file.path, &e);
+
+        if !self.pipeline_config.continue_on_error {
+            return Err(e)
+                .with_context(|| format!("Failed to process file: {}", file.path.display()));
         }
 
-        info!("Built persistent index with {} chunks", persistent_index.len());
-        Ok(persistent_index)
+        warn!(
+            "Skipping file due to error: {} - {}",
+            file.path.display(),
+            e
+        );
+
+        Ok(())
+    }
+
+    /// Build index configuration and save to storage
+    async fn build_and_save_index(
+        &self,
+        path: &Path,
+        all_indexed_chunks: &[IndexedChunk],
+    ) -> Result<PersistentChunkIndex> {
+        // Build the index configuration
+        let index_config = crate::storage::IndexConfig {
+            model_name: self.config.embedding.model_name.clone(),
+            embedding_dimensions: self.config.embedding.embedding_dimensions,
+            batch_size: self.config.embedding.batch_size,
+            respect_gitignore: self.config.file_discovery.respect_gitignore,
+            include_untracked: self.config.file_discovery.include_untracked,
+        };
+
+        // Save to storage
+        let storage = crate::storage::IndexStorage::new(path)?;
+        storage.save_index(
+            all_indexed_chunks,
+            &index_config,
+            &self.config.general.storage_version,
+        )?;
+
+        // Load the saved index to return a properly initialized PersistentChunkIndex
+        PersistentChunkIndex::load(path)
     }
 
     /// Save the in-memory index to persistent storage
-    async fn save_persistent_index(&self, _path: &Path, index: &ChunkIndex) -> Result<Option<PathBuf>> {
+    async fn save_persistent_index(
+        &self,
+        _path: &Path,
+        index: &ChunkIndex,
+    ) -> Result<Option<PathBuf>> {
         // For now, we don't save in-memory indexes to persistent storage
         // This would require converting ChunkIndex to the format expected by IndexStorage
         // The persistent path is handled by the execute_persistent method
@@ -381,7 +492,7 @@ mod tests {
     #[tokio::test]
     async fn test_file_discovery() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Create test files
         create_test_file(temp_dir.path(), "test1.txt", "Hello world");
         create_test_file(temp_dir.path(), "test2.rs", "fn main() {}");
@@ -399,7 +510,7 @@ mod tests {
     fn test_pipeline_result() {
         let index = ChunkIndex::new();
         let stats = crate::progress::IndexingStats::default();
-        
+
         let result = PipelineResult {
             index,
             index_path: Some(PathBuf::from(".turboprop")),

@@ -240,11 +240,17 @@ async fn test_index_command_with_small_codebase() {
             let load_result = PersistentChunkIndex::load(temp_dir.path());
             match load_result {
                 Ok(index) => {
-                    println!("Successfully created and loaded index with {} chunks", index.len());
+                    println!(
+                        "Successfully created and loaded index with {} chunks",
+                        index.len()
+                    );
                     assert!(index.len() > 0, "Index should contain chunks");
                 }
                 Err(e) => {
-                    println!("Note: Could not load index (this may be expected in test environment): {}", e);
+                    println!(
+                        "Note: Could not load index (this may be expected in test environment): {}",
+                        e
+                    );
                 }
             }
         }
@@ -252,14 +258,18 @@ async fn test_index_command_with_small_codebase() {
             let error_str = e.to_string();
             // Accept common errors in test environment
             assert!(
-                error_str.contains("embedding") || 
-                error_str.contains("model") || 
-                error_str.contains("network") ||
-                error_str.contains("Failed to initialize") ||
-                error_str.contains("No files found"),
-                "Unexpected error type: {}", e
+                error_str.contains("embedding")
+                    || error_str.contains("model")
+                    || error_str.contains("network")
+                    || error_str.contains("Failed to initialize")
+                    || error_str.contains("No files found"),
+                "Unexpected error type: {}",
+                e
             );
-            println!("Test skipped due to expected error in test environment: {}", e);
+            println!(
+                "Test skipped due to expected error in test environment: {}",
+                e
+            );
         }
     }
 }
@@ -272,14 +282,15 @@ async fn test_index_command_error_handling() {
     // Test with empty directory
     let result = execute_index_command(temp_dir.path(), &config, false).await;
     assert!(result.is_err(), "Should fail with empty directory");
-    
+
     let error = result.unwrap_err();
     let error_str = error.to_string();
     assert!(
-        error_str.contains("No files found") ||
-        error_str.contains("empty") ||
-        error_str.contains("Index command failed"),
-        "Should indicate indexing failure, got: {}", error
+        error_str.contains("No files found")
+            || error_str.contains("empty")
+            || error_str.contains("Index command failed"),
+        "Should indicate indexing failure, got: {}",
+        error
     );
 }
 
@@ -291,11 +302,11 @@ async fn test_index_command_with_unreadable_files() {
     }
 
     let temp_dir = TempDir::new().unwrap();
-    
+
     // Create some normal files
     create_test_file(temp_dir.path(), "normal.txt", "This is normal content");
     create_test_file(temp_dir.path(), "another.rs", "fn main() { println!(); }");
-    
+
     // Create a very large file that might cause issues
     let large_content = "a".repeat(10_000_000); // 10MB of 'a's
     create_test_file(temp_dir.path(), "large.txt", &large_content);
@@ -317,13 +328,14 @@ async fn test_index_command_with_unreadable_files() {
             let error_str = e.to_string();
             // Accept common errors in test environment or legitimate processing errors
             assert!(
-                error_str.contains("embedding") || 
-                error_str.contains("model") || 
-                error_str.contains("network") ||
-                error_str.contains("Failed to initialize") ||
-                error_str.contains("too large") ||
-                error_str.contains("memory"),
-                "Unexpected error type: {}", e
+                error_str.contains("embedding")
+                    || error_str.contains("model")
+                    || error_str.contains("network")
+                    || error_str.contains("Failed to initialize")
+                    || error_str.contains("too large")
+                    || error_str.contains("memory"),
+                "Unexpected error type: {}",
+                e
             );
             println!("Test handled error appropriately: {}", e);
         }
@@ -338,9 +350,13 @@ async fn test_index_directory_structure() {
     }
 
     let temp_dir = TempDir::new().unwrap();
-    
+
     // Create test content
-    create_test_file(temp_dir.path(), "test.txt", "Simple test content for indexing");
+    create_test_file(
+        temp_dir.path(),
+        "test.txt",
+        "Simple test content for indexing",
+    );
 
     let config = TurboPropConfig::default();
 
@@ -349,11 +365,14 @@ async fn test_index_directory_structure() {
 
     // Check if the expected directory structure exists after indexing attempt
     let index_base_dir = temp_dir.path().join(".turboprop");
-    
+
     if result.is_ok() {
         // If indexing succeeded, verify the structure
-        assert!(index_base_dir.exists(), "Base .turboprop directory should exist");
-        
+        assert!(
+            index_base_dir.exists(),
+            "Base .turboprop directory should exist"
+        );
+
         let index_dir = index_base_dir.join("index");
         assert!(index_dir.exists(), "Index subdirectory should exist");
 
@@ -366,7 +385,10 @@ async fn test_index_directory_structure() {
             }
         }
     } else {
-        println!("Indexing failed (expected in test environment): {}", result.unwrap_err());
+        println!(
+            "Indexing failed (expected in test environment): {}",
+            result.unwrap_err()
+        );
     }
 }
 
@@ -378,9 +400,13 @@ async fn test_index_persistence() {
     }
 
     let temp_dir = TempDir::new().unwrap();
-    
+
     // Create test content
-    create_test_file(temp_dir.path(), "persistent_test.txt", "Content for persistence testing");
+    create_test_file(
+        temp_dir.path(),
+        "persistent_test.txt",
+        "Content for persistence testing",
+    );
 
     let config = TurboPropConfig::default();
 
@@ -393,13 +419,20 @@ async fn test_index_persistence() {
         match load_result {
             Ok(index) => {
                 let initial_chunk_count = index.len();
-                println!("Successfully loaded persistent index with {} chunks", initial_chunk_count);
-                
+                println!(
+                    "Successfully loaded persistent index with {} chunks",
+                    initial_chunk_count
+                );
+
                 // Add another file and re-index
-                create_test_file(temp_dir.path(), "additional.txt", "Additional content for testing updates");
-                
+                create_test_file(
+                    temp_dir.path(),
+                    "additional.txt",
+                    "Additional content for testing updates",
+                );
+
                 let result2 = execute_index_command(temp_dir.path(), &config, false).await;
-                
+
                 if result2.is_ok() {
                     // Verify the index was updated
                     let updated_index = PersistentChunkIndex::load(temp_dir.path());
@@ -414,7 +447,10 @@ async fn test_index_persistence() {
             }
         }
     } else {
-        println!("Initial indexing failed (expected in test environment): {}", result1.unwrap_err());
+        println!(
+            "Initial indexing failed (expected in test environment): {}",
+            result1.unwrap_err()
+        );
     }
 }
 
@@ -425,9 +461,9 @@ mod unit_tests {
     #[test]
     fn test_create_test_files() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         let file_path = create_test_file(temp_dir.path(), "test.txt", "test content");
-        
+
         assert!(file_path.exists());
         let content = fs::read_to_string(&file_path).unwrap();
         assert_eq!(content, "test content");
@@ -436,16 +472,23 @@ mod unit_tests {
     #[test]
     fn test_create_test_codebase() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         create_test_codebase(temp_dir.path());
-        
+
         // Verify all expected files were created
-        let expected_files = ["main.rs", "lib.rs", "app.js", "utils.py", "README.md", "config.yaml"];
-        
+        let expected_files = [
+            "main.rs",
+            "lib.rs",
+            "app.js",
+            "utils.py",
+            "README.md",
+            "config.yaml",
+        ];
+
         for file in &expected_files {
             let file_path = temp_dir.path().join(file);
             assert!(file_path.exists(), "Expected file {} should exist", file);
-            
+
             let content = fs::read_to_string(&file_path).unwrap();
             assert!(!content.is_empty(), "File {} should not be empty", file);
         }

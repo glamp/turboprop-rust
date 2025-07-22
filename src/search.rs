@@ -200,7 +200,6 @@ impl SearchEngine {
     }
 }
 
-
 /// Convenience function to perform a simple search
 pub async fn search_index<P: AsRef<Path>>(
     index_path: P,
@@ -288,7 +287,6 @@ mod tests {
 
     // Integration tests would require actual index files, so we'll create unit tests
     // that test the core functionality with mock data
-
 
     #[test]
     fn test_process_results_threshold() {

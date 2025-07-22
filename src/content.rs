@@ -1,7 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use encoding_rs::{Encoding, UTF_8};
 use std::fs;
 use std::path::Path;
+
+use crate::error_utils::FileErrorContext;
 
 pub struct ContentProcessor {
     max_file_size_bytes: Option<u64>,
@@ -37,7 +39,7 @@ impl ContentProcessor {
 
     pub fn process_file(&self, file_path: &Path) -> Result<ProcessedContent> {
         let metadata = fs::metadata(file_path)
-            .with_context(|| format!("Failed to get metadata for: {}", file_path.display()))?;
+            .with_file_metadata_context(file_path)?;
 
         if let Some(max_size) = self.max_file_size_bytes {
             if metadata.len() > max_size {
@@ -49,7 +51,7 @@ impl ContentProcessor {
         }
 
         let raw_bytes = fs::read(file_path)
-            .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
+            .with_file_read_context(file_path)?;
 
         if raw_bytes.is_empty() {
             return Ok(ProcessedContent {

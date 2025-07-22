@@ -4,11 +4,16 @@
 //! for long-running indexing operations to give users clear feedback.
 
 use anyhow::Result;
-use indicatif::{ProgressBar, ProgressStyle, ProgressState};
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use std::fmt::Write;
 use std::path::Path;
 use std::time::{Duration, Instant};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+
+// Constants for reasonable limits to prevent resource exhaustion
+const MAX_FILE_COUNT: usize = 10_000_000;  // 10 million files max
+const MAX_CHUNKS_PER_FILE: usize = 100_000; // 100k chunks per file max
+const MAX_EMBEDDINGS_PER_FILE: usize = 100_000; // 100k embeddings per file max
 
 /// Progress tracker for the complete indexing pipeline
 pub struct IndexingProgress {
@@ -41,6 +46,54 @@ pub struct IndexingStats {
     pub failed_files: Vec<String>,
 }
 
+impl IndexingStats {
+    /// Validate that statistics are consistent and within reasonable bounds
+    pub fn validate(&self) -> Result<()> {
+        // Check that processed + failed doesn't exceed discovered
+        if self.files_processed + self.files_failed > self.files_discovered {
+            anyhow::bail!(
+                "Invalid statistics: processed ({}) + failed ({}) exceeds discovered ({})",
+                self.files_processed, self.files_failed, self.files_discovered
+            );
+        }
+        
+        // Check that no individual count exceeds maximum limits
+        if self.files_discovered > MAX_FILE_COUNT {
+            anyhow::bail!("Files discovered {} exceeds maximum limit {}", self.files_discovered, MAX_FILE_COUNT);
+        }
+        
+        // Check for reasonable ratios - warn if chunks per file is extremely high
+        if self.files_processed > 0 {
+            let avg_chunks_per_file = self.chunks_created / self.files_processed;
+            if avg_chunks_per_file > MAX_CHUNKS_PER_FILE {
+                warn!("Average chunks per file ({}) is very high, may indicate an issue", avg_chunks_per_file);
+            }
+            
+            let avg_embeddings_per_file = self.embeddings_generated / self.files_processed;
+            if avg_embeddings_per_file > MAX_EMBEDDINGS_PER_FILE {
+                warn!("Average embeddings per file ({}) is very high, may indicate an issue", avg_embeddings_per_file);
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Get the total number of files that were attempted to be processed
+    pub fn total_attempted_files(&self) -> usize {
+        self.files_processed + self.files_failed
+    }
+    
+    /// Get the success rate as a percentage
+    pub fn success_rate(&self) -> f64 {
+        let total = self.total_attempted_files();
+        if total == 0 {
+            100.0
+        } else {
+            (self.files_processed as f64 / total as f64) * 100.0
+        }
+    }
+}
+
 impl IndexingProgress {
     /// Create a new progress tracker
     pub fn new(enabled: bool) -> Self {
@@ -63,9 +116,7 @@ impl IndexingProgress {
         let spinner = ProgressBar::new_spinner();
         spinner.set_style(
             ProgressStyle::with_template("{spinner:.green} {msg}")?
-                .tick_strings(&[
-                    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
-                ]),
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
         spinner.set_message("Discovering files...");
         spinner.enable_steady_tick(Duration::from_millis(100));
@@ -76,7 +127,13 @@ impl IndexingProgress {
 
     /// Finish file discovery and show results
     pub fn finish_discovery(&mut self, file_count: usize) -> Result<()> {
-        self.stats.files_discovered = file_count;
+        // Validate file count is within reasonable limits
+        if file_count > MAX_FILE_COUNT {
+            warn!("File count {} exceeds maximum limit {}, clamping to limit", file_count, MAX_FILE_COUNT);
+            self.stats.files_discovered = MAX_FILE_COUNT;
+        } else {
+            self.stats.files_discovered = file_count;
+        }
 
         if let Some(spinner) = &self.discovery_spinner {
             spinner.finish_with_message(format!("✓ Found {} files", file_count));
@@ -90,12 +147,20 @@ impl IndexingProgress {
 
     /// Start the file processing phase with a progress bar
     pub fn start_processing(&mut self, total_files: usize) -> Result<()> {
+        // Validate total files count is within reasonable limits
+        let validated_total_files = if total_files > MAX_FILE_COUNT {
+            warn!("Total files count {} exceeds maximum limit {}, clamping to limit", total_files, MAX_FILE_COUNT);
+            MAX_FILE_COUNT
+        } else {
+            total_files
+        };
+
         if !self.enabled {
-            info!("Starting file processing ({} files)...", total_files);
+            info!("Starting file processing ({} files)...", validated_total_files);
             return Ok(());
         }
 
-        let bar = ProgressBar::new(total_files as u64);
+        let bar = ProgressBar::new(validated_total_files as u64);
         bar.set_style(
             ProgressStyle::with_template(
                 "Processing files... [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} files {msg}"
@@ -126,16 +191,41 @@ impl IndexingProgress {
 
     /// Record successful processing of a file
     pub fn record_file_success(&mut self, chunks_created: usize, embeddings_generated: usize) {
-        self.stats.files_processed += 1;
-        self.stats.chunks_created += chunks_created;
-        self.stats.embeddings_generated += embeddings_generated;
+        // Validate chunks and embeddings counts are within reasonable limits
+        let validated_chunks = if chunks_created > MAX_CHUNKS_PER_FILE {
+            warn!("Chunks created {} exceeds maximum limit {} for a single file, clamping to limit", 
+                  chunks_created, MAX_CHUNKS_PER_FILE);
+            MAX_CHUNKS_PER_FILE
+        } else {
+            chunks_created
+        };
+
+        let validated_embeddings = if embeddings_generated > MAX_EMBEDDINGS_PER_FILE {
+            warn!("Embeddings generated {} exceeds maximum limit {} for a single file, clamping to limit", 
+                  embeddings_generated, MAX_EMBEDDINGS_PER_FILE);
+            MAX_EMBEDDINGS_PER_FILE
+        } else {
+            embeddings_generated
+        };
+
+        // Use checked arithmetic to prevent overflow
+        self.stats.files_processed = self.stats.files_processed.saturating_add(1);
+        self.stats.chunks_created = self.stats.chunks_created.saturating_add(validated_chunks);
+        self.stats.embeddings_generated = self.stats.embeddings_generated.saturating_add(validated_embeddings);
     }
 
     /// Record failed processing of a file
     pub fn record_file_failure(&mut self, file_path: &Path, error: &anyhow::Error) {
-        self.stats.files_failed += 1;
-        self.stats.failed_files.push(format!("{}: {}", file_path.display(), error));
-        debug!("File processing failed: {} - {}", file_path.display(), error);
+        // Use saturating arithmetic to prevent overflow
+        self.stats.files_failed = self.stats.files_failed.saturating_add(1);
+        self.stats
+            .failed_files
+            .push(format!("{}: {}", file_path.display(), error));
+        debug!(
+            "File processing failed: {} - {}",
+            file_path.display(),
+            error
+        );
     }
 
     /// Finish processing and show final summary
@@ -154,10 +244,9 @@ impl IndexingProgress {
         let duration = self.start_time.elapsed();
         let duration_str = humantime::format_duration(duration);
 
-        println!("Generated {} chunks from {} files in {}", 
-            self.stats.chunks_created, 
-            self.stats.files_processed, 
-            duration_str
+        println!(
+            "Generated {} chunks from {} files in {}",
+            self.stats.chunks_created, self.stats.files_processed, duration_str
         );
 
         if self.stats.files_failed > 0 {
@@ -172,7 +261,7 @@ impl IndexingProgress {
         // Log detailed statistics
         info!("Indexing completed - Files discovered: {}, processed: {}, failed: {}, chunks: {}, embeddings: {}, duration: {:?}",
             self.stats.files_discovered,
-            self.stats.files_processed, 
+            self.stats.files_processed,
             self.stats.files_failed,
             self.stats.chunks_created,
             self.stats.embeddings_generated,
@@ -198,20 +287,6 @@ impl IndexingProgress {
     }
 }
 
-impl IndexingStats {
-    /// Calculate success rate as a percentage
-    pub fn success_rate(&self) -> f64 {
-        if self.files_discovered == 0 {
-            return 100.0;
-        }
-        (self.files_processed as f64 / self.files_discovered as f64) * 100.0
-    }
-
-    /// Get total files that were attempted for processing
-    pub fn total_attempted(&self) -> usize {
-        self.files_processed + self.files_failed
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -235,13 +310,13 @@ mod tests {
         stats.files_failed = 2;
 
         assert_eq!(stats.success_rate(), 80.0);
-        assert_eq!(stats.total_attempted(), 10);
+        assert_eq!(stats.total_attempted_files(), 10);
     }
 
     #[test]
     fn test_record_operations() {
         let mut progress = IndexingProgress::new(false);
-        
+
         progress.record_file_success(5, 5);
         assert_eq!(progress.stats.files_processed, 1);
         assert_eq!(progress.stats.chunks_created, 5);
@@ -257,12 +332,16 @@ mod tests {
     #[test]
     fn test_disabled_progress() {
         let mut progress = IndexingProgress::new(false);
-        
+
         // These should not panic even when disabled
         assert!(progress.start_discovery().is_ok());
         assert!(progress.finish_discovery(5).is_ok());
         assert!(progress.start_processing(5).is_ok());
-        assert!(progress.update_processing(&PathBuf::from("test.txt")).is_ok());
-        assert!(progress.finish_processing(&PathBuf::from(".turboprop")).is_ok());
+        assert!(progress
+            .update_processing(&PathBuf::from("test.txt"))
+            .is_ok());
+        assert!(progress
+            .finish_processing(&PathBuf::from(".turboprop"))
+            .is_ok());
     }
 }

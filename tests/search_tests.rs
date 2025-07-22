@@ -431,7 +431,8 @@ async fn test_search_performance_baseline() -> Result<()> {
             let duration = start.elapsed();
             assert!(
                 duration.as_secs() < PERFORMANCE_TEST_TIMEOUT_SECONDS,
-                "Search should complete within {} seconds", PERFORMANCE_TEST_TIMEOUT_SECONDS
+                "Search should complete within {} seconds",
+                PERFORMANCE_TEST_TIMEOUT_SECONDS
             );
             println!("Search completed in {:?}", duration);
         }

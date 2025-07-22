@@ -1,5 +1,5 @@
 use crate::content::{ContentProcessor, ProcessedContent};
-use crate::types::{ChunkingConfig, ChunkIndexNum, ContentChunk, SourceLocation};
+use crate::types::{ChunkingConfig, ContentChunk, SourceLocation};
 use anyhow::{Context, Result};
 use std::path::Path;
 use unicode_segmentation::UnicodeSegmentation;
@@ -263,7 +263,7 @@ impl Default for ChunkingStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ChunkingConfig;
+    use crate::types::{ChunkIndexNum, ChunkingConfig};
     use std::io::Write;
     use tempfile::NamedTempFile;
 

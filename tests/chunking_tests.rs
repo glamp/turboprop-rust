@@ -1,7 +1,11 @@
 use std::io::Write;
 use std::path::Path;
 use tempfile::NamedTempFile;
-use tp::{chunking::ChunkingStrategy, content::ContentProcessor, types::{ChunkingConfig, ChunkIndexNum}};
+use tp::{
+    chunking::ChunkingStrategy,
+    content::ContentProcessor,
+    types::{ChunkIndexNum, ChunkingConfig},
+};
 
 #[test]
 fn test_chunking_poker_typescript_files() {

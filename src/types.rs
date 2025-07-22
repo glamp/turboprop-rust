@@ -471,7 +471,7 @@ mod tests {
     fn test_search_result() {
         // Test-specific constant for content preview length
         const TEST_CONTENT_PREVIEW_LENGTH: usize = 100;
-        
+
         let chunk = ContentChunk {
             id: "test-chunk".into(),
             content: "This is a test chunk with some content".to_string(),

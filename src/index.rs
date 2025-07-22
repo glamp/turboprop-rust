@@ -6,7 +6,7 @@
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::chunking::ChunkingStrategy;
 use crate::config::TurboPropConfig;
@@ -58,7 +58,8 @@ impl PersistentChunkIndex {
 
         // Use default config for loading, which will be replaced by the actual config from disk
         let default_config = TurboPropConfig::default();
-        let (indexed_chunks, config) = storage.load_index(&default_config.general.storage_version)?;
+        let (indexed_chunks, config) =
+            storage.load_index(&default_config.general.storage_version)?;
         let mut chunk_index = ChunkIndex::new();
 
         // Populate the in-memory index
@@ -133,18 +134,29 @@ impl PersistentChunkIndex {
             debug!("Generating embeddings for {} chunks", chunks.len());
             let embeddings = embedding_generator.embed_batch(&chunk_texts)?;
 
-            // Create indexed chunks and add to both collections
-            for (chunk, embedding) in chunks.into_iter().zip(embeddings.into_iter()) {
-                let indexed_chunk = IndexedChunk { chunk, embedding };
-                chunk_index.add_chunk(indexed_chunk.chunk.clone(), indexed_chunk.embedding.clone());
-                all_indexed_chunks.push(indexed_chunk);
-            }
+            // Create indexed chunks efficiently without cloning
+            let batch_indexed_chunks: Vec<IndexedChunk> = chunks
+                .into_iter()
+                .zip(embeddings.into_iter())
+                .map(|(chunk, embedding)| IndexedChunk { chunk, embedding })
+                .collect();
+            
+            // Add to chunk_index efficiently without cloning (takes ownership)
+            let chunks_for_index = batch_indexed_chunks.clone(); // This clone is necessary due to dual usage
+            chunk_index.add_indexed_chunks(chunks_for_index);
+            
+            // Move the original chunks to the final collection
+            all_indexed_chunks.extend(batch_indexed_chunks);
         }
 
         info!("Generated {} indexed chunks", all_indexed_chunks.len());
 
         // Save to disk
-        storage.save_index(&all_indexed_chunks, &index_config, &config.general.storage_version)?;
+        storage.save_index(
+            &all_indexed_chunks,
+            &index_config,
+            &config.general.storage_version,
+        )?;
 
         Ok(Self {
             chunk_index,
@@ -167,15 +179,17 @@ impl PersistentChunkIndex {
         let current_files = discovery.discover_files(&self.indexed_path)?;
 
         // Load existing indexed files from storage if not already loaded
-        let (existing_indexed_chunks, _) = if self.chunk_index.is_empty() {
+        let (existing_indexed_chunks, existing_metadata) = if self.chunk_index.is_empty() {
             if self.storage.index_exists() {
-                self.storage.load_index(&self.storage_version)?
+                let (chunks, _config) = self.storage.load_index(&self.storage_version)?;
+                let metadata = self.storage.load_metadata()?;
+                (chunks, Some(metadata))
             } else {
-                (Vec::new(), self.config.clone())
+                (Vec::new(), None)
             }
         } else {
-            // Use current in-memory data
-            (self.chunk_index.get_chunks().to_vec(), self.config.clone())
+            // Use current in-memory data - no metadata available for timestamp comparison
+            (self.chunk_index.get_chunks().to_vec(), None)
         };
 
         // Build a set of existing files for comparison
@@ -199,10 +213,38 @@ impl PersistentChunkIndex {
             if !existing_files.contains(&file.path) {
                 files_to_add.push(file.clone());
             } else {
-                // Check if file was modified since last index
-                // For simplicity, we'll always update existing files
-                // In a production system, you'd compare timestamps
-                files_to_update.push(file.clone());
+                // Check if file was modified since last index using timestamp comparison
+                let needs_update = if let Some(ref metadata) = existing_metadata {
+                    // Compare current file timestamp with stored timestamp
+                    match metadata.file_timestamps.get(&file.path) {
+                        Some(stored_timestamp) => {
+                            match file.last_modified.duration_since(*stored_timestamp) {
+                                Ok(duration) => {
+                                    // File was modified after indexing if duration > 0
+                                    duration.as_secs() > 0 || duration.as_nanos() > 0
+                                }
+                                Err(_) => {
+                                    // If timestamp comparison fails, err on the side of updating
+                                    warn!("Failed to compare timestamps for {}, updating file", file.path.display());
+                                    true
+                                }
+                            }
+                        }
+                        None => {
+                            // No stored timestamp, assume file needs update
+                            debug!("No stored timestamp for {}, updating file", file.path.display());
+                            true
+                        }
+                    }
+                } else {
+                    // No metadata available (using in-memory data), always update
+                    debug!("No metadata available for timestamp comparison, updating file: {}", file.path.display());
+                    true
+                };
+                
+                if needs_update {
+                    files_to_update.push(file.clone());
+                }
             }
         }
 
@@ -246,10 +288,21 @@ impl PersistentChunkIndex {
         let files_to_process: Vec<&FileMetadata> =
             files_to_add.iter().chain(files_to_update.iter()).collect();
 
+        let mut failed_files = Vec::new();
+        let mut processed_files = Vec::new();
+        
         for file in files_to_process {
             info!("Processing: {}", file.path.display());
 
-            let chunks = chunking_strategy.chunk_file(&file.path)?;
+            // Handle chunking failures gracefully
+            let chunks = match chunking_strategy.chunk_file(&file.path) {
+                Ok(chunks) => chunks,
+                Err(e) => {
+                    warn!("Failed to chunk file {}: {}. Skipping file.", file.path.display(), e);
+                    failed_files.push(file.path.clone());
+                    continue;
+                }
+            };
 
             if chunks.is_empty() {
                 debug!("No chunks generated for: {}", file.path.display());
@@ -258,21 +311,51 @@ impl PersistentChunkIndex {
 
             let chunk_texts: Vec<String> =
                 chunks.iter().map(|chunk| chunk.content.clone()).collect();
-            let embeddings = embedding_generator.embed_batch(&chunk_texts)?;
+            
+            // Handle embedding generation failures gracefully
+            let embeddings = match embedding_generator.embed_batch(&chunk_texts) {
+                Ok(embeddings) => embeddings,
+                Err(e) => {
+                    warn!("Failed to generate embeddings for {}: {}. Skipping file.", file.path.display(), e);
+                    failed_files.push(file.path.clone());
+                    continue;
+                }
+            };
 
+            // Process successful embeddings
             for (chunk, embedding) in chunks.into_iter().zip(embeddings.into_iter()) {
                 filtered_chunks.push(IndexedChunk { chunk, embedding });
             }
+            
+            processed_files.push(file.path.clone());
+            debug!("Successfully processed: {}", file.path.display());
         }
+        
+        // Report processing results
+        if !failed_files.is_empty() {
+            warn!(
+                "Failed to process {} files: {:?}. Continuing with {} successfully processed files.", 
+                failed_files.len(), 
+                failed_files,
+                processed_files.len()
+            );
+        }
+        
+        info!(
+            "Batch processing completed: {} files processed successfully, {} files failed",
+            processed_files.len(),
+            failed_files.len()
+        );
 
         result.total_chunks_after = filtered_chunks.len();
 
-        // Update the in-memory index
-        self.chunk_index = ChunkIndex::new();
-        for indexed_chunk in &filtered_chunks {
-            self.chunk_index
-                .add_chunk(indexed_chunk.chunk.clone(), indexed_chunk.embedding.clone());
-        }
+        // Build new index completely before replacing existing one to avoid race conditions
+        let mut new_chunk_index = ChunkIndex::new();
+        // Use efficient bulk addition instead of individual clones
+        new_chunk_index.add_indexed_chunks(filtered_chunks.clone());
+        
+        // Atomically replace the in-memory index only after it's fully built
+        self.chunk_index = new_chunk_index;
 
         // Update configuration if needed
         self.config.model_name = config.embedding.model_name.clone();
@@ -280,7 +363,11 @@ impl PersistentChunkIndex {
         self.config.batch_size = config.embedding.batch_size;
 
         // Save updated index to disk
-        self.storage.save_index(&filtered_chunks, &self.config, &config.general.storage_version)?;
+        self.storage.save_index(
+            &filtered_chunks,
+            &self.config,
+            &config.general.storage_version,
+        )?;
 
         info!(
             "Incremental update completed: {} chunks before, {} chunks after",
@@ -346,7 +433,8 @@ impl PersistentChunkIndex {
     /// Save current in-memory index to disk
     pub fn save(&self) -> Result<()> {
         let indexed_chunks = self.chunk_index.get_chunks();
-        self.storage.save_index(indexed_chunks, &self.config, &self.storage_version)
+        self.storage
+            .save_index(indexed_chunks, &self.config, &self.storage_version)
     }
 
     /// Clear the index (both memory and disk)

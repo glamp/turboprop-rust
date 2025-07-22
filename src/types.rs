@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+/// Default chunking configuration constants
+pub const DEFAULT_TARGET_CHUNK_SIZE_TOKENS: usize = 300;
+pub const DEFAULT_OVERLAP_TOKENS: usize = 50;
+pub const DEFAULT_MAX_CHUNK_SIZE_TOKENS: usize = 500;
+pub const DEFAULT_MIN_CHUNK_SIZE_TOKENS: usize = 100;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileMetadata {
     pub path: PathBuf,
@@ -91,6 +97,16 @@ impl ChunkIndex {
     pub fn add_chunk(&mut self, chunk: ContentChunk, embedding: Vec<f32>) {
         self.chunks.push(IndexedChunk { chunk, embedding });
     }
+    
+    /// Add an already-created IndexedChunk efficiently without cloning
+    pub fn add_indexed_chunk(&mut self, indexed_chunk: IndexedChunk) {
+        self.chunks.push(indexed_chunk);
+    }
+    
+    /// Add multiple IndexedChunks efficiently without cloning  
+    pub fn add_indexed_chunks(&mut self, indexed_chunks: Vec<IndexedChunk>) {
+        self.chunks.extend(indexed_chunks);
+    }
 
     pub fn add_chunks(&mut self, chunks: Vec<ContentChunk>, embeddings: Vec<Vec<f32>>) {
         for (chunk, embedding) in chunks.into_iter().zip(embeddings.into_iter()) {
@@ -115,6 +131,24 @@ impl ChunkIndex {
         query_embedding: &[f32],
         limit: usize,
     ) -> Vec<(f32, &IndexedChunk)> {
+        // Input validation for query embedding
+        if query_embedding.is_empty() {
+            tracing::warn!("Empty query embedding provided to similarity search");
+            return Vec::new();
+        }
+        
+        // Check for non-finite values in query embedding
+        if query_embedding.iter().any(|&x| !x.is_finite()) {
+            tracing::warn!("Non-finite values detected in query embedding");
+            return Vec::new();
+        }
+        
+        // Validate limit bounds
+        if limit == 0 {
+            tracing::debug!("Zero limit provided to similarity search");
+            return Vec::new();
+        }
+        
         let mut results: Vec<(f32, &IndexedChunk)> = self
             .chunks
             .iter()
@@ -124,7 +158,11 @@ impl ChunkIndex {
             })
             .collect();
 
-        results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        // Safe sorting that handles NaN values properly
+        results.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        
         results.into_iter().take(limit).collect()
     }
 }
@@ -134,15 +172,58 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         return 0.0;
     }
 
-    let dot_product: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let magnitude_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let magnitude_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    // Use checked arithmetic to prevent overflow
+    let mut dot_product = 0.0_f32;
+    let mut sum_a_squared = 0.0_f32;
+    let mut sum_b_squared = 0.0_f32;
+    
+    for (x, y) in a.iter().zip(b.iter()) {
+        // Check for infinity or NaN before operations
+        if !x.is_finite() || !y.is_finite() {
+            tracing::warn!("Non-finite values detected in cosine similarity calculation");
+            return 0.0;
+        }
+        
+        // Safely compute dot product with overflow checking
+        let product = x * y;
+        if !product.is_finite() {
+            tracing::warn!("Overflow detected in dot product calculation");
+            return 0.0;
+        }
+        dot_product += product;
+        
+        // Safely compute squared magnitudes with overflow checking
+        let x_squared = x * x;
+        let y_squared = y * y;
+        if !x_squared.is_finite() || !y_squared.is_finite() {
+            tracing::warn!("Overflow detected in magnitude calculation");
+            return 0.0;
+        }
+        sum_a_squared += x_squared;
+        sum_b_squared += y_squared;
+    }
 
-    if magnitude_a == 0.0 || magnitude_b == 0.0 {
+    // Check for valid intermediate results
+    if !dot_product.is_finite() || !sum_a_squared.is_finite() || !sum_b_squared.is_finite() {
         return 0.0;
     }
 
-    dot_product / (magnitude_a * magnitude_b)
+    let magnitude_a = sum_a_squared.sqrt();
+    let magnitude_b = sum_b_squared.sqrt();
+
+    if magnitude_a == 0.0 || magnitude_b == 0.0 || !magnitude_a.is_finite() || !magnitude_b.is_finite() {
+        return 0.0;
+    }
+
+    let result = dot_product / (magnitude_a * magnitude_b);
+    
+    // Final check for valid result
+    if !result.is_finite() {
+        tracing::warn!("Invalid result in cosine similarity calculation");
+        return 0.0;
+    }
+    
+    result
 }
 
 #[cfg(test)]
@@ -319,6 +400,25 @@ pub struct ContentChunk {
     pub total_chunks: usize,
 }
 
+impl ContentChunk {
+    /// Marker for placeholder content used when actual content is not stored
+    pub const PLACEHOLDER_CONTENT_PREFIX: &'static str = "[PLACEHOLDER_CONTENT_FROM:";
+    
+    /// Check if this chunk contains actual content or just a placeholder
+    pub fn has_real_content(&self) -> bool {
+        !self.content.starts_with(Self::PLACEHOLDER_CONTENT_PREFIX)
+    }
+    
+    /// Get the content if real, or None if this is a placeholder
+    pub fn real_content(&self) -> Option<&str> {
+        if self.has_real_content() {
+            Some(&self.content)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkingConfig {
     pub target_chunk_size_tokens: usize,
@@ -330,10 +430,10 @@ pub struct ChunkingConfig {
 impl Default for ChunkingConfig {
     fn default() -> Self {
         Self {
-            target_chunk_size_tokens: 300,
-            overlap_tokens: 50,
-            max_chunk_size_tokens: 500,
-            min_chunk_size_tokens: 100,
+            target_chunk_size_tokens: DEFAULT_TARGET_CHUNK_SIZE_TOKENS,
+            overlap_tokens: DEFAULT_OVERLAP_TOKENS,
+            max_chunk_size_tokens: DEFAULT_MAX_CHUNK_SIZE_TOKENS,
+            min_chunk_size_tokens: DEFAULT_MIN_CHUNK_SIZE_TOKENS,
         }
     }
 }

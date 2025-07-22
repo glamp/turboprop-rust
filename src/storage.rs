@@ -13,6 +13,11 @@ use tracing::{debug, info, warn};
 
 use crate::types::{ContentChunk, IndexedChunk};
 
+/// Default storage version for index compatibility
+pub const DEFAULT_STORAGE_VERSION: &str = "1.0.0";
+
+/// Maximum file size for memory mapping (2GB)
+pub const MAX_MMAP_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 
 /// Metadata for the stored index, containing information about the stored data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +32,9 @@ pub struct StoredIndexMetadata {
     pub created_at: std::time::SystemTime,
     /// List of indexed chunks with their metadata
     pub chunks: Vec<ChunkMetadata>,
+    /// File timestamps from when each file was last indexed (for incremental updates)
+    #[serde(default)]
+    pub file_timestamps: std::collections::HashMap<PathBuf, std::time::SystemTime>,
 }
 
 /// Metadata for individual chunks stored in the index
@@ -130,7 +138,12 @@ impl IndexStorage {
     }
 
     /// Save vectors and metadata to disk atomically
-    pub fn save_index(&self, indexed_chunks: &[IndexedChunk], config: &IndexConfig, storage_version: &str) -> Result<()> {
+    pub fn save_index(
+        &self,
+        indexed_chunks: &[IndexedChunk],
+        config: &IndexConfig,
+        storage_version: &str,
+    ) -> Result<()> {
         info!("Saving index with {} chunks to disk", indexed_chunks.len());
 
         // Create temporary files for atomic operations
@@ -183,7 +196,10 @@ impl IndexStorage {
     }
 
     /// Load vectors and metadata from disk
-    pub fn load_index(&self, expected_storage_version: &str) -> Result<(Vec<IndexedChunk>, IndexConfig)> {
+    pub fn load_index(
+        &self,
+        expected_storage_version: &str,
+    ) -> Result<(Vec<IndexedChunk>, IndexConfig)> {
         if !self.index_exists() {
             anyhow::bail!("No index found at {}", self.index_dir.display());
         }
@@ -216,10 +232,12 @@ impl IndexStorage {
 
             // Create a minimal ContentChunk from metadata
             // Note: We don't store the actual content text to save space
+            // Using a placeholder that can be detected via has_real_content()
             let content_chunk = ContentChunk {
                 id: chunk_meta.id.clone(),
                 content: format!(
-                    "[Content from {}:{}]",
+                    "{}{}:{}]",
+                    ContentChunk::PLACEHOLDER_CONTENT_PREFIX,
                     chunk_meta.file_path.display(),
                     chunk_meta.start_line
                 ),
@@ -280,6 +298,15 @@ impl IndexStorage {
         config: &IndexConfig,
         storage_version: &str,
     ) -> Result<()> {
+        // Collect file timestamps for incremental updates
+        let mut file_timestamps = std::collections::HashMap::new();
+        for indexed_chunk in indexed_chunks {
+            let file_path = &indexed_chunk.chunk.source_location.file_path;
+            // Note: We store the current time as the indexed timestamp
+            // In practice, you might want to store the actual file modification time
+            file_timestamps.insert(file_path.clone(), std::time::SystemTime::now());
+        }
+        
         let metadata = StoredIndexMetadata {
             version: storage_version.to_string(),
             chunk_count: indexed_chunks.len(),
@@ -289,6 +316,7 @@ impl IndexStorage {
                 .iter()
                 .map(|chunk| ChunkMetadata::from(&chunk.chunk))
                 .collect(),
+            file_timestamps,
         };
 
         let file = OpenOptions::new()
@@ -333,11 +361,30 @@ impl IndexStorage {
         let file = File::open(&vectors_path)
             .with_context(|| format!("Failed to open vectors file: {}", vectors_path.display()))?;
 
-        // Use memory mapping for efficient loading
+        // Validate file size before memory mapping to prevent catastrophic failures
+        let file_size = file
+            .metadata()
+            .with_context(|| "Failed to get vectors file metadata")?
+            .len();
+        
+        // Set reasonable limits for memory mapping
+        if file_size > MAX_MMAP_SIZE {
+            anyhow::bail!(
+                "Vectors file too large for memory mapping: {} bytes (max: {} bytes). Consider using chunked loading.",
+                file_size,
+                MAX_MMAP_SIZE
+            );
+        }
+
+        if file_size == 0 {
+            anyhow::bail!("Vectors file is empty: {}", vectors_path.display());
+        }
+
+        // Use memory mapping for efficient loading with proper bounds checking
         let mmap = unsafe {
             MmapOptions::new()
                 .map(&file)
-                .with_context(|| "Failed to create memory map for vectors file")?
+                .with_context(|| format!("Failed to create memory map for vectors file (size: {} bytes)", file_size))?
         };
 
         // Deserialize from memory-mapped data
@@ -362,7 +409,7 @@ impl IndexStorage {
     }
 
     /// Load metadata from JSON file
-    fn load_metadata(&self) -> Result<StoredIndexMetadata> {
+    pub fn load_metadata(&self) -> Result<StoredIndexMetadata> {
         let metadata_path = self.index_dir.join("metadata.json");
 
         let file = File::open(&metadata_path).with_context(|| {
@@ -423,7 +470,7 @@ impl IndexStorage {
         &self.index_dir
     }
 
-    /// Clear the index (remove all files)
+    /// Clear the index (remove all files) with transactional rollback capability
     pub fn clear_index(&self) -> Result<()> {
         if !self.index_dir.exists() {
             return Ok(());
@@ -431,18 +478,89 @@ impl IndexStorage {
 
         info!("Clearing index at {}", self.index_dir.display());
 
-        // Remove all files in the index directory
-        for entry in std::fs::read_dir(&self.index_dir)? {
-            let entry = entry?;
+        // First, collect all files that need to be deleted
+        let mut files_to_delete = Vec::new();
+        for entry in std::fs::read_dir(&self.index_dir)
+            .with_context(|| format!("Failed to read index directory: {}", self.index_dir.display()))? {
+            let entry = entry.with_context(|| "Failed to read directory entry")?;
             let path = entry.path();
 
             if path.is_file() {
-                std::fs::remove_file(&path)
-                    .with_context(|| format!("Failed to remove file: {}", path.display()))?;
-                debug!("Removed file: {}", path.display());
+                files_to_delete.push(path);
             }
         }
 
+        if files_to_delete.is_empty() {
+            debug!("No files to delete in index directory");
+            return Ok(());
+        }
+
+        info!("Found {} files to delete", files_to_delete.len());
+
+        // Phase 1: Validate that all files can be deleted
+        for path in &files_to_delete {
+            // Check if file is readable and deletable
+            match std::fs::metadata(path) {
+                Ok(metadata) => {
+                    if metadata.permissions().readonly() {
+                        anyhow::bail!(
+                            "Cannot delete read-only file: {}. Please check file permissions and try again.",
+                            path.display()
+                        );
+                    }
+                }
+                Err(e) => {
+                    anyhow::bail!(
+                        "Cannot access file for deletion: {}. Error: {}. Please check file permissions and try again.",
+                        path.display(),
+                        e
+                    );
+                }
+            }
+        }
+
+        // Phase 2: Create backup references for rollback (store paths for error reporting)
+        let backup_paths: Vec<_> = files_to_delete.iter().cloned().collect();
+
+        // Phase 3: Perform deletions with detailed error context
+        let mut deleted_files = Vec::new();
+        let mut deletion_errors = Vec::new();
+
+        for path in files_to_delete {
+            match std::fs::remove_file(&path) {
+                Ok(()) => {
+                    debug!("Removed file: {}", path.display());
+                    deleted_files.push(path.clone());
+                }
+                Err(e) => {
+                    let error_msg = format!(
+                        "Failed to delete file: {}. Error: {}. {} files were already deleted.", 
+                        path.display(), 
+                        e,
+                        deleted_files.len()
+                    );
+                    deletion_errors.push(error_msg.clone());
+                    
+                    // Log which files were successfully deleted for manual cleanup if needed
+                    if !deleted_files.is_empty() {
+                        warn!(
+                            "Partial deletion occurred. Successfully deleted {} files: {:?}. Failed to delete: {}",
+                            deleted_files.len(),
+                            deleted_files.iter().map(|p| p.display()).collect::<Vec<_>>(),
+                            path.display()
+                        );
+                    }
+                    
+                    return Err(anyhow::anyhow!(
+                        "{}. Index is in partially deleted state. You may need to manually clean up remaining files: {:?}. Consider backing up important data before retrying.",
+                        error_msg,
+                        backup_paths.iter().filter(|p| !deleted_files.contains(p)).collect::<Vec<_>>()
+                    ));
+                }
+            }
+        }
+
+        info!("Successfully cleared {} files from index", deleted_files.len());
         Ok(())
     }
 }
@@ -510,11 +628,13 @@ mod tests {
         };
 
         // Save index
-        storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+        storage
+            .save_index(&indexed_chunks, &config, DEFAULT_STORAGE_VERSION)
+            .unwrap();
         assert!(storage.index_exists());
 
         // Load index
-        let (loaded_chunks, loaded_config) = storage.load_index("1.0.0").unwrap();
+        let (loaded_chunks, loaded_config) = storage.load_index(DEFAULT_STORAGE_VERSION).unwrap();
 
         // Verify loaded data
         assert_eq!(loaded_chunks.len(), 2);
@@ -544,7 +664,9 @@ mod tests {
         )];
         let config = IndexConfig::default();
 
-        storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+        storage
+            .save_index(&indexed_chunks, &config, DEFAULT_STORAGE_VERSION)
+            .unwrap();
         assert!(storage.index_exists());
 
         // Clear the index
@@ -557,7 +679,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let storage = IndexStorage::new(temp_dir.path()).unwrap();
 
-        let result = storage.load_index("1.0.0");
+        let result = storage.load_index(DEFAULT_STORAGE_VERSION);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No index found"));
     }

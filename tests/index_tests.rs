@@ -76,7 +76,9 @@ fn test_index_storage_basic_operations() {
     };
 
     // Save the index
-    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+    storage
+        .save_index(&indexed_chunks, &config, "1.0.0")
+        .unwrap();
     assert!(storage.index_exists());
 
     // Verify all expected files exist
@@ -116,7 +118,9 @@ fn test_index_storage_clear() {
     )];
     let config = IndexConfig::default();
 
-    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+    storage
+        .save_index(&indexed_chunks, &config, "1.0.0")
+        .unwrap();
     assert!(storage.index_exists());
 
     // Clear the index
@@ -152,7 +156,9 @@ fn test_index_storage_large_data() {
     };
 
     // Save and load large dataset
-    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+    storage
+        .save_index(&indexed_chunks, &config, "1.0.0")
+        .unwrap();
     let (loaded_chunks, _) = storage.load_index("1.0.0").unwrap();
 
     assert_eq!(loaded_chunks.len(), 1000);
@@ -273,7 +279,9 @@ fn test_concurrent_index_access() {
         vec![0.1, 0.2],
     )];
     let config = IndexConfig::default();
-    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+    storage
+        .save_index(&indexed_chunks, &config, "1.0.0")
+        .unwrap();
 
     let storage_path = temp_dir.path().to_path_buf();
     let results = Arc::new(Mutex::new(Vec::new()));
@@ -325,7 +333,9 @@ fn test_index_integrity_after_partial_write() {
         vec![0.1, 0.2, 0.3],
     )];
     let config = IndexConfig::default();
-    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+    storage
+        .save_index(&indexed_chunks, &config, "1.0.0")
+        .unwrap();
 
     // Verify we can load it
     assert!(storage.load_index("1.0.0").is_ok());
@@ -341,7 +351,9 @@ fn test_index_integrity_after_partial_write() {
     assert!(temp_vectors.exists());
 
     // After another save operation, temp files should be cleaned up by new save
-    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+    storage
+        .save_index(&indexed_chunks, &config, "1.0.0")
+        .unwrap();
 
     // Index should still be valid
     let (loaded_chunks, _) = storage.load_index("1.0.0").unwrap();
@@ -384,7 +396,9 @@ fn test_version_compatibility() {
         vec![1.0],
     )];
     let config = IndexConfig::default();
-    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+    storage
+        .save_index(&indexed_chunks, &config, "1.0.0")
+        .unwrap();
 
     // Should load successfully
     assert!(storage.load_index("1.0.0").is_ok());
@@ -453,7 +467,9 @@ fn test_corrupted_metadata_handling() {
         vec![1.0, 2.0],
     )];
     let config = IndexConfig::default();
-    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+    storage
+        .save_index(&indexed_chunks, &config, "1.0.0")
+        .unwrap();
 
     // Corrupt the metadata file
     let metadata_file = storage.index_dir().join("metadata.json");
@@ -481,7 +497,9 @@ fn test_missing_files_handling() {
         vec![1.0],
     )];
     let config = IndexConfig::default();
-    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+    storage
+        .save_index(&indexed_chunks, &config, "1.0.0")
+        .unwrap();
 
     // Remove one of the required files
     let vectors_file = storage.index_dir().join("vectors.bin");

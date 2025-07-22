@@ -3,7 +3,9 @@
 //! This library provides functionality for indexing files and searching through
 //! indexed content for fast code discovery.
 
+pub mod chunking;
 pub mod cli;
+pub mod content;
 pub mod files;
 pub mod git;
 pub mod types;

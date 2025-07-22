@@ -13,3 +13,8 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 git2 = "0.18"
 walkdir = "2.4"
+encoding_rs = "0.8"
+unicode-segmentation = "1.10"
+
+[dev-dependencies]
+tempfile = "3.8"

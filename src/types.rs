@@ -101,3 +101,63 @@ mod tests {
         assert!(config.include_untracked);
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SourceLocation {
+    pub file_path: PathBuf,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub start_char: usize,
+    pub end_char: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContentChunk {
+    pub id: String,
+    pub content: String,
+    pub token_count: usize,
+    pub source_location: SourceLocation,
+    pub chunk_index: usize,
+    pub total_chunks: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChunkingConfig {
+    pub target_chunk_size_tokens: usize,
+    pub overlap_tokens: usize,
+    pub max_chunk_size_tokens: usize,
+    pub min_chunk_size_tokens: usize,
+}
+
+impl Default for ChunkingConfig {
+    fn default() -> Self {
+        Self {
+            target_chunk_size_tokens: 300,
+            overlap_tokens: 50,
+            max_chunk_size_tokens: 500,
+            min_chunk_size_tokens: 100,
+        }
+    }
+}
+
+impl ChunkingConfig {
+    pub fn with_target_size(mut self, size: usize) -> Self {
+        self.target_chunk_size_tokens = size;
+        self
+    }
+
+    pub fn with_overlap(mut self, overlap: usize) -> Self {
+        self.overlap_tokens = overlap;
+        self
+    }
+
+    pub fn with_max_size(mut self, max_size: usize) -> Self {
+        self.max_chunk_size_tokens = max_size;
+        self
+    }
+
+    pub fn with_min_size(mut self, min_size: usize) -> Self {
+        self.min_chunk_size_tokens = min_size;
+        self
+    }
+}

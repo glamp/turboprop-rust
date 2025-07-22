@@ -220,7 +220,11 @@ impl EmbeddingGenerator {
 
         // Check if batch size should be adjusted for performance
         let optimal_batch_size = self.calculate_optimal_batch_size(texts);
-        debug!("Using optimal batch size: {} for {} texts", optimal_batch_size, texts.len());
+        debug!(
+            "Using optimal batch size: {} for {} texts",
+            optimal_batch_size,
+            texts.len()
+        );
 
         let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         let mut all_embeddings = Vec::with_capacity(texts.len());
@@ -229,28 +233,33 @@ impl EmbeddingGenerator {
         let start_time = std::time::Instant::now();
         for (batch_idx, chunk) in text_refs.chunks(optimal_batch_size).enumerate() {
             let batch_start = std::time::Instant::now();
-            
+
             let batch_embeddings = self.model.embed(chunk.to_vec(), None).with_context(|| {
                 format!(
                     "Failed to generate embeddings for batch {} of {} texts",
-                    batch_idx + 1, chunk.len()
+                    batch_idx + 1,
+                    chunk.len()
                 )
             })?;
 
             all_embeddings.extend(batch_embeddings);
-            
+
             let batch_time = batch_start.elapsed();
-            debug!("Batch {} completed in {:.2}ms ({:.1} texts/sec)", 
-                   batch_idx + 1, 
-                   batch_time.as_secs_f64() * 1000.0,
-                   chunk.len() as f64 / batch_time.as_secs_f64());
+            debug!(
+                "Batch {} completed in {:.2}ms ({:.1} texts/sec)",
+                batch_idx + 1,
+                batch_time.as_secs_f64() * 1000.0,
+                chunk.len() as f64 / batch_time.as_secs_f64()
+            );
         }
 
         let total_time = start_time.elapsed();
-        info!("Generated {} embeddings in {:.2}s ({:.1} texts/sec)",
-              all_embeddings.len(),
-              total_time.as_secs_f64(),
-              texts.len() as f64 / total_time.as_secs_f64());
+        info!(
+            "Generated {} embeddings in {:.2}s ({:.1} texts/sec)",
+            all_embeddings.len(),
+            total_time.as_secs_f64(),
+            texts.len() as f64 / total_time.as_secs_f64()
+        );
 
         Ok(all_embeddings)
     }
@@ -263,7 +272,7 @@ impl EmbeddingGenerator {
 
         // Calculate average text length
         let avg_length = texts.iter().map(|t| t.len()).sum::<usize>() / texts.len();
-        
+
         // Adjust batch size based on text length and available memory
         let base_batch_size = self.config.batch_size;
         let adjusted_size = if avg_length > 1000 {
@@ -278,32 +287,35 @@ impl EmbeddingGenerator {
 
         // Apply memory-based scaling
         if let Ok(mem_info) = sys_info::mem_info() {
-            let available_gb = mem_info.avail / 1024 / 1024;  // Convert KB to GB
+            let available_gb = mem_info.avail / 1024 / 1024; // Convert KB to GB
             let memory_factor = if available_gb >= 8 {
-                2.0  // Plenty of memory
+                2.0 // Plenty of memory
             } else if available_gb >= 4 {
-                1.5  // Moderate memory
+                1.5 // Moderate memory
             } else {
-                0.75  // Limited memory
+                0.75 // Limited memory
             };
-            
+
             let memory_adjusted = (adjusted_size as f64 * memory_factor) as usize;
-            memory_adjusted.max(1).min(256)  // Clamp between 1 and 256
+            memory_adjusted.clamp(1, 256) // Clamp between 1 and 256
         } else {
-            adjusted_size.max(1).min(128)  // Conservative default
+            adjusted_size.clamp(1, 128) // Conservative default
         }
     }
 
     /// Prepare texts for embedding by cleaning and normalizing them
     pub fn preprocess_texts(&self, texts: &[String]) -> Vec<String> {
-        texts.iter().map(|text| {
-            // Remove excessive whitespace and normalize
-            text.split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .trim()
-                .to_string()
-        }).collect()
+        texts
+            .iter()
+            .map(|text| {
+                // Remove excessive whitespace and normalize
+                text.split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .trim()
+                    .to_string()
+            })
+            .collect()
     }
 
     /// Get the embedding dimensions for this model

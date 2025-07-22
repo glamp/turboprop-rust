@@ -8,20 +8,53 @@ use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
 use tp::{
-    compression::{CompressionConfig, VectorCompressor, CompressionAlgorithm},
+    compression::{CompressionAlgorithm, CompressionConfig, VectorCompressor},
     config::TurboPropConfig,
     parallel::{ParallelConfig, ParallelFileProcessor},
-    streaming::{StreamingConfig, StreamingChunkProcessor},
-    types::{ContentChunk, IndexedChunk, ChunkId, SourceLocation, TokenCount, ChunkIndexNum},
+    streaming::{StreamingChunkProcessor, StreamingConfig},
+    types::{ChunkId, ChunkIndexNum, ContentChunk, IndexedChunk, SourceLocation, TokenCount},
 };
+
+/// Benchmark configuration constants
+mod bench_config {
+    use std::time::Duration;
+
+    // Embedding and vector configurations
+    pub const EMBEDDING_DIMENSION: usize = 384;
+    pub const VECTOR_COUNTS: [usize; 3] = [100, 1000, 10000];
+    pub const CHUNK_COUNTS: [usize; 3] = [100, 1000, 10000];
+    pub const INDEX_SIZES: [usize; 4] = [1000, 5000, 10000, 50000];
+    pub const FILE_COUNTS: [usize; 3] = [100, 1000, 5000];
+
+    // Random value ranges
+    pub const EMBEDDING_RANGE_MIN: f32 = -1.0;
+    pub const EMBEDDING_RANGE_MAX: f32 = 1.0;
+
+    // Search configurations
+    pub const SEARCH_LIMIT: usize = 10;
+    pub const SEARCH_THRESHOLD: f32 = 0.5;
+
+    // Benchmark execution configurations
+    pub const MEMORY_INTENSIVE_SAMPLE_SIZE: usize = 10;
+    pub const MEMORY_THRESHOLD_MB: usize = 100;
+    pub const MEASUREMENT_TIME_SECONDS: Duration = Duration::from_secs(20);
+    pub const OPTIMIZED_BATCH_SIZE: usize = 64;
+
+    // Test data configurations
+    pub const SOURCE_CHAR_END: usize = 50;
+    pub const SOURCE_CHAR_START: usize = 0;
+    pub const LINES_PER_CHUNK: usize = 10;
+    pub const TOKEN_COUNT_DEFAULT: usize = 10;
+    pub const TOKEN_COUNT_INDEXED: usize = 5;
+}
 
 /// Size configurations for benchmark testing
 #[derive(Clone)]
 struct BenchmarkSizes {
-    small: usize,    // 10 files
-    medium: usize,   // 100 files  
-    large: usize,    // 1000 files
-    xlarge: usize,   // 10000 files
+    small: usize,  // 10 files
+    medium: usize, // 100 files
+    large: usize,  // 1000 files
+    xlarge: usize, // 10000 files
 }
 
 impl BenchmarkSizes {
@@ -38,7 +71,7 @@ impl BenchmarkSizes {
 /// Create a temporary directory with test files for benchmarking
 fn create_test_codebase(num_files: usize) -> TempDir {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
-    
+
     for i in 0..num_files {
         let file_content = format!(
             r#"//! Module {} documentation
@@ -118,17 +151,20 @@ fn create_test_chunks(count: usize) -> Vec<ContentChunk> {
     (0..count)
         .map(|i| ContentChunk {
             id: ChunkId::from(format!("chunk-{}", i)),
-            content: format!("fn test_function_{}() {{\n    let x = {};\n    println!(\"Hello {{}}\", x);\n}}", i, i),
+            content: format!(
+                "fn test_function_{}() {{\n    let x = {};\n    println!(\"Hello {{}}\", x);\n}}",
+                i, i
+            ),
             source_location: SourceLocation {
                 file_path: PathBuf::from(format!("test_{}.rs", i)),
-                start_line: i * 10,
-                end_line: i * 10 + 4,
-                start_char: 0,
-                end_char: 50,
+                start_line: i * bench_config::LINES_PER_CHUNK,
+                end_line: i * bench_config::LINES_PER_CHUNK + 4,
+                start_char: bench_config::SOURCE_CHAR_START,
+                end_char: bench_config::SOURCE_CHAR_END,
             },
             chunk_index: ChunkIndexNum::from(0),
             total_chunks: 1,
-            token_count: TokenCount::from(10),
+            token_count: TokenCount::from(bench_config::TOKEN_COUNT_DEFAULT),
         })
         .collect()
 }
@@ -141,9 +177,9 @@ fn create_test_indexed_chunks(count: usize, embedding_dim: usize) -> Vec<Indexed
     (0..count)
         .map(|i| {
             let embedding: Vec<f32> = (0..embedding_dim)
-                .map(|_| rng.gen_range(-1.0..1.0))
+                .map(|_| rng.gen_range(bench_config::EMBEDDING_RANGE_MIN..bench_config::EMBEDDING_RANGE_MAX))
                 .collect();
-            
+
             IndexedChunk {
                 chunk: ContentChunk {
                     id: ChunkId::from(format!("indexed-chunk-{}", i)),
@@ -152,12 +188,12 @@ fn create_test_indexed_chunks(count: usize, embedding_dim: usize) -> Vec<Indexed
                         file_path: PathBuf::from(format!("indexed_{}.rs", i)),
                         start_line: i,
                         end_line: i + 3,
-                        start_char: 0,
+                        start_char: bench_config::SOURCE_CHAR_START,
                         end_char: 30,
                     },
                     chunk_index: ChunkIndexNum::from(i),
                     total_chunks: count,
-                    token_count: TokenCount::from(5),
+                    token_count: TokenCount::from(bench_config::TOKEN_COUNT_INDEXED),
                 },
                 embedding,
             }
@@ -186,7 +222,7 @@ fn bench_file_processing_pipeline(c: &mut Criterion) {
                         .filter_map(|e| e.ok())
                         .filter(|e| e.file_type().is_file())
                         .collect();
-                    
+
                     black_box(files.len())
                 });
             },
@@ -212,9 +248,12 @@ fn bench_parallel_processing(c: &mut Criterion) {
             |b, &_size| {
                 b.iter(|| {
                     let parallel_config = ParallelConfig::default();
-                    let processor = ParallelFileProcessor::new(parallel_config, config.chunking.clone());
-                    
-                    let files = processor.discover_files_parallel(temp_dir.path(), &config).unwrap();
+                    let processor =
+                        ParallelFileProcessor::new(parallel_config, config.chunking.clone());
+
+                    let files = processor
+                        .discover_files_parallel(temp_dir.path(), &config)
+                        .unwrap();
                     black_box(files.len())
                 });
             },
@@ -227,16 +266,16 @@ fn bench_parallel_processing(c: &mut Criterion) {
 /// Benchmark vector compression algorithms
 fn bench_compression(c: &mut Criterion) {
     let mut group = c.benchmark_group("vector_compression");
-    
-    let dimensions = 384;  // Standard embedding dimension
-    let vector_counts = [100, 1000, 10000];
+
+    let dimensions = bench_config::EMBEDDING_DIMENSION; // Standard embedding dimension
+    let vector_counts = bench_config::VECTOR_COUNTS;
 
     for &count in &vector_counts {
         // Create test vectors
         use rand::prelude::*;
         let mut rng = thread_rng();
         let vectors: Vec<Vec<f32>> = (0..count)
-            .map(|_| (0..dimensions).map(|_| rng.gen_range(-1.0..1.0)).collect())
+            .map(|_| (0..dimensions).map(|_| rng.gen_range(bench_config::EMBEDDING_RANGE_MIN..bench_config::EMBEDDING_RANGE_MAX)).collect())
             .collect();
 
         group.throughput(Throughput::Elements(count as u64));
@@ -296,11 +335,11 @@ fn bench_compression(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark streaming operations 
+/// Benchmark streaming operations
 fn bench_streaming(c: &mut Criterion) {
     let mut group = c.benchmark_group("streaming_operations");
 
-    let chunk_counts = [100, 1000, 10000];
+    let chunk_counts = bench_config::CHUNK_COUNTS;
 
     for &count in &chunk_counts {
         let chunks = create_test_chunks(count);
@@ -313,7 +352,7 @@ fn bench_streaming(c: &mut Criterion) {
                 b.iter(|| {
                     let config = StreamingConfig::default();
                     let mut processor = StreamingChunkProcessor::new(config);
-                    
+
                     // Simulate streaming processing by just counting chunks
                     black_box(chunks.len())
                 });
@@ -329,17 +368,17 @@ fn bench_similarity_search(c: &mut Criterion) {
     use tp::parallel::ParallelSearchProcessor;
     let mut group = c.benchmark_group("similarity_search");
 
-    let embedding_dim = 384;
-    let index_sizes = [1000, 5000, 10000, 50000];
+    let embedding_dim = bench_config::EMBEDDING_DIMENSION;
+    let index_sizes = bench_config::INDEX_SIZES;
 
     for &size in &index_sizes {
         let indexed_chunks = create_test_indexed_chunks(size, embedding_dim);
-        
+
         // Create a random query embedding
         use rand::prelude::*;
         let mut rng = thread_rng();
         let query_embedding: Vec<f32> = (0..embedding_dim)
-            .map(|_| rng.gen_range(-1.0..1.0))
+            .map(|_| rng.gen_range(bench_config::EMBEDDING_RANGE_MIN..bench_config::EMBEDDING_RANGE_MAX))
             .collect();
 
         group.throughput(Throughput::Elements(size as u64));
@@ -350,14 +389,14 @@ fn bench_similarity_search(c: &mut Criterion) {
                 b.iter(|| {
                     let config = ParallelConfig::default();
                     let processor = ParallelSearchProcessor::new(config);
-                    
+
                     let results = processor.search_parallel(
                         &query_embedding,
                         chunks,
-                        10,  // limit
-                        Some(0.5),  // threshold
+                        bench_config::SEARCH_LIMIT,        // limit
+                        Some(bench_config::SEARCH_THRESHOLD), // threshold
                     );
-                    
+
                     black_box(results.len())
                 });
             },
@@ -369,19 +408,21 @@ fn bench_similarity_search(c: &mut Criterion) {
             |b, chunks| {
                 b.iter(|| {
                     use tp::types::cosine_similarity;
-                    
+
                     let mut results: Vec<(f32, &IndexedChunk)> = chunks
                         .iter()
                         .map(|chunk| {
                             let similarity = cosine_similarity(&query_embedding, &chunk.embedding);
                             (similarity, chunk)
                         })
-                        .filter(|(sim, _)| *sim >= 0.5)
+                        .filter(|(sim, _)| *sim >= bench_config::SEARCH_THRESHOLD)
                         .collect();
 
-                    results.sort_by(|(a, _), (b, _)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-                    results.truncate(10);
-                    
+                    results.sort_by(|(a, _), (b, _)| {
+                        b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    results.truncate(bench_config::SEARCH_LIMIT);
+
                     black_box(results.len())
                 });
             },
@@ -394,9 +435,9 @@ fn bench_similarity_search(c: &mut Criterion) {
 /// Memory usage benchmark
 fn bench_memory_usage(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_usage");
-    group.sample_size(10);  // Fewer samples for memory-intensive tests
+    group.sample_size(bench_config::MEMORY_INTENSIVE_SAMPLE_SIZE); // Fewer samples for memory-intensive tests
 
-    let file_counts = [100, 1000, 5000];
+    let file_counts = bench_config::FILE_COUNTS;
 
     for &count in &file_counts {
         group.bench_with_input(
@@ -411,11 +452,11 @@ fn bench_memory_usage(c: &mut Criterion) {
                     |temp_dir| {
                         // Measure memory-efficient processing
                         let config = StreamingConfig {
-                            memory_threshold_mb: 100,  // Low threshold to test memory efficiency
+                            memory_threshold_mb: bench_config::MEMORY_THRESHOLD_MB, // Low threshold to test memory efficiency
                             ..Default::default()
                         };
                         let _processor = StreamingChunkProcessor::new(config);
-                        
+
                         // Simulate memory-conscious processing
                         let files: Vec<_> = walkdir::WalkDir::new(temp_dir.path())
                             .into_iter()
@@ -423,9 +464,9 @@ fn bench_memory_usage(c: &mut Criterion) {
                             .filter(|e| e.file_type().is_file())
                             .take(count)
                             .collect();
-                            
+
                         black_box(files.len())
-                    }
+                    },
                 );
             },
         );
@@ -437,13 +478,14 @@ fn bench_memory_usage(c: &mut Criterion) {
 /// Benchmark comprehensive indexing pipeline
 fn bench_full_indexing_pipeline(c: &mut Criterion) {
     let mut group = c.benchmark_group("full_indexing_pipeline");
-    group.sample_size(10);
-    group.measurement_time(std::time::Duration::from_secs(20));
+    group.sample_size(bench_config::MEMORY_INTENSIVE_SAMPLE_SIZE);
+    group.measurement_time(bench_config::MEASUREMENT_TIME_SECONDS);
 
     let sizes = BenchmarkSizes::new();
 
     // Test the complete pipeline with different configurations
-    for &size in &[sizes.small, sizes.medium] {  // Skip large for CI performance
+    for &size in &[sizes.small, sizes.medium] {
+        // Skip large for CI performance
         let temp_dir = create_test_codebase(size);
 
         group.throughput(Throughput::Elements(size as u64));
@@ -455,7 +497,7 @@ fn bench_full_indexing_pipeline(c: &mut Criterion) {
                     // Configure for optimal performance
                     let _config = TurboPropConfig {
                         embedding: tp::embeddings::EmbeddingConfig {
-                            batch_size: 64,  // Larger batch for better performance
+                            batch_size: bench_config::OPTIMIZED_BATCH_SIZE, // Larger batch for better performance
                             ..Default::default()
                         },
                         ..Default::default()
@@ -469,7 +511,7 @@ fn bench_full_indexing_pipeline(c: &mut Criterion) {
                         .filter_map(|e| e.ok())
                         .filter(|e| e.file_type().is_file())
                         .collect();
-                        
+
                     black_box(files.len())
                 });
             },

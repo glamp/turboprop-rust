@@ -9,6 +9,7 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use tracing::{debug, info, warn};
 
 use crate::compression::{CompressedVector, VectorCompressor};
+use crate::error::TurboPropError;
 use crate::types::{ContentChunk, IndexedChunk};
 
 /// Configuration for streaming operations
@@ -29,11 +30,11 @@ pub struct StreamingConfig {
 impl Default for StreamingConfig {
     fn default() -> Self {
         Self {
-            buffer_size: 1024 * 1024,  // 1MB
+            buffer_size: 1024 * 1024, // 1MB
             max_chunk_buffer: 1000,
             batch_size: 100,
             enable_compression: true,
-            memory_threshold_mb: 512,   // 512MB
+            memory_threshold_mb: 512, // 512MB
         }
     }
 }
@@ -95,15 +96,20 @@ impl StreamingChunkProcessor {
 
             // Process batch when it reaches the configured size
             if current_batch.len() >= self.config.batch_size {
-                let batch_results = processor(current_batch).await
+                let batch_results = processor(current_batch)
+                    .await
                     .context("Failed to process chunk batch")?;
-                
+
                 results.extend(batch_results);
                 current_batch = Vec::new();
                 batch_count += 1;
                 self.stats.batches_processed = batch_count;
 
-                debug!("Processed batch {} with {} total results", batch_count, results.len());
+                debug!(
+                    "Processed batch {} with {} total results",
+                    batch_count,
+                    results.len()
+                );
 
                 // Check memory usage and apply backpressure if needed
                 self.check_memory_pressure().await?;
@@ -112,7 +118,8 @@ impl StreamingChunkProcessor {
 
         // Process remaining chunks
         if !current_batch.is_empty() {
-            let batch_results = processor(current_batch).await
+            let batch_results = processor(current_batch)
+                .await
                 .context("Failed to process final chunk batch")?;
             results.extend(batch_results);
             self.stats.batches_processed = batch_count + 1;
@@ -121,9 +128,12 @@ impl StreamingChunkProcessor {
         let elapsed = start_time.elapsed();
         self.stats.processing_time_ms = elapsed.as_millis() as u64;
 
-        info!("Streaming processing completed: {} chunks, {} batches, {:.2}s",
-              self.stats.chunks_streamed, self.stats.batches_processed,
-              elapsed.as_secs_f64());
+        info!(
+            "Streaming processing completed: {} chunks, {} batches, {:.2}s",
+            self.stats.chunks_streamed,
+            self.stats.batches_processed,
+            elapsed.as_secs_f64()
+        );
 
         Ok(results)
     }
@@ -175,8 +185,11 @@ impl StreamingChunkProcessor {
         let elapsed = start_time.elapsed();
         self.stats.io_time_ms = elapsed.as_millis() as u64;
 
-        info!("Completed streaming {} chunks to storage in {:.2}s",
-              chunk_count, elapsed.as_secs_f64());
+        info!(
+            "Completed streaming {} chunks to storage in {:.2}s",
+            chunk_count,
+            elapsed.as_secs_f64()
+        );
 
         Ok(())
     }
@@ -202,21 +215,26 @@ impl StreamingChunkProcessor {
             if buffered_reader.read_exact(&mut buffer).is_err() {
                 break; // End of stream
             }
-            
-            let chunk_size = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
-            
+
+            let chunk_size =
+                u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
+
             // Read chunk data
             let mut chunk_data = vec![0u8; chunk_size];
-            buffered_reader.read_exact(&mut chunk_data)
+            buffered_reader
+                .read_exact(&mut chunk_data)
                 .context("Failed to read chunk data from stream")?;
 
             // Deserialize chunk
             let indexed_chunk = if self.compressor.is_some() {
                 let compressed: CompressedIndexedChunk = bincode::deserialize(&chunk_data)?;
                 // Decompress embedding
-                let decompressed_embeddings = self.compressor.as_ref().unwrap()
+                let decompressed_embeddings = self
+                    .compressor
+                    .as_ref()
+                    .unwrap()
                     .decompress_batch(&[compressed.compressed_embedding])?;
-                
+
                 IndexedChunk {
                     chunk: compressed.chunk,
                     embedding: decompressed_embeddings.into_iter().next().unwrap(),
@@ -236,8 +254,11 @@ impl StreamingChunkProcessor {
         let elapsed = start_time.elapsed();
         self.stats.io_time_ms = elapsed.as_millis() as u64;
 
-        info!("Completed loading {} chunks from storage in {:.2}s",
-              chunks.len(), elapsed.as_secs_f64());
+        info!(
+            "Completed loading {} chunks from storage in {:.2}s",
+            chunks.len(),
+            elapsed.as_secs_f64()
+        );
 
         Ok(chunks)
     }
@@ -248,11 +269,14 @@ impl StreamingChunkProcessor {
         if let Ok(mem_info) = sys_info::mem_info() {
             let used_mb = (mem_info.total - mem_info.avail) / 1024;
             let used_percentage = (used_mb as f64 / mem_info.total as f64) * 100.0;
-            
+
             self.stats.memory_peaks_mb = self.stats.memory_peaks_mb.max(used_mb as f64);
 
             if used_percentage > 85.0 {
-                warn!("High memory usage detected: {:.1}%, applying backpressure", used_percentage);
+                warn!(
+                    "High memory usage detected: {:.1}%, applying backpressure",
+                    used_percentage
+                );
                 // Small delay to allow memory to be freed
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
@@ -268,14 +292,14 @@ impl StreamingChunkProcessor {
             compression_enabled: self.compressor.is_some(),
             batch_size: self.config.batch_size,
         };
-        
+
         let header_bytes = bincode::serialize(&header)?;
         let header_size = header_bytes.len() as u32;
-        
-        writer.write_all(b"TPSTREAM")?;  // Magic number
+
+        writer.write_all(b"TPSTREAM")?; // Magic number
         writer.write_all(&header_size.to_le_bytes())?;
         writer.write_all(&header_bytes)?;
-        
+
         Ok(())
     }
 
@@ -283,22 +307,27 @@ impl StreamingChunkProcessor {
     fn read_stream_header<R: Read>(&self, reader: &mut R) -> Result<StreamHeader> {
         let mut magic = vec![0u8; 8];
         reader.read_exact(&mut magic)?;
-        
+
         if &magic != b"TPSTREAM" {
-            anyhow::bail!("Invalid stream format: missing magic number");
+            return Err(TurboPropError::other("Invalid stream format: missing magic number - file may be corrupted or incompatible").into());
         }
 
         let mut size_bytes = vec![0u8; 4];
         reader.read_exact(&mut size_bytes)?;
-        let header_size = u32::from_le_bytes([size_bytes[0], size_bytes[1], size_bytes[2], size_bytes[3]]) as usize;
+        let header_size =
+            u32::from_le_bytes([size_bytes[0], size_bytes[1], size_bytes[2], size_bytes[3]])
+                as usize;
 
         let mut header_bytes = vec![0u8; header_size];
         reader.read_exact(&mut header_bytes)?;
 
         let header: StreamHeader = bincode::deserialize(&header_bytes)?;
-        
+
         if header.version != 1 {
-            anyhow::bail!("Unsupported stream version: {}", header.version);
+            return Err(TurboPropError::other(format!(
+                "Unsupported stream version: {} - this file was created with a newer or incompatible version", 
+                header.version
+            )).into());
         }
 
         Ok(header)
@@ -345,7 +374,7 @@ impl StreamingIndexBuilder {
     pub fn add_chunk(&mut self, chunk: ContentChunk) -> Result<()> {
         if self.processing_queue.len() >= self.config.max_chunk_buffer {
             warn!("Chunk buffer is full, applying backpressure");
-            return Err(anyhow::anyhow!("Chunk buffer overflow"));
+            return Err(TurboPropError::other("Chunk buffer overflow - too many chunks queued for processing").into());
         }
 
         self.processing_queue.push_back(chunk);
@@ -353,10 +382,7 @@ impl StreamingIndexBuilder {
     }
 
     /// Process queued chunks in batches
-    pub async fn process_batch<F, Fut>(
-        &mut self,
-        mut processor: F,
-    ) -> Result<Vec<IndexedChunk>>
+    pub async fn process_batch<F, Fut>(&mut self, mut processor: F) -> Result<Vec<IndexedChunk>>
     where
         F: FnMut(Vec<ContentChunk>) -> Fut,
         Fut: std::future::Future<Output = Result<Vec<IndexedChunk>>>,
@@ -403,33 +429,33 @@ pub mod presets {
     /// Configuration optimized for large codebase indexing
     pub fn large_codebase() -> StreamingConfig {
         StreamingConfig {
-            buffer_size: 4 * 1024 * 1024,  // 4MB buffer
+            buffer_size: 4 * 1024 * 1024, // 4MB buffer
             max_chunk_buffer: 2000,
             batch_size: 200,
             enable_compression: true,
-            memory_threshold_mb: 1024,      // 1GB threshold
+            memory_threshold_mb: 1024, // 1GB threshold
         }
     }
 
     /// Configuration optimized for memory-constrained environments
     pub fn memory_constrained() -> StreamingConfig {
         StreamingConfig {
-            buffer_size: 512 * 1024,       // 512KB buffer
+            buffer_size: 512 * 1024, // 512KB buffer
             max_chunk_buffer: 100,
             batch_size: 25,
             enable_compression: true,
-            memory_threshold_mb: 256,      // 256MB threshold
+            memory_threshold_mb: 256, // 256MB threshold
         }
     }
 
     /// Configuration optimized for high-performance processing
     pub fn high_performance() -> StreamingConfig {
         StreamingConfig {
-            buffer_size: 8 * 1024 * 1024,  // 8MB buffer
+            buffer_size: 8 * 1024 * 1024, // 8MB buffer
             max_chunk_buffer: 5000,
             batch_size: 500,
-            enable_compression: false,      // Disable compression for speed
-            memory_threshold_mb: 2048,      // 2GB threshold
+            enable_compression: false, // Disable compression for speed
+            memory_threshold_mb: 2048, // 2GB threshold
         }
     }
 }
@@ -437,8 +463,8 @@ pub mod presets {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
     use crate::types::{ChunkId, SourceLocation, TokenCount};
+    use std::io::Cursor;
 
     fn create_test_chunk(id: usize, content: &str) -> ContentChunk {
         ContentChunk {
@@ -460,7 +486,7 @@ mod tests {
     fn create_test_indexed_chunk(id: usize, content: &str) -> IndexedChunk {
         IndexedChunk {
             chunk: create_test_chunk(id, content),
-            embedding: vec![0.1 * id as f32; 384],  // Simple test embedding
+            embedding: vec![0.1 * id as f32; 384], // Simple test embedding
         }
     }
 
@@ -475,15 +501,20 @@ mod tests {
             create_test_chunk(3, "println!(\"Hello\");"),
         ];
 
-        let results = processor.process_chunks_streaming(chunks, |batch| async move {
-            // Mock processor that creates indexed chunks
-            Ok(batch.into_iter().enumerate().map(|(i, chunk)| {
-                IndexedChunk {
-                    chunk,
-                    embedding: vec![0.1; 384],
-                }
-            }).collect())
-        }).await.unwrap();
+        let results = processor
+            .process_chunks_streaming(chunks, |batch| async move {
+                // Mock processor that creates indexed chunks
+                Ok(batch
+                    .into_iter()
+                    .enumerate()
+                    .map(|(_i, chunk)| IndexedChunk {
+                        chunk,
+                        embedding: vec![0.1; 384],
+                    })
+                    .collect())
+            })
+            .await
+            .unwrap();
 
         assert_eq!(results.len(), 3);
         let stats = processor.stats();
@@ -503,13 +534,19 @@ mod tests {
 
         // Stream to storage
         let mut storage = Vec::new();
-        processor.stream_to_storage(chunks.clone().into_iter(), &mut storage).await.unwrap();
-        
+        processor
+            .stream_to_storage(chunks.clone().into_iter(), &mut storage)
+            .await
+            .unwrap();
+
         assert!(!storage.is_empty());
 
         // Stream from storage
         let mut new_processor = StreamingChunkProcessor::new(StreamingConfig::default());
-        let loaded_chunks = new_processor.stream_from_storage(Cursor::new(storage)).await.unwrap();
+        let loaded_chunks = new_processor
+            .stream_from_storage(Cursor::new(storage))
+            .await
+            .unwrap();
 
         assert_eq!(loaded_chunks.len(), 2);
         // Note: Exact equality check would depend on compression settings

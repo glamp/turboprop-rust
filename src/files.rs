@@ -1,3 +1,4 @@
+use crate::error_utils::FileErrorContext;
 use crate::git::GitRepo;
 use crate::types::{FileDiscoveryConfig, FileMetadata};
 use anyhow::{Context, Result};
@@ -46,7 +47,7 @@ impl FileDiscovery {
         let mut file_metadata = Vec::new();
 
         for entry in WalkDir::new(path).follow_links(false) {
-            let entry = entry.context("Failed to read directory entry")?;
+            let entry = entry.with_context(|| format!("Failed to read directory entry in: {}", path.display()))?;
 
             if entry.file_type().is_file() {
                 let file_path = entry.path().to_path_buf();
@@ -61,7 +62,7 @@ impl FileDiscovery {
 
     fn get_file_metadata(&self, path: &Path, is_git_tracked: bool) -> Result<Option<FileMetadata>> {
         let metadata = std::fs::metadata(path)
-            .with_context(|| format!("Failed to get metadata for file: {}", path.display()))?;
+            .with_file_metadata_context(path)?;
 
         if let Some(max_size) = self.config.max_filesize_bytes {
             if metadata.len() > max_size {
@@ -71,7 +72,7 @@ impl FileDiscovery {
 
         let last_modified = metadata
             .modified()
-            .with_context(|| format!("Failed to get modification time for: {}", path.display()))?;
+            .with_file_metadata_context(path)?;
 
         Ok(Some(FileMetadata {
             path: path.to_path_buf(),

@@ -101,9 +101,10 @@ impl ChunkingStrategy {
 
             // Ensure we have at least min_chunk_size_tokens unless we're at the end or target size is small
             let remaining_tokens = tokens.len() - start_token_idx;
-            if remaining_tokens < self.config.min_chunk_size_tokens 
-                && start_token_idx > 0 
-                && self.config.target_chunk_size_tokens >= self.config.min_chunk_size_tokens {
+            if remaining_tokens < self.config.min_chunk_size_tokens
+                && start_token_idx > 0
+                && self.config.target_chunk_size_tokens >= self.config.min_chunk_size_tokens
+            {
                 // Only apply minimum size constraint if target size is also above minimum
                 break;
             }

@@ -1,6 +1,22 @@
-/target
-.swissarmyhammer/
-sample-codebases/
-*.log
-.env
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Turboprop cache and models
+.turboprop/
+
+# Logs
+*.log
+EOF < /dev/null

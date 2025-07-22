@@ -5,16 +5,22 @@
 
 pub mod chunking;
 pub mod cli;
+pub mod config;
 pub mod content;
+pub mod embeddings;
 pub mod files;
 pub mod git;
+pub mod models;
 pub mod types;
 
+use crate::chunking::ChunkingStrategy;
+use crate::config::TurboPropConfig;
+use crate::embeddings::EmbeddingGenerator;
 use crate::files::FileDiscovery;
-use crate::types::{parse_filesize, FileDiscoveryConfig};
+use crate::types::{parse_filesize, ChunkingConfig, FileDiscoveryConfig};
 use anyhow::Result;
 use std::path::Path;
-use tracing::info;
+use tracing::{debug, info};
 
 /// Default path for indexing when no path is specified
 pub const DEFAULT_INDEX_PATH: &str = ".";
@@ -72,6 +78,91 @@ pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
             file.is_git_tracked
         );
     }
+
+    Ok(())
+}
+
+/// Index files with embedding generation using the provided configuration.
+///
+/// This is the enhanced version that generates embeddings for the discovered text chunks.
+///
+/// # Arguments
+///
+/// * `path` - The file system path to index
+/// * `config` - Complete configuration including embedding and file discovery settings
+///
+/// # Returns
+///
+/// * `Result<()>` - Ok(()) if successful, error otherwise
+pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> Result<()> {
+    if !path.exists() {
+        anyhow::bail!("Path does not exist: {}", path.display());
+    }
+
+    if !path.is_dir() {
+        anyhow::bail!("Path is not a directory: {}", path.display());
+    }
+
+    info!("Indexing files with embeddings in: {}", path.display());
+    info!("Using embedding model: {}", config.embedding.model_name);
+
+    // Initialize embedding generator
+    let mut embedding_generator = EmbeddingGenerator::new(config.embedding.clone()).await?;
+    info!(
+        "Embedding generator initialized with {} dimensions",
+        embedding_generator.embedding_dimensions()
+    );
+
+    // Discover files
+    let discovery = FileDiscovery::new(config.file_discovery.clone());
+    let files = discovery.discover_files(path)?;
+    info!("Discovered {} files for indexing", files.len());
+
+    // Process each file
+    let chunking_config = ChunkingConfig::default();
+    let chunking_strategy = ChunkingStrategy::new(chunking_config);
+    let mut total_chunks = 0;
+    let mut total_embeddings = 0;
+
+    for file in &files {
+        info!("Processing: {}", file.path.display());
+
+        // Generate chunks directly from the file
+        let chunks = chunking_strategy.chunk_file(&file.path)?;
+        total_chunks += chunks.len();
+
+        if chunks.is_empty() {
+            debug!("No chunks generated for: {}", file.path.display());
+            continue;
+        }
+
+        // Prepare text for embedding
+        let chunk_texts: Vec<String> = chunks.iter().map(|chunk| chunk.content.clone()).collect();
+
+        // Generate embeddings
+        debug!("Generating embeddings for {} chunks", chunks.len());
+        let embeddings = embedding_generator.embed_batch(&chunk_texts)?;
+        total_embeddings += embeddings.len();
+
+        // Log progress
+        info!(
+            "  {} chunks, {} embeddings generated ({} bytes, git_tracked: {})",
+            chunks.len(),
+            embeddings.len(),
+            file.size_bytes,
+            file.is_git_tracked
+        );
+
+        // TODO: Store chunks and embeddings in a vector database or index
+        // For now, we just generate them to validate the pipeline
+    }
+
+    info!(
+        "Indexing completed: {} files processed, {} chunks created, {} embeddings generated",
+        files.len(),
+        total_chunks,
+        total_embeddings
+    );
 
     Ok(())
 }

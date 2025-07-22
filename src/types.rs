@@ -9,7 +9,7 @@ pub struct FileMetadata {
     pub is_git_tracked: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileDiscoveryConfig {
     pub max_filesize_bytes: Option<u64>,
     pub respect_gitignore: bool,

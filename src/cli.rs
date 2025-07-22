@@ -20,6 +20,18 @@ pub enum Commands {
         /// Maximum file size to index (e.g., "2mb", "100kb", "1gb")
         #[arg(short, long)]
         max_filesize: Option<String>,
+        /// Embedding model to use for vector generation
+        #[arg(long, default_value = "sentence-transformers/all-MiniLM-L6-v2")]
+        model: String,
+        /// Cache directory for models and data
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
+        /// Enable verbose output
+        #[arg(short, long)]
+        verbose: bool,
+        /// Number of worker threads for processing
+        #[arg(long)]
+        worker_threads: Option<usize>,
     },
     /// Search indexed files
     Search {

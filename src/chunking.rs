@@ -304,8 +304,8 @@ mod tests {
             assert!(chunk.total_chunks == chunks.len());
         }
 
-        for i in 0..chunks.len() {
-            assert_eq!(chunks[i].chunk_index, i);
+        for (i, chunk) in chunks.iter().enumerate() {
+            assert_eq!(chunk.chunk_index, i);
         }
     }
 
@@ -330,7 +330,7 @@ mod tests {
 
         let chunks = strategy.chunk_file(temp_file.path()).unwrap();
 
-        assert!(chunks.len() >= 1);
+        assert!(!chunks.is_empty());
 
         for chunk in &chunks {
             assert!(chunk.source_location.start_line >= 1);

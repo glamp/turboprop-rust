@@ -19,7 +19,11 @@ impl GitRepo {
 
         let root_path = repo
             .workdir()
-            .ok_or_else(|| anyhow::anyhow!("Failed to get git working directory: repository has no working directory"))?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Failed to get git working directory: repository has no working directory"
+                )
+            })?
             .to_path_buf();
 
         Ok(Self { repo, root_path })

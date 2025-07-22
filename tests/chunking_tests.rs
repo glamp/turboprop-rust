@@ -15,7 +15,7 @@ fn test_chunking_poker_typescript_files() {
 
     // Should successfully chunk the TypeScript file
     if !chunks.is_empty() {
-        assert!(chunks[0].content.len() > 0);
+        assert!(!chunks[0].content.is_empty());
         assert!(chunks[0].source_location.start_line >= 1);
         assert!(chunks[0].source_location.file_path == poker_path);
 
@@ -60,7 +60,7 @@ fn test_chunking_large_file() {
     let chunks = strategy.chunk_file(temp_file.path()).unwrap();
 
     assert!(
-        chunks.len() >= 1,
+        !chunks.is_empty(),
         "File should result in at least one chunk"
     );
 
@@ -69,7 +69,7 @@ fn test_chunking_large_file() {
             chunk.token_count <= 30,
             "Each chunk should respect max token count"
         );
-        assert!(chunk.content.len() > 0, "Each chunk should have content");
+        assert!(!chunk.content.is_empty(), "Each chunk should have content");
         assert!(
             chunk.source_location.start_line >= 1,
             "Line numbers should start from 1"
@@ -193,7 +193,7 @@ fn test_poker_package_json_chunking() {
 
     // JSON file should be processed correctly
     if !chunks.is_empty() {
-        assert!(chunks[0].content.len() > 0);
+        assert!(!chunks[0].content.is_empty());
         // Should contain typical package.json content
         let content_lower = chunks[0].content.to_lowercase();
         let has_json_content = content_lower.contains("name")

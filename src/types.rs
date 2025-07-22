@@ -85,9 +85,7 @@ pub struct ChunkIndex {
 
 impl ChunkIndex {
     pub fn new() -> Self {
-        Self {
-            chunks: Vec::new(),
-        }
+        Self { chunks: Vec::new() }
     }
 
     pub fn add_chunk(&mut self, chunk: ContentChunk, embedding: Vec<f32>) {
@@ -112,15 +110,20 @@ impl ChunkIndex {
         &self.chunks
     }
 
-    pub fn similarity_search(&self, query_embedding: &[f32], limit: usize) -> Vec<(f32, &IndexedChunk)> {
-        let mut results: Vec<(f32, &IndexedChunk)> = self.chunks
+    pub fn similarity_search(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Vec<(f32, &IndexedChunk)> {
+        let mut results: Vec<(f32, &IndexedChunk)> = self
+            .chunks
             .iter()
             .map(|indexed_chunk| {
                 let similarity = cosine_similarity(query_embedding, &indexed_chunk.embedding);
                 (similarity, indexed_chunk)
             })
             .collect();
-        
+
         results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
         results.into_iter().take(limit).collect()
     }
@@ -176,11 +179,11 @@ mod tests {
         let id1 = IndexId::new("test-index");
         let id2 = IndexId::from("another-index".to_string());
         let id3 = IndexId::from_path(Path::new("/some/path"));
-        
+
         assert_eq!(id1.to_string(), "test-index");
         assert_eq!(id2.to_string(), "another-index");
         assert!(id3.to_string().starts_with("idx_"));
-        
+
         // Same path should generate same ID
         let id4 = IndexId::from_path(Path::new("/some/path"));
         assert_eq!(id3, id4);
@@ -202,19 +205,22 @@ mod tests {
             chunk_index: 0,
             total_chunks: 1,
         };
-        
+
         let indexed_chunk = IndexedChunk {
             chunk,
             embedding: vec![0.1, 0.2, 0.3],
         };
-        
+
         let result = SearchResult::new(0.85, &indexed_chunk, 0);
-        
+
         assert_eq!(result.similarity, 0.85);
         assert_eq!(result.rank, 0);
         assert_eq!(result.location_display(), "test.rs:10");
         assert_eq!(result.content_preview(20), "This is a test chunk...");
-        assert_eq!(result.content_preview(100), "This is a test chunk with some content");
+        assert_eq!(
+            result.content_preview(100),
+            "This is a test chunk with some content"
+        );
     }
 
     #[test]
@@ -272,20 +278,20 @@ mod tests {
                 embedding: vec![0.5, 0.6],
             },
         ];
-        
+
         let stats = IndexStats::calculate(&chunks);
-        
+
         assert_eq!(stats.total_chunks, 3);
         assert_eq!(stats.unique_files, 2);
         assert_eq!(stats.total_tokens, 13);
         assert_eq!(stats.average_chunk_size, 13.0 / 3.0);
         assert_eq!(stats.embedding_dimensions, 2);
     }
-    
+
     #[test]
     fn test_index_stats_empty() {
         let stats = IndexStats::calculate(&[]);
-        
+
         assert_eq!(stats.total_chunks, 0);
         assert_eq!(stats.unique_files, 0);
         assert_eq!(stats.total_tokens, 0);
@@ -313,7 +319,7 @@ pub struct ContentChunk {
     pub total_chunks: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkingConfig {
     pub target_chunk_size_tokens: usize,
     pub overlap_tokens: usize,
@@ -363,14 +369,14 @@ impl IndexId {
     pub fn from_path(path: &Path) -> Self {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        
+
         let mut hasher = DefaultHasher::new();
         path.hash(&mut hasher);
         let hash = hasher.finish();
-        
+
         Self(format!("idx_{:016x}", hash))
     }
-    
+
     /// Create a new index ID from a string
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())
@@ -415,7 +421,7 @@ impl<'a> SearchResult<'a> {
             rank,
         }
     }
-    
+
     /// Get a formatted display of the file location
     pub fn location_display(&self) -> String {
         format!(
@@ -424,7 +430,7 @@ impl<'a> SearchResult<'a> {
             self.chunk.chunk.source_location.start_line
         )
     }
-    
+
     /// Get a preview of the chunk content (first N characters)
     pub fn content_preview(&self, max_chars: usize) -> String {
         let content = &self.chunk.chunk.content;
@@ -462,23 +468,23 @@ impl IndexStats {
             .map(|chunk| &chunk.chunk.source_location.file_path)
             .collect::<std::collections::HashSet<_>>()
             .len();
-        
+
         let total_tokens: usize = indexed_chunks
             .iter()
             .map(|chunk| chunk.chunk.token_count)
             .sum();
-        
+
         let average_chunk_size = if total_chunks > 0 {
             total_tokens as f64 / total_chunks as f64
         } else {
             0.0
         };
-        
+
         let embedding_dimensions = indexed_chunks
             .first()
             .map(|chunk| chunk.embedding.len())
             .unwrap_or(0);
-        
+
         Self {
             total_chunks,
             unique_files,

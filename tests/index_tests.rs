@@ -13,7 +13,7 @@ use tempfile::TempDir;
 use tp::config::TurboPropConfig;
 use tp::index::{PersistentChunkIndex, UpdateResult};
 use tp::storage::{IndexConfig, IndexStorage};
-use tp::types::{ContentChunk, IndexedChunk, SourceLocation, IndexStats};
+use tp::types::{ContentChunk, IndexStats, IndexedChunk, SourceLocation};
 
 /// Helper function to create a test file with content
 fn create_test_file(dir: &std::path::Path, name: &str, content: &str) -> PathBuf {
@@ -41,7 +41,12 @@ fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
 }
 
 /// Create an indexed chunk for testing
-fn create_test_indexed_chunk(id: &str, content: &str, file_path: &str, embedding: Vec<f32>) -> IndexedChunk {
+fn create_test_indexed_chunk(
+    id: &str,
+    content: &str,
+    file_path: &str,
+    embedding: Vec<f32>,
+) -> IndexedChunk {
     IndexedChunk {
         chunk: create_test_chunk(id, content, file_path),
         embedding,
@@ -71,7 +76,7 @@ fn test_index_storage_basic_operations() {
     };
 
     // Save the index
-    storage.save_index(&indexed_chunks, &config).unwrap();
+    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
     assert!(storage.index_exists());
 
     // Verify all expected files exist
@@ -81,7 +86,7 @@ fn test_index_storage_basic_operations() {
     assert!(storage.index_dir().join("version.txt").exists());
 
     // Load the index back
-    let (loaded_chunks, loaded_config) = storage.load_index().unwrap();
+    let (loaded_chunks, loaded_config) = storage.load_index("1.0.0").unwrap();
 
     // Verify loaded data matches original
     assert_eq!(loaded_chunks.len(), 2);
@@ -103,18 +108,21 @@ fn test_index_storage_clear() {
     let storage = IndexStorage::new(temp_dir.path()).unwrap();
 
     // Create and save test data
-    let indexed_chunks = vec![
-        create_test_indexed_chunk("chunk1", "Test content", "test.txt", vec![1.0, 2.0]),
-    ];
+    let indexed_chunks = vec![create_test_indexed_chunk(
+        "chunk1",
+        "Test content",
+        "test.txt",
+        vec![1.0, 2.0],
+    )];
     let config = IndexConfig::default();
-    
-    storage.save_index(&indexed_chunks, &config).unwrap();
+
+    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
     assert!(storage.index_exists());
 
     // Clear the index
     storage.clear_index().unwrap();
     assert!(!storage.index_exists());
-    
+
     // Verify files are removed
     assert!(!storage.index_dir().join("vectors.bin").exists());
     assert!(!storage.index_dir().join("metadata.json").exists());
@@ -144,11 +152,11 @@ fn test_index_storage_large_data() {
     };
 
     // Save and load large dataset
-    storage.save_index(&indexed_chunks, &config).unwrap();
-    let (loaded_chunks, _) = storage.load_index().unwrap();
+    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+    let (loaded_chunks, _) = storage.load_index("1.0.0").unwrap();
 
     assert_eq!(loaded_chunks.len(), 1000);
-    
+
     // Spot check a few chunks
     assert_eq!(loaded_chunks[0].chunk.id, "chunk_0");
     assert_eq!(loaded_chunks[999].chunk.id, "chunk_999");
@@ -170,15 +178,18 @@ fn test_persistent_chunk_index_creation() {
 #[test]
 fn test_persistent_chunk_index_save_load() {
     let temp_dir = TempDir::new().unwrap();
-    
+
     // Create an index and simulate adding some data manually for testing
     // (In real usage, build() would be used)
-    let mut index = PersistentChunkIndex::new(temp_dir.path()).unwrap();
-    
+    let _index = PersistentChunkIndex::new(temp_dir.path()).unwrap();
+
     // Test that loading non-existent index fails appropriately
     let load_result = PersistentChunkIndex::load(temp_dir.path());
     assert!(load_result.is_err());
-    assert!(load_result.unwrap_err().to_string().contains("No index found"));
+    assert!(load_result
+        .unwrap_err()
+        .to_string()
+        .contains("No index found"));
 }
 
 #[tokio::test]
@@ -186,14 +197,19 @@ async fn test_build_index_with_real_files() {
     let temp_dir = TempDir::new().unwrap();
 
     // Create test files
-    create_test_file(temp_dir.path(), "test1.rs", 
+    create_test_file(
+        temp_dir.path(),
+        "test1.rs",
         r#"
         fn main() {
             println!("Hello, world!");
         }
-        "#);
-    
-    create_test_file(temp_dir.path(), "test2.rs",
+        "#,
+    );
+
+    create_test_file(
+        temp_dir.path(),
+        "test2.rs",
         r#"
         pub struct Person {
             name: String,
@@ -205,7 +221,8 @@ async fn test_build_index_with_real_files() {
                 Self { name, age }
             }
         }
-        "#);
+        "#,
+    );
 
     // Skip this test if we're in offline mode or if it would require network access
     if std::env::var("OFFLINE_TESTS").is_ok() {
@@ -215,18 +232,18 @@ async fn test_build_index_with_real_files() {
     // Test building an index with default configuration
     let config = TurboPropConfig::default();
     let build_result = PersistentChunkIndex::build(temp_dir.path(), &config).await;
-    
+
     // This test might fail due to network requirements for downloading models
     // In CI/CD environments without network access, we should skip
     match build_result {
         Ok(index) => {
             assert!(!index.is_empty());
             assert!(index.exists_on_disk());
-            
+
             // Test that we can load the built index
             let loaded_index = PersistentChunkIndex::load(temp_dir.path()).unwrap();
             assert_eq!(loaded_index.len(), index.len());
-            
+
             // Test similarity search with the loaded index
             let chunks = loaded_index.get_chunks();
             if !chunks.is_empty() {
@@ -249,11 +266,14 @@ fn test_concurrent_index_access() {
     let storage = IndexStorage::new(temp_dir.path()).unwrap();
 
     // Create initial index
-    let indexed_chunks = vec![
-        create_test_indexed_chunk("chunk1", "Shared content", "test.txt", vec![0.1, 0.2]),
-    ];
+    let indexed_chunks = vec![create_test_indexed_chunk(
+        "chunk1",
+        "Shared content",
+        "test.txt",
+        vec![0.1, 0.2],
+    )];
     let config = IndexConfig::default();
-    storage.save_index(&indexed_chunks, &config).unwrap();
+    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
 
     let storage_path = temp_dir.path().to_path_buf();
     let results = Arc::new(Mutex::new(Vec::new()));
@@ -263,18 +283,18 @@ fn test_concurrent_index_access() {
     for i in 0..5 {
         let path = storage_path.clone();
         let results_clone = Arc::clone(&results);
-        
+
         let handle = thread::spawn(move || {
             // Add a small random delay to increase chances of concurrent access
             thread::sleep(Duration::from_millis(i * 10));
-            
+
             let storage = IndexStorage::new(&path).unwrap();
-            let load_result = storage.load_index();
-            
+            let load_result = storage.load_index("1.0.0");
+
             let mut results_guard = results_clone.lock().unwrap();
             results_guard.push((i, load_result.is_ok()));
         });
-        
+
         handles.push(handle);
     }
 
@@ -286,7 +306,7 @@ fn test_concurrent_index_access() {
     // Verify all threads successfully loaded the index
     let final_results = results.lock().unwrap();
     assert_eq!(final_results.len(), 5);
-    
+
     for (thread_id, success) in final_results.iter() {
         assert!(*success, "Thread {} failed to load index", thread_id);
     }
@@ -298,30 +318,33 @@ fn test_index_integrity_after_partial_write() {
     let storage = IndexStorage::new(temp_dir.path()).unwrap();
 
     // Create initial valid index
-    let indexed_chunks = vec![
-        create_test_indexed_chunk("chunk1", "Valid content", "test.txt", vec![0.1, 0.2, 0.3]),
-    ];
+    let indexed_chunks = vec![create_test_indexed_chunk(
+        "chunk1",
+        "Valid content",
+        "test.txt",
+        vec![0.1, 0.2, 0.3],
+    )];
     let config = IndexConfig::default();
-    storage.save_index(&indexed_chunks, &config).unwrap();
+    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
 
     // Verify we can load it
-    assert!(storage.load_index().is_ok());
+    assert!(storage.load_index("1.0.0").is_ok());
 
     // Simulate partial write by creating a temporary file that won't be moved
     let temp_vectors = storage.index_dir().join("vectors.bin.tmp");
     fs::write(&temp_vectors, "incomplete data").unwrap();
-    
+
     // The original index should still be valid since atomic operations are used
-    assert!(storage.load_index().is_ok());
-    
+    assert!(storage.load_index("1.0.0").is_ok());
+
     // The temporary file should not interfere with normal operations
     assert!(temp_vectors.exists());
-    
+
     // After another save operation, temp files should be cleaned up by new save
-    storage.save_index(&indexed_chunks, &config).unwrap();
-    
+    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
+
     // Index should still be valid
-    let (loaded_chunks, _) = storage.load_index().unwrap();
+    let (loaded_chunks, _) = storage.load_index("1.0.0").unwrap();
     assert_eq!(loaded_chunks.len(), 1);
     assert_eq!(loaded_chunks[0].chunk.id, "chunk1");
 }
@@ -330,7 +353,12 @@ fn test_index_integrity_after_partial_write() {
 fn test_index_stats_calculation() {
     let indexed_chunks = vec![
         create_test_indexed_chunk("chunk1", "Hello world", "file1.rs", vec![0.1, 0.2]),
-        create_test_indexed_chunk("chunk2", "Rust programming language", "file1.rs", vec![0.3, 0.4]),
+        create_test_indexed_chunk(
+            "chunk2",
+            "Rust programming language",
+            "file1.rs",
+            vec![0.3, 0.4],
+        ),
         create_test_indexed_chunk("chunk3", "Machine learning", "file2.py", vec![0.5, 0.6]),
     ];
 
@@ -349,23 +377,29 @@ fn test_version_compatibility() {
     let storage = IndexStorage::new(temp_dir.path()).unwrap();
 
     // Create a valid index
-    let indexed_chunks = vec![
-        create_test_indexed_chunk("chunk1", "Version test", "test.txt", vec![1.0]),
-    ];
+    let indexed_chunks = vec![create_test_indexed_chunk(
+        "chunk1",
+        "Version test",
+        "test.txt",
+        vec![1.0],
+    )];
     let config = IndexConfig::default();
-    storage.save_index(&indexed_chunks, &config).unwrap();
+    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
 
     // Should load successfully
-    assert!(storage.load_index().is_ok());
+    assert!(storage.load_index("1.0.0").is_ok());
 
     // Simulate incompatible version by modifying version file
     let version_file = storage.index_dir().join("version.txt");
     fs::write(&version_file, "999.0.0").unwrap();
 
     // Should now fail to load due to version mismatch
-    let load_result = storage.load_index();
+    let load_result = storage.load_index("1.0.0");
     assert!(load_result.is_err());
-    assert!(load_result.unwrap_err().to_string().contains("version mismatch"));
+    assert!(load_result
+        .unwrap_err()
+        .to_string()
+        .contains("version mismatch"));
 }
 
 #[test]
@@ -376,12 +410,12 @@ fn test_empty_index_operations() {
     // Test saving empty index
     let empty_chunks: Vec<IndexedChunk> = vec![];
     let config = IndexConfig::default();
-    
-    storage.save_index(&empty_chunks, &config).unwrap();
+
+    storage.save_index(&empty_chunks, &config, "1.0.0").unwrap();
     assert!(storage.index_exists());
 
     // Test loading empty index
-    let (loaded_chunks, loaded_config) = storage.load_index().unwrap();
+    let (loaded_chunks, loaded_config) = storage.load_index("1.0.0").unwrap();
     assert_eq!(loaded_chunks.len(), 0);
     assert_eq!(loaded_config.model_name, config.model_name);
 
@@ -400,7 +434,7 @@ fn test_index_directory_creation() {
     // Storage should create the directory structure
     let storage = IndexStorage::new(&nested_path).unwrap();
     assert!(storage.index_dir().exists());
-    
+
     let expected_index_dir = nested_path.join(".turboprop").join("index");
     assert!(expected_index_dir.exists());
     assert_eq!(storage.index_dir(), expected_index_dir);
@@ -412,20 +446,26 @@ fn test_corrupted_metadata_handling() {
     let storage = IndexStorage::new(temp_dir.path()).unwrap();
 
     // Create valid index first
-    let indexed_chunks = vec![
-        create_test_indexed_chunk("chunk1", "Test content", "test.txt", vec![1.0, 2.0]),
-    ];
+    let indexed_chunks = vec![create_test_indexed_chunk(
+        "chunk1",
+        "Test content",
+        "test.txt",
+        vec![1.0, 2.0],
+    )];
     let config = IndexConfig::default();
-    storage.save_index(&indexed_chunks, &config).unwrap();
+    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
 
     // Corrupt the metadata file
     let metadata_file = storage.index_dir().join("metadata.json");
     fs::write(&metadata_file, "{ invalid json }").unwrap();
 
     // Should fail to load due to corrupted metadata
-    let load_result = storage.load_index();
+    let load_result = storage.load_index("1.0.0");
     assert!(load_result.is_err());
-    assert!(load_result.unwrap_err().to_string().contains("Failed to deserialize metadata"));
+    assert!(load_result
+        .unwrap_err()
+        .to_string()
+        .contains("Failed to deserialize metadata"));
 }
 
 #[test]
@@ -434,11 +474,14 @@ fn test_missing_files_handling() {
     let storage = IndexStorage::new(temp_dir.path()).unwrap();
 
     // Create valid index
-    let indexed_chunks = vec![
-        create_test_indexed_chunk("chunk1", "Test", "test.txt", vec![1.0]),
-    ];
+    let indexed_chunks = vec![create_test_indexed_chunk(
+        "chunk1",
+        "Test",
+        "test.txt",
+        vec![1.0],
+    )];
     let config = IndexConfig::default();
-    storage.save_index(&indexed_chunks, &config).unwrap();
+    storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
 
     // Remove one of the required files
     let vectors_file = storage.index_dir().join("vectors.bin");
@@ -446,9 +489,9 @@ fn test_missing_files_handling() {
 
     // Should report that index doesn't exist
     assert!(!storage.index_exists());
-    
+
     // Loading should fail gracefully
-    let load_result = storage.load_index();
+    let load_result = storage.load_index("1.0.0");
     assert!(load_result.is_err());
 }
 

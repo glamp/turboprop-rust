@@ -44,14 +44,14 @@ impl EmbeddingConfig {
     /// Create a new configuration with a custom model name
     pub fn with_model(model_name: impl Into<String>) -> Self {
         let model_name = model_name.into();
-        
+
         // Look up model dimensions from available models
         let embedding_dimensions = ModelManager::get_available_models()
             .iter()
             .find(|model| model.name == model_name)
             .map(|model| model.dimensions)
             .unwrap_or(DEFAULT_EMBEDDING_DIMENSIONS);
-            
+
         Self {
             model_name,
             embedding_dimensions,
@@ -158,10 +158,9 @@ impl EmbeddingGenerator {
             )
         })?;
 
-        embeddings
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("Failed to generate embedding: no output for input text"))
+        embeddings.into_iter().next().ok_or_else(|| {
+            anyhow::anyhow!("Failed to generate embedding: no output for input text")
+        })
     }
 
     /// Generate embeddings for multiple text chunks in batches

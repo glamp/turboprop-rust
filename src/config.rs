@@ -10,7 +10,7 @@ use tracing::{debug, info};
 
 use crate::embeddings::EmbeddingConfig;
 use crate::models::ModelManager;
-use crate::types::FileDiscoveryConfig;
+use crate::types::{ChunkingConfig, FileDiscoveryConfig};
 
 /// Default configuration file name
 pub const CONFIG_FILE_NAME: &str = "turboprop.json";
@@ -22,6 +22,8 @@ pub struct TurboPropConfig {
     pub embedding: EmbeddingConfig,
     /// File discovery configuration
     pub file_discovery: FileDiscoveryConfig,
+    /// Chunking configuration
+    pub chunking: ChunkingConfig,
     /// General application settings
     pub general: GeneralConfig,
 }
@@ -37,8 +39,9 @@ pub struct GeneralConfig {
     pub verbose: bool,
     /// Number of parallel workers for processing
     pub worker_threads: Option<usize>,
+    /// Storage schema version for index compatibility
+    pub storage_version: String,
 }
-
 
 impl Default for GeneralConfig {
     fn default() -> Self {
@@ -47,6 +50,7 @@ impl Default for GeneralConfig {
             cache_dir: PathBuf::from(".turboprop"),
             verbose: false,
             worker_threads: None, // Use system default
+            storage_version: "1.0.0".to_string(),
         }
     }
 }

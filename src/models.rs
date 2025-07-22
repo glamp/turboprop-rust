@@ -51,7 +51,6 @@ impl ModelManager {
         }
     }
 
-
     /// Initialize the cache directory, creating it if it doesn't exist
     pub fn init_cache(&self) -> Result<()> {
         if !self.cache_dir.exists() {

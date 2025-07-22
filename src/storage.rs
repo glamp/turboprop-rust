@@ -13,8 +13,6 @@ use tracing::{debug, info, warn};
 
 use crate::types::{ContentChunk, IndexedChunk};
 
-/// Current schema version for index storage format
-const STORAGE_VERSION: &str = "1.0.0";
 
 /// Metadata for the stored index, containing information about the stored data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,14 +109,14 @@ impl IndexStorage {
     /// Create a new index storage manager
     pub fn new<P: AsRef<Path>>(base_path: P) -> Result<Self> {
         let index_dir = base_path.as_ref().join(".turboprop").join("index");
-        
+
         // Ensure the index directory exists
         std::fs::create_dir_all(&index_dir).with_context(|| {
             format!("Failed to create index directory: {}", index_dir.display())
         })?;
 
         debug!("Index storage initialized at: {}", index_dir.display());
-        
+
         Ok(Self { index_dir })
     }
 
@@ -127,12 +125,12 @@ impl IndexStorage {
         let vectors_path = self.index_dir.join("vectors.bin");
         let metadata_path = self.index_dir.join("metadata.json");
         let config_path = self.index_dir.join("config.yaml");
-        
+
         vectors_path.exists() && metadata_path.exists() && config_path.exists()
     }
 
     /// Save vectors and metadata to disk atomically
-    pub fn save_index(&self, indexed_chunks: &[IndexedChunk], config: &IndexConfig) -> Result<()> {
+    pub fn save_index(&self, indexed_chunks: &[IndexedChunk], config: &IndexConfig, storage_version: &str) -> Result<()> {
         info!("Saving index with {} chunks to disk", indexed_chunks.len());
 
         // Create temporary files for atomic operations
@@ -144,7 +142,7 @@ impl IndexStorage {
         self.write_vectors_file(&temp_vectors_path, indexed_chunks)?;
 
         // Write metadata to temporary file
-        self.write_metadata_file(&temp_metadata_path, indexed_chunks, config)?;
+        self.write_metadata_file(&temp_metadata_path, indexed_chunks, config, storage_version)?;
 
         // Write config to temporary file
         self.write_config_file(&temp_config_path, config)?;
@@ -155,29 +153,37 @@ impl IndexStorage {
         let final_config_path = self.index_dir.join("config.yaml");
 
         std::fs::rename(&temp_vectors_path, &final_vectors_path).with_context(|| {
-            format!("Failed to move vectors file to {}", final_vectors_path.display())
+            format!(
+                "Failed to move vectors file to {}",
+                final_vectors_path.display()
+            )
         })?;
 
         std::fs::rename(&temp_metadata_path, &final_metadata_path).with_context(|| {
-            format!("Failed to move metadata file to {}", final_metadata_path.display())
+            format!(
+                "Failed to move metadata file to {}",
+                final_metadata_path.display()
+            )
         })?;
 
         std::fs::rename(&temp_config_path, &final_config_path).with_context(|| {
-            format!("Failed to move config file to {}", final_config_path.display())
+            format!(
+                "Failed to move config file to {}",
+                final_config_path.display()
+            )
         })?;
 
         // Write version file
         let version_path = self.index_dir.join("version.txt");
-        std::fs::write(&version_path, STORAGE_VERSION).with_context(|| {
-            format!("Failed to write version file: {}", version_path.display())
-        })?;
+        std::fs::write(&version_path, storage_version)
+            .with_context(|| format!("Failed to write version file: {}", version_path.display()))?;
 
         info!("Index saved successfully to {}", self.index_dir.display());
         Ok(())
     }
 
     /// Load vectors and metadata from disk
-    pub fn load_index(&self) -> Result<(Vec<IndexedChunk>, IndexConfig)> {
+    pub fn load_index(&self, expected_storage_version: &str) -> Result<(Vec<IndexedChunk>, IndexConfig)> {
         if !self.index_exists() {
             anyhow::bail!("No index found at {}", self.index_dir.display());
         }
@@ -185,7 +191,7 @@ impl IndexStorage {
         info!("Loading index from {}", self.index_dir.display());
 
         // Verify version compatibility
-        self.verify_version()?;
+        self.verify_version(expected_storage_version)?;
 
         // Load configuration
         let config = self.load_config()?;
@@ -198,17 +204,25 @@ impl IndexStorage {
 
         // Reconstruct IndexedChunk objects
         let mut indexed_chunks = Vec::with_capacity(metadata.chunks.len());
-        
+
         for (i, chunk_meta) in metadata.chunks.iter().enumerate() {
             if i >= vectors.len() {
-                anyhow::bail!("Vector count mismatch: expected {}, got {}", metadata.chunks.len(), vectors.len());
+                anyhow::bail!(
+                    "Vector count mismatch: expected {}, got {}",
+                    metadata.chunks.len(),
+                    vectors.len()
+                );
             }
 
             // Create a minimal ContentChunk from metadata
             // Note: We don't store the actual content text to save space
             let content_chunk = ContentChunk {
                 id: chunk_meta.id.clone(),
-                content: format!("[Content from {}:{}]", chunk_meta.file_path.display(), chunk_meta.start_line),
+                content: format!(
+                    "[Content from {}:{}]",
+                    chunk_meta.file_path.display(),
+                    chunk_meta.start_line
+                ),
                 token_count: chunk_meta.token_count,
                 source_location: crate::types::SourceLocation {
                     file_path: chunk_meta.file_path.clone(),
@@ -241,7 +255,7 @@ impl IndexStorage {
             .with_context(|| format!("Failed to create vectors file: {}", path.display()))?;
 
         let mut writer = BufWriter::new(file);
-        
+
         // Extract just the embeddings for storage
         let embeddings: Vec<Vec<f32>> = indexed_chunks
             .iter()
@@ -249,24 +263,32 @@ impl IndexStorage {
             .collect();
 
         // Serialize using bincode for efficiency
-        bincode::serialize_into(&mut writer, &embeddings).with_context(|| {
-            "Failed to serialize vectors"
-        })?;
+        bincode::serialize_into(&mut writer, &embeddings)
+            .with_context(|| "Failed to serialize vectors")?;
 
         writer.flush().context("Failed to flush vectors file")?;
         debug!("Wrote {} vectors to {}", embeddings.len(), path.display());
-        
+
         Ok(())
     }
 
     /// Write metadata to a JSON file
-    fn write_metadata_file(&self, path: &Path, indexed_chunks: &[IndexedChunk], config: &IndexConfig) -> Result<()> {
+    fn write_metadata_file(
+        &self,
+        path: &Path,
+        indexed_chunks: &[IndexedChunk],
+        config: &IndexConfig,
+        storage_version: &str,
+    ) -> Result<()> {
         let metadata = StoredIndexMetadata {
-            version: STORAGE_VERSION.to_string(),
+            version: storage_version.to_string(),
             chunk_count: indexed_chunks.len(),
             embedding_dimensions: config.embedding_dimensions,
             created_at: std::time::SystemTime::now(),
-            chunks: indexed_chunks.iter().map(|chunk| ChunkMetadata::from(&chunk.chunk)).collect(),
+            chunks: indexed_chunks
+                .iter()
+                .map(|chunk| ChunkMetadata::from(&chunk.chunk))
+                .collect(),
         };
 
         let file = OpenOptions::new()
@@ -277,11 +299,14 @@ impl IndexStorage {
             .with_context(|| format!("Failed to create metadata file: {}", path.display()))?;
 
         let writer = BufWriter::new(file);
-        serde_json::to_writer_pretty(writer, &metadata).with_context(|| {
-            "Failed to serialize metadata"
-        })?;
+        serde_json::to_writer_pretty(writer, &metadata)
+            .with_context(|| "Failed to serialize metadata")?;
 
-        debug!("Wrote metadata for {} chunks to {}", indexed_chunks.len(), path.display());
+        debug!(
+            "Wrote metadata for {} chunks to {}",
+            indexed_chunks.len(),
+            path.display()
+        );
         Ok(())
     }
 
@@ -295,9 +320,7 @@ impl IndexStorage {
             .with_context(|| format!("Failed to create config file: {}", path.display()))?;
 
         let writer = BufWriter::new(file);
-        serde_yaml::to_writer(writer, config).with_context(|| {
-            "Failed to serialize config"
-        })?;
+        serde_yaml::to_writer(writer, config).with_context(|| "Failed to serialize config")?;
 
         debug!("Wrote config to {}", path.display());
         Ok(())
@@ -306,22 +329,20 @@ impl IndexStorage {
     /// Load vectors from binary file using memory mapping
     fn load_vectors(&self, metadata: &StoredIndexMetadata) -> Result<Vec<Vec<f32>>> {
         let vectors_path = self.index_dir.join("vectors.bin");
-        
-        let file = File::open(&vectors_path).with_context(|| {
-            format!("Failed to open vectors file: {}", vectors_path.display())
-        })?;
+
+        let file = File::open(&vectors_path)
+            .with_context(|| format!("Failed to open vectors file: {}", vectors_path.display()))?;
 
         // Use memory mapping for efficient loading
         let mmap = unsafe {
-            MmapOptions::new().map(&file).with_context(|| {
-                "Failed to create memory map for vectors file"
-            })?
+            MmapOptions::new()
+                .map(&file)
+                .with_context(|| "Failed to create memory map for vectors file")?
         };
 
         // Deserialize from memory-mapped data
-        let vectors: Vec<Vec<f32>> = bincode::deserialize(&mmap).with_context(|| {
-            "Failed to deserialize vectors from file"
-        })?;
+        let vectors: Vec<Vec<f32>> = bincode::deserialize(&mmap)
+            .with_context(|| "Failed to deserialize vectors from file")?;
 
         // Validate loaded data
         if vectors.len() != metadata.chunk_count {
@@ -332,22 +353,25 @@ impl IndexStorage {
             );
         }
 
-        debug!("Loaded {} vectors from {}", vectors.len(), vectors_path.display());
+        debug!(
+            "Loaded {} vectors from {}",
+            vectors.len(),
+            vectors_path.display()
+        );
         Ok(vectors)
     }
 
     /// Load metadata from JSON file
     fn load_metadata(&self) -> Result<StoredIndexMetadata> {
         let metadata_path = self.index_dir.join("metadata.json");
-        
+
         let file = File::open(&metadata_path).with_context(|| {
             format!("Failed to open metadata file: {}", metadata_path.display())
         })?;
 
         let reader = BufReader::new(file);
-        let metadata: StoredIndexMetadata = serde_json::from_reader(reader).with_context(|| {
-            "Failed to deserialize metadata"
-        })?;
+        let metadata: StoredIndexMetadata =
+            serde_json::from_reader(reader).with_context(|| "Failed to deserialize metadata")?;
 
         debug!("Loaded metadata for {} chunks", metadata.chunk_count);
         Ok(metadata)
@@ -356,39 +380,36 @@ impl IndexStorage {
     /// Load configuration from YAML file
     fn load_config(&self) -> Result<IndexConfig> {
         let config_path = self.index_dir.join("config.yaml");
-        
-        let file = File::open(&config_path).with_context(|| {
-            format!("Failed to open config file: {}", config_path.display())
-        })?;
+
+        let file = File::open(&config_path)
+            .with_context(|| format!("Failed to open config file: {}", config_path.display()))?;
 
         let reader = BufReader::new(file);
-        let config: IndexConfig = serde_yaml::from_reader(reader).with_context(|| {
-            "Failed to deserialize config"
-        })?;
+        let config: IndexConfig =
+            serde_yaml::from_reader(reader).with_context(|| "Failed to deserialize config")?;
 
         debug!("Loaded config with model: {}", config.model_name);
         Ok(config)
     }
 
     /// Verify that the stored version is compatible
-    fn verify_version(&self) -> Result<()> {
+    fn verify_version(&self, expected_version: &str) -> Result<()> {
         let version_path = self.index_dir.join("version.txt");
-        
+
         if !version_path.exists() {
             warn!("No version file found, assuming compatible format");
             return Ok(());
         }
 
-        let stored_version = std::fs::read_to_string(&version_path).with_context(|| {
-            format!("Failed to read version file: {}", version_path.display())
-        })?;
+        let stored_version = std::fs::read_to_string(&version_path)
+            .with_context(|| format!("Failed to read version file: {}", version_path.display()))?;
 
         let stored_version = stored_version.trim();
-        
-        if stored_version != STORAGE_VERSION {
+
+        if stored_version != expected_version {
             anyhow::bail!(
                 "Index version mismatch: expected {}, found {}. Please rebuild the index.",
-                STORAGE_VERSION,
+                expected_version,
                 stored_version
             );
         }
@@ -409,16 +430,15 @@ impl IndexStorage {
         }
 
         info!("Clearing index at {}", self.index_dir.display());
-        
+
         // Remove all files in the index directory
         for entry in std::fs::read_dir(&self.index_dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_file() {
-                std::fs::remove_file(&path).with_context(|| {
-                    format!("Failed to remove file: {}", path.display())
-                })?;
+                std::fs::remove_file(&path)
+                    .with_context(|| format!("Failed to remove file: {}", path.display()))?;
                 debug!("Removed file: {}", path.display());
             }
         }
@@ -430,8 +450,8 @@ impl IndexStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use crate::types::{ContentChunk, SourceLocation};
+    use tempfile::TempDir;
 
     fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
         ContentChunk {
@@ -450,7 +470,12 @@ mod tests {
         }
     }
 
-    fn create_test_indexed_chunk(id: &str, content: &str, file_path: &str, embedding: Vec<f32>) -> IndexedChunk {
+    fn create_test_indexed_chunk(
+        id: &str,
+        content: &str,
+        file_path: &str,
+        embedding: Vec<f32>,
+    ) -> IndexedChunk {
         IndexedChunk {
             chunk: create_test_chunk(id, content, file_path),
             embedding,
@@ -461,7 +486,7 @@ mod tests {
     fn test_storage_initialization() {
         let temp_dir = TempDir::new().unwrap();
         let storage = IndexStorage::new(temp_dir.path()).unwrap();
-        
+
         assert!(storage.index_dir().exists());
         assert!(storage.index_dir().join("..").join("index").exists());
         assert!(!storage.index_exists());
@@ -471,35 +496,35 @@ mod tests {
     fn test_save_and_load_index() {
         let temp_dir = TempDir::new().unwrap();
         let storage = IndexStorage::new(temp_dir.path()).unwrap();
-        
+
         // Create test data
         let indexed_chunks = vec![
             create_test_indexed_chunk("chunk1", "Hello world", "test1.txt", vec![0.1, 0.2, 0.3]),
             create_test_indexed_chunk("chunk2", "Goodbye world", "test2.txt", vec![0.4, 0.5, 0.6]),
         ];
-        
+
         let config = IndexConfig {
             model_name: "test-model".to_string(),
             embedding_dimensions: 3,
             ..Default::default()
         };
-        
+
         // Save index
-        storage.save_index(&indexed_chunks, &config).unwrap();
+        storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
         assert!(storage.index_exists());
-        
+
         // Load index
-        let (loaded_chunks, loaded_config) = storage.load_index().unwrap();
-        
+        let (loaded_chunks, loaded_config) = storage.load_index("1.0.0").unwrap();
+
         // Verify loaded data
         assert_eq!(loaded_chunks.len(), 2);
         assert_eq!(loaded_config.model_name, "test-model");
         assert_eq!(loaded_config.embedding_dimensions, 3);
-        
+
         // Check that embeddings match
         assert_eq!(loaded_chunks[0].embedding, vec![0.1, 0.2, 0.3]);
         assert_eq!(loaded_chunks[1].embedding, vec![0.4, 0.5, 0.6]);
-        
+
         // Check that chunk IDs match
         assert_eq!(loaded_chunks[0].chunk.id, "chunk1");
         assert_eq!(loaded_chunks[1].chunk.id, "chunk2");
@@ -509,16 +534,19 @@ mod tests {
     fn test_clear_index() {
         let temp_dir = TempDir::new().unwrap();
         let storage = IndexStorage::new(temp_dir.path()).unwrap();
-        
+
         // Create test data and save
-        let indexed_chunks = vec![
-            create_test_indexed_chunk("chunk1", "Test content", "test.txt", vec![1.0, 2.0]),
-        ];
+        let indexed_chunks = vec![create_test_indexed_chunk(
+            "chunk1",
+            "Test content",
+            "test.txt",
+            vec![1.0, 2.0],
+        )];
         let config = IndexConfig::default();
-        
-        storage.save_index(&indexed_chunks, &config).unwrap();
+
+        storage.save_index(&indexed_chunks, &config, "1.0.0").unwrap();
         assert!(storage.index_exists());
-        
+
         // Clear the index
         storage.clear_index().unwrap();
         assert!(!storage.index_exists());
@@ -528,8 +556,8 @@ mod tests {
     fn test_load_nonexistent_index() {
         let temp_dir = TempDir::new().unwrap();
         let storage = IndexStorage::new(temp_dir.path()).unwrap();
-        
-        let result = storage.load_index();
+
+        let result = storage.load_index("1.0.0");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No index found"));
     }
@@ -538,7 +566,7 @@ mod tests {
     fn test_chunk_metadata_conversion() {
         let chunk = create_test_chunk("test-id", "test content here", "path/to/file.rs");
         let metadata = ChunkMetadata::from(&chunk);
-        
+
         assert_eq!(metadata.id, "test-id");
         assert_eq!(metadata.file_path, PathBuf::from("path/to/file.rs"));
         assert_eq!(metadata.token_count, 3);

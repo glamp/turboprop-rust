@@ -6,14 +6,14 @@
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::chunking::ChunkingStrategy;
 use crate::config::TurboPropConfig;
 use crate::embeddings::EmbeddingGenerator;
 use crate::files::FileDiscovery;
 use crate::storage::{IndexConfig, IndexStorage};
-use crate::types::{ChunkIndex, ChunkingConfig, FileMetadata, IndexedChunk};
+use crate::types::{ChunkIndex, FileMetadata, IndexedChunk};
 
 /// Enhanced persistent vector index that extends ChunkIndex with storage capabilities
 #[derive(Debug)]
@@ -26,6 +26,8 @@ pub struct PersistentChunkIndex {
     config: IndexConfig,
     /// Base path that was indexed
     indexed_path: PathBuf,
+    /// Storage version used for this index
+    storage_version: String,
 }
 
 impl PersistentChunkIndex {
@@ -41,6 +43,7 @@ impl PersistentChunkIndex {
             storage,
             config,
             indexed_path,
+            storage_version: TurboPropConfig::default().general.storage_version,
         })
     }
 
@@ -53,7 +56,9 @@ impl PersistentChunkIndex {
             anyhow::bail!("No index found at {}", indexed_path.display());
         }
 
-        let (indexed_chunks, config) = storage.load_index()?;
+        // Use default config for loading, which will be replaced by the actual config from disk
+        let default_config = TurboPropConfig::default();
+        let (indexed_chunks, config) = storage.load_index(&default_config.general.storage_version)?;
         let mut chunk_index = ChunkIndex::new();
 
         // Populate the in-memory index
@@ -68,6 +73,7 @@ impl PersistentChunkIndex {
             storage,
             config,
             indexed_path,
+            storage_version: default_config.general.storage_version,
         })
     }
 
@@ -88,7 +94,7 @@ impl PersistentChunkIndex {
 
         // Initialize embedding generator
         let mut embedding_generator = EmbeddingGenerator::new(config.embedding.clone()).await?;
-        
+
         // Discover files
         let discovery = FileDiscovery::new(config.file_discovery.clone());
         let files = discovery.discover_files(&indexed_path)?;
@@ -106,22 +112,22 @@ impl PersistentChunkIndex {
         // Process files and build index
         let mut chunk_index = ChunkIndex::new();
         let mut all_indexed_chunks = Vec::new();
-        let chunking_config = ChunkingConfig::default();
-        let chunking_strategy = ChunkingStrategy::new(chunking_config);
+        let chunking_strategy = ChunkingStrategy::new(config.chunking.clone());
 
         for file in &files {
             info!("Processing: {}", file.path.display());
 
             // Generate chunks from the file
             let chunks = chunking_strategy.chunk_file(&file.path)?;
-            
+
             if chunks.is_empty() {
                 debug!("No chunks generated for: {}", file.path.display());
                 continue;
             }
 
             // Prepare text for embedding
-            let chunk_texts: Vec<String> = chunks.iter().map(|chunk| chunk.content.clone()).collect();
+            let chunk_texts: Vec<String> =
+                chunks.iter().map(|chunk| chunk.content.clone()).collect();
 
             // Generate embeddings
             debug!("Generating embeddings for {} chunks", chunks.len());
@@ -138,19 +144,23 @@ impl PersistentChunkIndex {
         info!("Generated {} indexed chunks", all_indexed_chunks.len());
 
         // Save to disk
-        storage.save_index(&all_indexed_chunks, &index_config)?;
+        storage.save_index(&all_indexed_chunks, &index_config, &config.general.storage_version)?;
 
         Ok(Self {
             chunk_index,
             storage,
             config: index_config,
             indexed_path,
+            storage_version: config.general.storage_version.clone(),
         })
     }
 
     /// Update the index incrementally based on file changes
     pub async fn update_incremental(&mut self, config: &TurboPropConfig) -> Result<UpdateResult> {
-        info!("Performing incremental index update for: {}", self.indexed_path.display());
+        info!(
+            "Performing incremental index update for: {}",
+            self.indexed_path.display()
+        );
 
         // Discover current files
         let discovery = FileDiscovery::new(config.file_discovery.clone());
@@ -159,7 +169,7 @@ impl PersistentChunkIndex {
         // Load existing indexed files from storage if not already loaded
         let (existing_indexed_chunks, _) = if self.chunk_index.is_empty() {
             if self.storage.index_exists() {
-                self.storage.load_index()?
+                self.storage.load_index(&self.storage_version)?
             } else {
                 (Vec::new(), self.config.clone())
             }
@@ -174,10 +184,8 @@ impl PersistentChunkIndex {
             .map(|chunk| chunk.chunk.source_location.file_path.clone())
             .collect();
 
-        let current_file_paths: HashSet<PathBuf> = current_files
-            .iter()
-            .map(|f| f.path.clone())
-            .collect();
+        let current_file_paths: HashSet<PathBuf> =
+            current_files.iter().map(|f| f.path.clone()).collect();
 
         // Identify files that need to be processed
         let mut files_to_add = Vec::new();
@@ -234,24 +242,22 @@ impl PersistentChunkIndex {
             .collect();
 
         // Process new and updated files
-        let chunking_config = ChunkingConfig::default();
-        let chunking_strategy = ChunkingStrategy::new(chunking_config);
-        let files_to_process: Vec<&FileMetadata> = files_to_add
-            .iter()
-            .chain(files_to_update.iter())
-            .collect();
+        let chunking_strategy = ChunkingStrategy::new(config.chunking.clone());
+        let files_to_process: Vec<&FileMetadata> =
+            files_to_add.iter().chain(files_to_update.iter()).collect();
 
         for file in files_to_process {
             info!("Processing: {}", file.path.display());
 
             let chunks = chunking_strategy.chunk_file(&file.path)?;
-            
+
             if chunks.is_empty() {
                 debug!("No chunks generated for: {}", file.path.display());
                 continue;
             }
 
-            let chunk_texts: Vec<String> = chunks.iter().map(|chunk| chunk.content.clone()).collect();
+            let chunk_texts: Vec<String> =
+                chunks.iter().map(|chunk| chunk.content.clone()).collect();
             let embeddings = embedding_generator.embed_batch(&chunk_texts)?;
 
             for (chunk, embedding) in chunks.into_iter().zip(embeddings.into_iter()) {
@@ -264,7 +270,8 @@ impl PersistentChunkIndex {
         // Update the in-memory index
         self.chunk_index = ChunkIndex::new();
         for indexed_chunk in &filtered_chunks {
-            self.chunk_index.add_chunk(indexed_chunk.chunk.clone(), indexed_chunk.embedding.clone());
+            self.chunk_index
+                .add_chunk(indexed_chunk.chunk.clone(), indexed_chunk.embedding.clone());
         }
 
         // Update configuration if needed
@@ -273,24 +280,32 @@ impl PersistentChunkIndex {
         self.config.batch_size = config.embedding.batch_size;
 
         // Save updated index to disk
-        self.storage.save_index(&filtered_chunks, &self.config)?;
+        self.storage.save_index(&filtered_chunks, &self.config, &config.general.storage_version)?;
 
         info!(
             "Incremental update completed: {} chunks before, {} chunks after",
-            result.total_chunks_before,
-            result.total_chunks_after
+            result.total_chunks_before, result.total_chunks_after
         );
 
         Ok(result)
     }
 
     /// Perform a similarity search using the in-memory index
-    pub fn similarity_search(&self, query_embedding: &[f32], limit: usize) -> Vec<(f32, &IndexedChunk)> {
+    pub fn similarity_search(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Vec<(f32, &IndexedChunk)> {
         self.chunk_index.similarity_search(query_embedding, limit)
     }
 
     /// Search using a text query (requires embedding generation)
-    pub async fn search_text(&mut self, query: &str, limit: usize, config: &TurboPropConfig) -> Result<Vec<(f32, &IndexedChunk)>> {
+    pub async fn search_text(
+        &mut self,
+        query: &str,
+        limit: usize,
+        config: &TurboPropConfig,
+    ) -> Result<Vec<(f32, &IndexedChunk)>> {
         // Generate embedding for the query
         let mut embedding_generator = EmbeddingGenerator::new(config.embedding.clone()).await?;
         let query_embedding = embedding_generator.embed_single(query)?;
@@ -331,7 +346,7 @@ impl PersistentChunkIndex {
     /// Save current in-memory index to disk
     pub fn save(&self) -> Result<()> {
         let indexed_chunks = self.chunk_index.get_chunks();
-        self.storage.save_index(indexed_chunks, &self.config)
+        self.storage.save_index(indexed_chunks, &self.config, &self.storage_version)
     }
 
     /// Clear the index (both memory and disk)
@@ -376,9 +391,10 @@ impl UpdateResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use crate::config::TurboPropConfig;
     use std::fs;
+    use tempfile::TempDir;
+    use tracing::warn;
 
     fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
         let file_path = dir.join(name);
@@ -390,7 +406,7 @@ mod tests {
     async fn test_persistent_index_creation() {
         let temp_dir = TempDir::new().unwrap();
         let index = PersistentChunkIndex::new(temp_dir.path()).unwrap();
-        
+
         assert_eq!(index.len(), 0);
         assert!(index.is_empty());
         assert!(!index.exists_on_disk());
@@ -399,30 +415,38 @@ mod tests {
     #[tokio::test]
     async fn test_build_and_load_index() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Create some test files
-        create_test_file(temp_dir.path(), "test1.txt", "Hello world this is a test file");
-        create_test_file(temp_dir.path(), "test2.txt", "Another test file with different content");
-        
+        create_test_file(
+            temp_dir.path(),
+            "test1.txt",
+            "Hello world this is a test file",
+        );
+        create_test_file(
+            temp_dir.path(),
+            "test2.txt",
+            "Another test file with different content",
+        );
+
         // Skip this test if offline
         if std::env::var("OFFLINE_TESTS").is_ok() {
             return;
         }
-        
+
         // Build index
         let config = TurboPropConfig::default();
         let index = PersistentChunkIndex::build(temp_dir.path(), &config).await;
-        
+
         // This test requires network access to download embedding model
         if index.is_err() {
             warn!("Skipping build test due to network/model requirements");
             return;
         }
-        
+
         let index = index.unwrap();
         assert!(!index.is_empty());
         assert!(index.exists_on_disk());
-        
+
         // Test loading
         let loaded_index = PersistentChunkIndex::load(temp_dir.path()).unwrap();
         assert_eq!(loaded_index.len(), index.len());
@@ -433,7 +457,7 @@ mod tests {
     fn test_load_nonexistent_index() {
         let temp_dir = TempDir::new().unwrap();
         let result = PersistentChunkIndex::load(temp_dir.path());
-        
+
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No index found"));
     }
@@ -447,10 +471,10 @@ mod tests {
             total_chunks_before: 10,
             total_chunks_after: 15,
         };
-        
+
         assert!(result.has_changes());
         assert_eq!(result.chunk_delta(), 5);
-        
+
         let no_change_result = UpdateResult {
             added_files: 0,
             updated_files: 0,
@@ -458,7 +482,7 @@ mod tests {
             total_chunks_before: 10,
             total_chunks_after: 10,
         };
-        
+
         assert!(!no_change_result.has_changes());
         assert_eq!(no_change_result.chunk_delta(), 0);
     }

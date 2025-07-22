@@ -21,7 +21,7 @@ use crate::embeddings::EmbeddingGenerator;
 use crate::files::FileDiscovery;
 use crate::index::PersistentChunkIndex;
 use crate::storage::IndexStorage;
-use crate::types::{parse_filesize, ChunkingConfig, ChunkIndex, FileDiscoveryConfig};
+use crate::types::{parse_filesize, ChunkIndex, FileDiscoveryConfig};
 use anyhow::Result;
 use std::path::Path;
 use tracing::{debug, info};
@@ -71,7 +71,10 @@ pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
     }
 
     if !path.is_dir() {
-        anyhow::bail!("Failed to index path: {} is not a directory", path.display());
+        anyhow::bail!(
+            "Failed to index path: {} is not a directory",
+            path.display()
+        );
     }
 
     info!("Indexing files in: {}", path.display());
@@ -127,7 +130,7 @@ pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
 /// let config = TurboPropConfig::default();
 /// let result = index_files_with_config(Path::new("./src"), &config).await;
 /// assert!(result.is_ok());
-/// 
+///
 /// let index = result.unwrap();
 /// println!("Indexed {} chunks", index.len());
 /// # });
@@ -152,7 +155,7 @@ pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
 ///
 /// let index = result.unwrap();
 /// // The index can now be used for similarity search
-/// println!("Created index with {} chunks using {}-dimensional embeddings", 
+/// println!("Created index with {} chunks using {}-dimensional embeddings",
 ///          index.len(), config.embedding.embedding_dimensions);
 /// # });
 /// ```
@@ -162,7 +165,10 @@ pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> R
     }
 
     if !path.is_dir() {
-        anyhow::bail!("Failed to index path: {} is not a directory", path.display());
+        anyhow::bail!(
+            "Failed to index path: {} is not a directory",
+            path.display()
+        );
     }
 
     info!("Indexing files with embeddings in: {}", path.display());
@@ -182,10 +188,9 @@ pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> R
 
     // Create the chunk index to store results
     let mut chunk_index = ChunkIndex::new();
-    
+
     // Process each file
-    let chunking_config = ChunkingConfig::default();
-    let chunking_strategy = ChunkingStrategy::new(chunking_config);
+    let chunking_strategy = ChunkingStrategy::new(config.chunking.clone());
     let mut total_chunks = 0;
     let mut total_embeddings = 0;
 
@@ -300,12 +305,15 @@ pub fn search_files(query: &str) -> Result<()> {
 /// let config = TurboPropConfig::default();
 /// let result = build_persistent_index(Path::new("./src"), &config).await;
 /// assert!(result.is_ok());
-/// 
+///
 /// let index = result.unwrap();
 /// println!("Built index with {} chunks", index.len());
 /// # });
 /// ```
-pub async fn build_persistent_index(path: &Path, config: &TurboPropConfig) -> Result<PersistentChunkIndex> {
+pub async fn build_persistent_index(
+    path: &Path,
+    config: &TurboPropConfig,
+) -> Result<PersistentChunkIndex> {
     PersistentChunkIndex::build(path, config).await
 }
 
@@ -387,16 +395,19 @@ pub fn index_exists(path: &Path) -> bool {
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
 /// let config = TurboPropConfig::default();
 /// let result = update_persistent_index(Path::new("./src"), &config).await;
-/// 
+///
 /// if let Ok((index, update_result)) = result {
-///     println!("Updated index: {} files added, {} files updated, {} files removed", 
-///              update_result.added_files, 
+///     println!("Updated index: {} files added, {} files updated, {} files removed",
+///              update_result.added_files,
 ///              update_result.updated_files,
 ///              update_result.removed_files);
 /// }
 /// # });
 /// ```
-pub async fn update_persistent_index(path: &Path, config: &TurboPropConfig) -> Result<(PersistentChunkIndex, crate::index::UpdateResult)> {
+pub async fn update_persistent_index(
+    path: &Path,
+    config: &TurboPropConfig,
+) -> Result<(PersistentChunkIndex, crate::index::UpdateResult)> {
     let mut index = if index_exists(path) {
         PersistentChunkIndex::load(path)?
     } else {

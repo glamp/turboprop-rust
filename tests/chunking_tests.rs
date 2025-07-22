@@ -1,11 +1,7 @@
+use std::io::Write;
 use std::path::Path;
 use tempfile::NamedTempFile;
-use std::io::Write;
-use tp::{
-    chunking::ChunkingStrategy,
-    content::ContentProcessor,
-    types::ChunkingConfig,
-};
+use tp::{chunking::ChunkingStrategy, content::ContentProcessor, types::ChunkingConfig};
 
 #[test]
 fn test_chunking_poker_typescript_files() {
@@ -22,7 +18,7 @@ fn test_chunking_poker_typescript_files() {
         assert!(chunks[0].content.len() > 0);
         assert!(chunks[0].source_location.start_line >= 1);
         assert!(chunks[0].source_location.file_path == poker_path);
-        
+
         // Check chunk metadata consistency
         for chunk in &chunks {
             assert_eq!(chunk.total_chunks, chunks.len());
@@ -39,9 +35,9 @@ fn test_chunking_small_file() {
 
     let config = ChunkingConfig::default().with_target_size(20);
     let strategy = ChunkingStrategy::new(config);
-    
+
     let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-    
+
     assert_eq!(chunks.len(), 1, "Small file should result in single chunk");
     assert_eq!(chunks[0].chunk_index, 0);
     assert_eq!(chunks[0].total_chunks, 1);
@@ -60,15 +56,24 @@ fn test_chunking_large_file() {
 
     let config = ChunkingConfig::default().with_target_size(30);
     let strategy = ChunkingStrategy::new(config);
-    
+
     let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-    
-    assert!(chunks.len() >= 1, "File should result in at least one chunk");
-    
+
+    assert!(
+        chunks.len() >= 1,
+        "File should result in at least one chunk"
+    );
+
     for chunk in &chunks {
-        assert!(chunk.token_count <= 30, "Each chunk should respect max token count");
+        assert!(
+            chunk.token_count <= 30,
+            "Each chunk should respect max token count"
+        );
         assert!(chunk.content.len() > 0, "Each chunk should have content");
-        assert!(chunk.source_location.start_line >= 1, "Line numbers should start from 1");
+        assert!(
+            chunk.source_location.start_line >= 1,
+            "Line numbers should start from 1"
+        );
     }
 }
 
@@ -82,21 +87,21 @@ fn test_chunk_overlap_functionality() {
         .with_target_size(8)
         .with_overlap(3);
     let strategy = ChunkingStrategy::new(config);
-    
+
     let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-    
+
     if chunks.len() >= 2 {
         // Check that chunks have reasonable overlap
         let first_tokens: Vec<&str> = chunks[0].content.split_whitespace().collect();
         let second_tokens: Vec<&str> = chunks[1].content.split_whitespace().collect();
-        
+
         // Should have some overlapping tokens
         let _overlap_found = first_tokens
             .iter()
             .rev()
             .take(3)
             .any(|token| second_tokens.contains(token));
-        
+
         // Note: Due to tokenization differences, exact overlap may not always occur
         // but the chunking should still produce valid results
         assert!(chunks.len() > 1);
@@ -111,9 +116,9 @@ fn test_line_number_tracking_accuracy() {
 
     let config = ChunkingConfig::default().with_target_size(10);
     let strategy = ChunkingStrategy::new(config);
-    
+
     let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-    
+
     for chunk in &chunks {
         assert!(chunk.source_location.start_line >= 1);
         assert!(chunk.source_location.end_line >= chunk.source_location.start_line);
@@ -124,10 +129,10 @@ fn test_line_number_tracking_accuracy() {
 #[test]
 fn test_empty_file_handling() {
     let temp_file = NamedTempFile::new().unwrap();
-    
+
     let strategy = ChunkingStrategy::default();
     let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-    
+
     assert!(chunks.is_empty(), "Empty file should result in no chunks");
 }
 
@@ -136,10 +141,10 @@ fn test_binary_file_handling() {
     let mut temp_file = NamedTempFile::new().unwrap();
     let binary_content = vec![0u8; 1000]; // Binary content with null bytes
     temp_file.write_all(&binary_content).unwrap();
-    
+
     let strategy = ChunkingStrategy::default();
     let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-    
+
     assert!(chunks.is_empty(), "Binary file should result in no chunks");
 }
 
@@ -154,20 +159,20 @@ fn test_chunk_metadata_consistency() {
 
     let config = ChunkingConfig::default().with_target_size(15);
     let strategy = ChunkingStrategy::new(config);
-    
+
     let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-    
+
     if chunks.len() > 1 {
         // Test chunk indexing
         for (i, chunk) in chunks.iter().enumerate() {
             assert_eq!(chunk.chunk_index, i);
             assert_eq!(chunk.total_chunks, chunks.len());
         }
-        
+
         // Test ID uniqueness
         let ids: std::collections::HashSet<_> = chunks.iter().map(|c| &c.id).collect();
         assert_eq!(ids.len(), chunks.len(), "All chunk IDs should be unique");
-        
+
         // Test source locations
         for chunk in &chunks {
             assert_eq!(chunk.source_location.file_path, temp_file.path());
@@ -191,10 +196,13 @@ fn test_poker_package_json_chunking() {
         assert!(chunks[0].content.len() > 0);
         // Should contain typical package.json content
         let content_lower = chunks[0].content.to_lowercase();
-        let has_json_content = content_lower.contains("name") 
-            || content_lower.contains("version") 
+        let has_json_content = content_lower.contains("name")
+            || content_lower.contains("version")
             || content_lower.contains("dependencies");
-        assert!(has_json_content, "Should contain typical package.json content");
+        assert!(
+            has_json_content,
+            "Should contain typical package.json content"
+        );
     }
 }
 
@@ -216,7 +224,7 @@ fn test_different_chunk_sizes() {
 
     // Small target size should produce more chunks
     assert!(small_chunks.len() >= large_chunks.len());
-    
+
     // Each chunk should respect its configuration
     for chunk in &small_chunks {
         assert!(chunk.token_count <= 5 || chunk.token_count == small_chunks[0].token_count);
@@ -231,7 +239,7 @@ fn test_content_processor_integration() {
 
     let processor = ContentProcessor::new();
     let processed = processor.process_file(temp_file.path()).unwrap();
-    
+
     assert!(!processed.is_binary);
     assert_eq!(processed.encoding, "UTF-8");
     assert!(processed.line_count >= 1);
@@ -241,7 +249,7 @@ fn test_content_processor_integration() {
     let chunks = strategy
         .chunk_content(&processed, temp_file.path())
         .unwrap();
-    
+
     assert!(!chunks.is_empty());
     assert_eq!(chunks[0].content, content);
 }

@@ -26,7 +26,12 @@ impl ChunkingStrategy {
         let processed = self
             .content_processor
             .process_file(file_path)
-            .with_context(|| format!("Failed to process file: {}", file_path.display()))?;
+            .with_context(|| {
+                format!(
+                    "Failed to read and process file content for chunking: {}",
+                    file_path.display()
+                )
+            })?;
 
         if processed.is_binary || processed.content.is_empty() {
             return Ok(vec![]);
@@ -41,7 +46,7 @@ impl ChunkingStrategy {
         file_path: &Path,
     ) -> Result<Vec<ContentChunk>> {
         let content = &processed.content;
-        
+
         if content.is_empty() {
             return Ok(vec![]);
         }
@@ -88,25 +93,48 @@ impl ChunkingStrategy {
         let token_positions = self.compute_token_positions(content, tokens);
 
         while start_token_idx < tokens.len() {
-            let end_token_idx = std::cmp::min(
-                start_token_idx + self.config.target_chunk_size_tokens,
-                tokens.len(),
-            );
+            // Calculate the desired end position respecting max_chunk_size_tokens
+            let desired_end = start_token_idx + self.config.target_chunk_size_tokens;
+            let max_end = start_token_idx + self.config.max_chunk_size_tokens;
+
+            let end_token_idx = std::cmp::min(std::cmp::min(desired_end, max_end), tokens.len());
+
+            // Ensure we have at least min_chunk_size_tokens unless we're at the end or target size is small
+            let remaining_tokens = tokens.len() - start_token_idx;
+            if remaining_tokens < self.config.min_chunk_size_tokens 
+                && start_token_idx > 0 
+                && self.config.target_chunk_size_tokens >= self.config.min_chunk_size_tokens {
+                // Only apply minimum size constraint if target size is also above minimum
+                break;
+            }
 
             let chunk_tokens = &tokens[start_token_idx..end_token_idx];
             let chunk_content = chunk_tokens.join(" ");
 
+            // Validate chunk size
+            if chunk_tokens.len() > self.config.max_chunk_size_tokens {
+                return Err(anyhow::anyhow!(
+                    "Chunk size {} exceeds maximum allowed size {}",
+                    chunk_tokens.len(),
+                    self.config.max_chunk_size_tokens
+                ));
+            }
+
             // Get positions from pre-computed data
-            let (start_char, end_char) = if start_token_idx < token_positions.len() && 
-                                             end_token_idx > 0 && 
-                                             end_token_idx - 1 < token_positions.len() {
-                (token_positions[start_token_idx].0, 
-                 token_positions[end_token_idx - 1].1)
+            let (start_char, end_char) = if start_token_idx < token_positions.len()
+                && end_token_idx > 0
+                && end_token_idx - 1 < token_positions.len()
+            {
+                (
+                    token_positions[start_token_idx].0,
+                    token_positions[end_token_idx - 1].1,
+                )
             } else {
                 (0, chunk_content.len())
             };
 
-            let (start_line, end_line) = self.calculate_line_positions(content, start_char, end_char);
+            let (start_line, end_line) =
+                self.calculate_line_positions(content, start_char, end_char);
 
             let source_location = SourceLocation {
                 file_path: file_path.to_path_buf(),
@@ -151,62 +179,77 @@ impl ChunkingStrategy {
 
     fn compute_token_positions(&self, content: &str, tokens: &[String]) -> Vec<(usize, usize)> {
         let mut positions = Vec::new();
-        let mut char_pos = 0;
-        
-        // Simple approximation: assume tokens are space-separated
-        // This is much faster than searching for each token individually
-        for (i, token) in tokens.iter().enumerate() {
-            let start_pos = char_pos;
-            let end_pos = start_pos + token.len();
-            positions.push((start_pos, end_pos));
-            
-            // Move to next token position (token length + space)
-            char_pos = end_pos + 1;
-            
-            // Prevent going beyond content length
-            if char_pos >= content.len() {
-                // For remaining tokens, just use sequential positions
-                for (_j, remaining_token) in tokens.iter().enumerate().skip(i + 1) {
-                    let remaining_start = char_pos;
-                    let remaining_end = remaining_start + remaining_token.len();
-                    positions.push((remaining_start, remaining_end));
-                    char_pos = remaining_end + 1;
-                }
-                break;
+        let mut search_start = 0;
+
+        // Find actual token positions in the original content
+        for token in tokens {
+            if let Some(pos) = content[search_start..].find(token) {
+                let absolute_start = search_start + pos;
+                let absolute_end = absolute_start + token.len();
+                positions.push((absolute_start, absolute_end));
+                search_start = absolute_end;
+            } else {
+                // If we can't find the token, use the last known position
+                let last_end = positions.last().map(|(_, end)| *end).unwrap_or(0);
+                positions.push((last_end, last_end + token.len()));
             }
         }
-        
+
         positions
     }
 
-    fn calculate_line_positions(&self, content: &str, start_char: usize, end_char: usize) -> (usize, usize) {
+    fn calculate_line_positions(
+        &self,
+        content: &str,
+        start_char: usize,
+        end_char: usize,
+    ) -> (usize, usize) {
         let mut char_count = 0;
         let mut start_line = 0;
         let mut end_line = 0;
-        
+        let mut found_start = false;
+        let mut found_end = false;
+
         for (line_idx, line) in content.lines().enumerate() {
-            let line_end = char_count + line.len();
-            
-            if char_count <= start_char && start_char <= line_end {
+            let line_len = line.len();
+            let line_end = char_count + line_len;
+
+            // Check if start_char is in this line
+            if !found_start && char_count <= start_char && start_char <= line_end {
                 start_line = line_idx;
+                found_start = true;
             }
-            
+
+            // Check if end_char is in this line
             if char_count <= end_char && end_char <= line_end {
                 end_line = line_idx;
+                found_end = true;
+                if found_start {
+                    break;
+                }
+            }
+
+            // Account for newline character, but check if there's actually a next line
+            let next_char_pos = char_count + line_len;
+            if next_char_pos < content.len() {
+                // There's more content, so there was a newline
+                char_count = next_char_pos + 1;
+            } else {
+                // This is the last line, no newline at the end
                 break;
             }
-            
-            char_count = line_end + 1; // +1 for newline character
         }
-        
+
+        // Handle edge case where positions are beyond content
+        if !found_end && end_char >= content.len() {
+            end_line = content.lines().count().max(1) - 1;
+        }
+
         (start_line, end_line)
     }
 
     fn tokenize_content(&self, content: &str) -> Vec<String> {
-        content
-            .unicode_words()
-            .map(|s| s.to_string())
-            .collect()
+        content.unicode_words().map(|s| s.to_string()).collect()
     }
 }
 
@@ -231,9 +274,9 @@ mod tests {
 
         let config = ChunkingConfig::default().with_target_size(10);
         let strategy = ChunkingStrategy::new(config);
-        
+
         let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-        
+
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].chunk_index, 0);
         assert_eq!(chunks[0].total_chunks, 1);
@@ -250,11 +293,11 @@ mod tests {
             .with_target_size(8)
             .with_overlap(2);
         let strategy = ChunkingStrategy::new(config);
-        
+
         let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-        
+
         assert!(chunks.len() > 1);
-        
+
         for chunk in &chunks {
             assert!(chunk.token_count <= 8);
             assert!(chunk.total_chunks == chunks.len());
@@ -268,10 +311,10 @@ mod tests {
     #[test]
     fn test_chunk_empty_file() {
         let temp_file = NamedTempFile::new().unwrap();
-        
+
         let strategy = ChunkingStrategy::default();
         let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-        
+
         assert!(chunks.is_empty());
     }
 
@@ -283,11 +326,11 @@ mod tests {
 
         let config = ChunkingConfig::default().with_target_size(6);
         let strategy = ChunkingStrategy::new(config);
-        
+
         let chunks = strategy.chunk_file(temp_file.path()).unwrap();
-        
+
         assert!(chunks.len() >= 1);
-        
+
         for chunk in &chunks {
             assert!(chunk.source_location.start_line >= 1);
             assert!(chunk.source_location.end_line >= chunk.source_location.start_line);
@@ -299,7 +342,7 @@ mod tests {
         let strategy = ChunkingStrategy::default();
         let content = "Hello, world! This is a test.";
         let tokens = strategy.tokenize_content(content);
-        
+
         let expected = vec!["Hello", "world", "This", "is", "a", "test"];
         assert_eq!(tokens, expected);
     }
@@ -318,7 +361,7 @@ mod tests {
         let chunks = strategy
             .chunk_content(&processed, Path::new("test.txt"))
             .unwrap();
-        
+
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].content, "Short content here");
     }

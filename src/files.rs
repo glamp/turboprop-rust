@@ -99,8 +99,8 @@ impl FileDiscovery {
                     if pattern.starts_with('*') && pattern.ends_with('*') {
                         let inner = &pattern[1..pattern.len() - 1];
                         path_str.contains(inner)
-                    } else if pattern.starts_with('*') {
-                        path_str.ends_with(&pattern[1..])
+                    } else if let Some(stripped) = pattern.strip_prefix('*') {
+                        path_str.ends_with(stripped)
                     } else if pattern.ends_with('*') {
                         path_str.starts_with(&pattern[..pattern.len() - 1])
                     } else {

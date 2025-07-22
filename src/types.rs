@@ -111,7 +111,7 @@ pub struct SourceLocation {
     pub end_char: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentChunk {
     pub id: String,
     pub content: String,

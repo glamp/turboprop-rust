@@ -5,6 +5,7 @@ use std::path::Path;
 
 pub struct ContentProcessor {
     max_file_size_bytes: Option<u64>,
+    binary_threshold: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -20,11 +21,17 @@ impl ContentProcessor {
     pub fn new() -> Self {
         Self {
             max_file_size_bytes: None,
+            binary_threshold: 0.01,
         }
     }
 
     pub fn with_max_file_size(mut self, max_size: u64) -> Self {
         self.max_file_size_bytes = Some(max_size);
+        self
+    }
+
+    pub fn with_binary_threshold(mut self, threshold: f64) -> Self {
+        self.binary_threshold = threshold;
         self
     }
 
@@ -84,8 +91,8 @@ impl ContentProcessor {
 
         let null_count = sample.iter().filter(|&&b| b == 0).count();
         let null_percentage = (null_count as f64) / (sample.len() as f64);
-        
-        null_percentage > 0.01
+
+        null_percentage > self.binary_threshold
     }
 
     fn decode_content(&self, bytes: &[u8]) -> Result<(&'static Encoding, String)> {
@@ -110,7 +117,7 @@ mod tests {
     #[test]
     fn test_process_empty_file() {
         let temp_file = NamedTempFile::new().unwrap();
-        
+
         let processor = ContentProcessor::new();
         let result = processor.process_file(temp_file.path()).unwrap();
 
@@ -126,7 +133,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         let test_content = "Hello, world!\nThis is a test file.\n";
         temp_file.write_all(test_content.as_bytes()).unwrap();
-        
+
         let processor = ContentProcessor::new();
         let result = processor.process_file(temp_file.path()).unwrap();
 
@@ -142,7 +149,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         let binary_content = vec![0u8; 100];
         temp_file.write_all(&binary_content).unwrap();
-        
+
         let processor = ContentProcessor::new();
         let result = processor.process_file(temp_file.path()).unwrap();
 
@@ -158,7 +165,7 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         let large_content = "x".repeat(1000);
         temp_file.write_all(large_content.as_bytes()).unwrap();
-        
+
         let processor = ContentProcessor::new().with_max_file_size(500);
         let result = processor.process_file(temp_file.path());
 

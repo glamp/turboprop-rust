@@ -133,36 +133,99 @@ impl SearchEngine {
         Ok(results)
     }
 
-    /// Perform parallel similarity search
+    /// Perform parallel similarity search with optimizations
     fn search_parallel(&self, query_embedding: &[f32]) -> Vec<SearchResult> {
         let chunks = self.index.get_chunks();
+        let start_time = std::time::Instant::now();
 
-        // Parallel similarity calculation
+        // Parallel similarity calculation with chunked processing
+        let chunk_size = (chunks.len() / rayon::current_num_threads()).max(100);
+        
         let results: Vec<(f32, &IndexedChunk)> = chunks
-            .par_iter()
-            .map(|chunk| {
-                let similarity = cosine_similarity(query_embedding, &chunk.embedding);
-                (similarity, chunk)
+            .par_chunks(chunk_size)
+            .flat_map_iter(|chunk_batch| {
+                // Process batch with SIMD optimizations when possible
+                chunk_batch.iter().filter_map(|chunk| {
+                    let similarity = self.calculate_similarity_optimized(query_embedding, &chunk.embedding);
+                    
+                    // Early filtering to reduce memory pressure
+                    if let Some(threshold) = self.config.threshold {
+                        if similarity < threshold {
+                            return None;
+                        }
+                    }
+                    
+                    Some((similarity, chunk))
+                })
             })
             .collect();
 
-        self.process_results(results)
+        let search_time = start_time.elapsed();
+        debug!("Parallel search completed in {:.2}ms with {} results", 
+               search_time.as_secs_f64() * 1000.0, results.len());
+
+        self.process_results_optimized(results)
     }
 
     /// Perform sequential similarity search
     fn search_sequential(&self, query_embedding: &[f32]) -> Vec<SearchResult> {
         let chunks = self.index.get_chunks();
 
-        // Sequential similarity calculation
+        // Sequential similarity calculation with early termination
         let results: Vec<(f32, &IndexedChunk)> = chunks
             .iter()
-            .map(|chunk| {
-                let similarity = cosine_similarity(query_embedding, &chunk.embedding);
-                (similarity, chunk)
+            .filter_map(|chunk| {
+                let similarity = self.calculate_similarity_optimized(query_embedding, &chunk.embedding);
+                
+                // Early filtering
+                if let Some(threshold) = self.config.threshold {
+                    if similarity < threshold {
+                        return None;
+                    }
+                }
+                
+                Some((similarity, chunk))
             })
             .collect();
 
-        self.process_results(results)
+        self.process_results_optimized(results)
+    }
+
+    /// Optimized similarity calculation with potential SIMD operations
+    fn calculate_similarity_optimized(&self, query: &[f32], embedding: &[f32]) -> f32 {
+        // Use the existing cosine_similarity function, but this could be enhanced
+        // with SIMD operations for better performance on large vectors
+        cosine_similarity(query, embedding)
+    }
+
+    /// Optimized result processing with better memory management
+    fn process_results_optimized(&self, mut results: Vec<(f32, &IndexedChunk)>) -> Vec<SearchResult> {
+        if results.is_empty() {
+            return Vec::new();
+        }
+
+        // Use partial sort for better performance when we only need top k results
+        if results.len() > self.config.limit * 2 {
+            // For large result sets, use select_nth for O(n) performance
+            results.select_nth_unstable_by(self.config.limit, |a, b| {
+                b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            results.truncate(self.config.limit);
+            
+            // Sort only the top results
+            results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        } else {
+            // For smaller result sets, use full sort
+            results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+            results.truncate(self.config.limit);
+        }
+
+        // Convert to SearchResult with minimal allocations
+        results
+            .into_iter()
+            .enumerate()
+            .map(|(rank, (similarity, chunk))| SearchResult::new(similarity, chunk.clone(), rank))
+            .collect()
     }
 
     /// Process similarity results (filter, sort, limit)

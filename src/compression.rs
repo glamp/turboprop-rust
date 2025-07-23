@@ -9,6 +9,40 @@ use tracing::{info, warn};
 
 use crate::error::TurboPropError;
 
+/// Default number of k-means iterations for clustering algorithms.
+///
+/// This controls the quality vs speed trade-off in clustering. More iterations
+/// generally produce better centroids but take longer to compute. 10 iterations
+/// provides a good balance for most use cases.
+const DEFAULT_KMEANS_ITERATIONS: usize = 10;
+
+/// Default size of subvectors for product quantization (dimensions per subvector).
+///
+/// Smaller subvectors provide finer compression control but require more memory
+/// for codebooks. 8 dimensions works well for typical embedding dimensions
+/// (384, 768, 1536) as they divide evenly.
+const DEFAULT_SUBVECTOR_SIZE: usize = 8;
+
+/// Default number of centroids per subspace in product quantization.
+///
+/// This is typically a power of 2 for efficient storage. 256 centroids (8 bits)
+/// provides good compression while maintaining reasonable quality. Increasing
+/// this improves quality but uses more memory.
+const DEFAULT_CODEBOOK_SIZE: usize = 256;
+
+/// Default quantization bits for scalar quantization.
+///
+/// 8 bits (256 levels) provides good compression with acceptable quality loss.
+/// Fewer bits give better compression but more quality loss.
+const DEFAULT_QUANTIZATION_BITS: u8 = 8;
+
+/// Default clustering threshold for similar vectors (0.0 to 1.0).
+///
+/// Vectors with similarity above this threshold may be grouped together for
+/// delta compression. 0.9 is conservative, ensuring only very similar vectors
+/// are compressed together.
+const DEFAULT_CLUSTERING_THRESHOLD: f32 = 0.9;
+
 /// Configuration for vector compression algorithms.
 ///
 /// This structure defines the parameters for compressing vector embeddings
@@ -52,12 +86,12 @@ impl Default for CompressionConfig {
     fn default() -> Self {
         Self {
             algorithm: CompressionAlgorithm::ScalarQuantization,
-            quantization_bits: 8,
+            quantization_bits: DEFAULT_QUANTIZATION_BITS,
             enable_delta_compression: true,
-            clustering_threshold: 0.9,
-            kmeans_iterations: 10, // Default to 10 iterations
-            subvector_size: 8,     // Split into 8-dimensional subvectors
-            codebook_size: 256,    // 256 centroids per subspace
+            clustering_threshold: DEFAULT_CLUSTERING_THRESHOLD,
+            kmeans_iterations: DEFAULT_KMEANS_ITERATIONS,
+            subvector_size: DEFAULT_SUBVECTOR_SIZE,
+            codebook_size: DEFAULT_CODEBOOK_SIZE,
         }
     }
 }

@@ -32,7 +32,7 @@ pub use chunks::{
 pub use indexing::{ChunkIndex, IndexId, IndexStats, IndexedChunk, SearchResult};
 
 // Re-export file types
-pub use files::{DocumentChunk, FileDiscoveryConfig, FileMetadata, parse_filesize};
+pub use files::{parse_filesize, DocumentChunk, FileDiscoveryConfig, FileMetadata};
 
 // Re-export similarity utilities
 pub use similarity::cosine_similarity;
@@ -92,7 +92,8 @@ mod tests {
 
         let chunk = ContentChunk {
             id: ChunkId::new("test-chunk"),
-            content: "This is a test chunk with some content that should be searchable.".to_string(),
+            content: "This is a test chunk with some content that should be searchable."
+                .to_string(),
             token_count: TokenCount::new(10),
             source_location: SourceLocation {
                 file_path: PathBuf::from("test.rs"),
@@ -117,7 +118,10 @@ mod tests {
         assert_eq!(search_result.location_display(), "test.rs:1");
 
         let preview = search_result.content_preview(TEST_CONTENT_PREVIEW_LENGTH);
-        assert_eq!(preview, "This is a test chunk with some content that should be searchable.");
+        assert_eq!(
+            preview,
+            "This is a test chunk with some content that should be searchable."
+        );
 
         // Test truncation
         let short_preview = search_result.content_preview(10);
@@ -244,7 +248,7 @@ mod tests {
         ];
 
         let stats = IndexStats::calculate(&chunks);
-        
+
         assert_eq!(stats.total_chunks, 2);
         assert_eq!(stats.unique_files, 2);
         assert_eq!(stats.total_tokens, 6);

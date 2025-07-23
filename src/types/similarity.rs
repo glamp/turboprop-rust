@@ -7,7 +7,7 @@
 ///
 /// Returns a value between -1.0 and 1.0, where:
 /// - 1.0 indicates identical vectors (perfectly similar)
-/// - 0.0 indicates orthogonal vectors (no similarity) 
+/// - 0.0 indicates orthogonal vectors (no similarity)
 /// - -1.0 indicates opposite vectors
 /// - 0.0 is returned for any error conditions (mismatched lengths, NaN/infinity values)
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {

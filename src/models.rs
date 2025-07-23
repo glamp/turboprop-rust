@@ -432,6 +432,84 @@ impl ModelManager {
         }
     }
 
+    /// Download a HuggingFace model and cache it locally
+    ///
+    /// This method downloads a HuggingFace model using the transformers library format
+    /// and stores it in the cache directory. For now, this is a placeholder that will
+    /// be implemented when HuggingFace backend integration is complete.
+    ///
+    /// # Arguments
+    /// * `model_name` - Name of the HuggingFace model to download
+    ///
+    /// # Returns
+    /// * `Result<PathBuf>` - Path to the cached model directory
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use turboprop::models::ModelManager;
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let manager = ModelManager::default();
+    /// let model_path = manager.download_huggingface_model("Qwen/Qwen3-Embedding-0.6B").await.unwrap();
+    /// # });
+    /// ```
+    pub async fn download_huggingface_model(&self, model_name: &str) -> Result<PathBuf> {
+        let model_name_obj = ModelName::from(model_name);
+        let model_cache_dir = self.get_model_path(&model_name_obj);
+
+        // Check if model is already cached
+        if self.is_model_cached(&model_name_obj) {
+            info!("HuggingFace model already cached: {}", model_name);
+            return Ok(model_cache_dir);
+        }
+
+        // Create cache directory
+        if !model_cache_dir.exists() {
+            std::fs::create_dir_all(&model_cache_dir).with_context(|| {
+                format!(
+                    "Failed to create model cache directory: {}",
+                    model_cache_dir.display()
+                )
+            })?;
+        }
+
+        info!("Downloading HuggingFace model: {}", model_name);
+
+        // For now, create a placeholder that indicates the model needs to be downloaded
+        // In a full implementation, this would use the HuggingFace Hub API or git-lfs
+        let placeholder_file = model_cache_dir.join("model_placeholder.txt");
+        let placeholder_content = format!(
+            "HuggingFace model: {}\nThis is a placeholder. Actual download not yet implemented.",
+            model_name
+        );
+
+        tokio::fs::write(&placeholder_file, placeholder_content)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to create model placeholder file: {}",
+                    placeholder_file.display()
+                )
+            })?;
+
+        info!(
+            "HuggingFace model placeholder created at: {}",
+            model_cache_dir.display()
+        );
+
+        // TODO: Implement actual HuggingFace model download
+        // This would involve:
+        // 1. Using huggingface_hub crate or git-lfs to download model files
+        // 2. Downloading config.json, tokenizer.json, model weights, etc.
+        // 3. Validating the downloaded model files
+        // 4. Setting up proper directory structure for the model
+
+        warn!(
+            "HuggingFace model download is not yet fully implemented. Created placeholder instead."
+        );
+
+        Ok(model_cache_dir)
+    }
+
     /// Get cache statistics
     pub fn get_cache_stats(&self) -> Result<CacheStats> {
         let mut stats = CacheStats::default();
@@ -573,7 +651,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let manager = ModelManager::new(temp_dir.path());
 
-        let path = manager.get_model_path(&ModelName::from("sentence-transformers/all-MiniLM-L6-v2"));
+        let path =
+            manager.get_model_path(&ModelName::from("sentence-transformers/all-MiniLM-L6-v2"));
         let expected = temp_dir
             .path()
             .join("sentence-transformers_all-MiniLM-L6-v2");
@@ -592,7 +671,9 @@ mod tests {
     fn test_get_available_models() {
         let models = ModelManager::get_available_models();
         assert!(!models.is_empty());
-        assert!(models.iter().any(|m| m.name.as_str().contains("all-MiniLM-L6-v2")));
+        assert!(models
+            .iter()
+            .any(|m| m.name.as_str().contains("all-MiniLM-L6-v2")));
     }
 
     #[test]
@@ -835,5 +916,49 @@ mod tests {
 
         // This test will verify that network errors are properly handled
         // and appropriate GGUF download errors are returned
+    }
+
+    #[tokio::test]
+    async fn test_download_huggingface_model_placeholder() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = ModelManager::new(temp_dir.path());
+        manager.init_cache().unwrap();
+
+        let model_name = "Qwen/Qwen3-Embedding-0.6B";
+
+        // Test successful placeholder creation
+        let result = manager.download_huggingface_model(model_name).await;
+        assert!(result.is_ok());
+
+        let model_path = result.unwrap();
+        assert!(model_path.exists());
+
+        // Verify placeholder file was created
+        let placeholder_file = model_path.join("model_placeholder.txt");
+        assert!(placeholder_file.exists());
+
+        let content = std::fs::read_to_string(&placeholder_file).unwrap();
+        assert!(content.contains("HuggingFace model"));
+        assert!(content.contains(model_name));
+    }
+
+    #[tokio::test]
+    async fn test_download_huggingface_model_already_cached() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = ModelManager::new(temp_dir.path());
+        manager.init_cache().unwrap();
+
+        let model_name = "test-model";
+        let model_name_obj = ModelName::from(model_name);
+        let model_path = manager.get_model_path(&model_name_obj);
+
+        // Create model directory with required files to simulate cached model
+        std::fs::create_dir_all(&model_path).unwrap();
+        std::fs::write(model_path.join("config.json"), "{}").unwrap();
+
+        // Test that already cached model returns immediately
+        let result = manager.download_huggingface_model(model_name).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), model_path);
     }
 }

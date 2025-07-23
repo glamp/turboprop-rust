@@ -442,7 +442,12 @@ impl GGUFEmbeddingModel {
 
         // TODO: Implement actual GGUF model loading using candle
         // For now, create a model instance without loading the actual model
-        let model = Self::new_with_config(model_name.to_string(), model_info.dimensions, Device::Cpu, config)?;
+        let model = Self::new_with_config(
+            model_name.to_string(),
+            model_info.dimensions,
+            Device::Cpu,
+            config,
+        )?;
 
         // TODO: Load tokenizer from model directory or config
         // model.tokenizer = Some(load_tokenizer(model_path)?);

@@ -67,7 +67,10 @@ pub fn validate_embedding_config(
 ) -> TurboPropResult<()> {
     // Validate model name
     let available_models = ModelManager::get_available_models();
-    if !available_models.iter().any(|m| m.name.as_str() == config.model_name) {
+    if !available_models
+        .iter()
+        .any(|m| m.name.as_str() == config.model_name)
+    {
         warn!(
             "Model '{}' is not in the list of known models. It may still work if it's a valid fastembed model.",
             config.model_name

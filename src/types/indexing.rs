@@ -120,7 +120,8 @@ impl ChunkIndex {
             .chunks
             .iter()
             .map(|indexed_chunk| {
-                let similarity = super::similarity::cosine_similarity(query_embedding, &indexed_chunk.embedding);
+                let similarity =
+                    super::similarity::cosine_similarity(query_embedding, &indexed_chunk.embedding);
                 (similarity, indexed_chunk)
             })
             .collect();

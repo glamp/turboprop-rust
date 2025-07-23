@@ -249,6 +249,17 @@ pub struct YamlFilterConfig {
     pub max_cache_size: Option<usize>,
 }
 
+/// Model-specific configuration settings
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelConfig {
+    /// Custom instruction for this model
+    pub instruction: Option<String>,
+    /// Model-specific cache directory
+    pub cache_dir: Option<PathBuf>,
+    /// Custom download URL override
+    pub download_url: Option<String>,
+}
+
 /// Main configuration structure for TurboProp
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TurboPropConfig {
@@ -264,6 +275,12 @@ pub struct TurboPropConfig {
     pub filtering: FilterLimitsConfig,
     /// General application settings
     pub general: GeneralConfig,
+    /// Default embedding model to use
+    pub default_model: Option<String>,
+    /// Model-specific configurations
+    pub models: Option<std::collections::HashMap<String, ModelConfig>>,
+    /// Current instruction for embeddings (used by instruction-capable models)
+    pub current_instruction: Option<String>,
 }
 
 /// General application configuration
@@ -511,6 +528,11 @@ impl TurboPropConfig {
             debug!("Overriding embedding model from CLI: {}", model);
         }
 
+        if let Some(ref instruction) = args.instruction {
+            self.current_instruction = Some(instruction.clone());
+            debug!("Overriding instruction from CLI: {}", instruction);
+        }
+
         if let Some(ref cache_dir) = args.cache_dir {
             self.general.cache_dir = cache_dir.clone();
             self.embedding.cache_dir = cache_dir.join("models");
@@ -570,6 +592,7 @@ impl TurboPropConfig {
 #[derive(Debug, Clone, Default)]
 pub struct CliConfigOverrides {
     pub model: Option<String>,
+    pub instruction: Option<String>,
     pub cache_dir: Option<PathBuf>,
     pub verbose: bool,
     pub max_filesize: Option<u64>,
@@ -588,6 +611,11 @@ impl CliConfigOverrides {
 
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
+        self
+    }
+
+    pub fn with_instruction(mut self, instruction: impl Into<String>) -> Self {
+        self.instruction = Some(instruction.into());
         self
     }
 

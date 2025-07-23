@@ -7,8 +7,8 @@ use anyhow::Result;
 use candle_core::Device;
 use hf_hub::api::tokio::Api;
 
-use crate::types::{CachePath, ModelName};
 use super::{download, model::Qwen3EmbeddingModel, validation};
+use crate::types::{CachePath, ModelName};
 
 /// HuggingFace backend for loading and running models not supported by FastEmbed
 pub struct HuggingFaceBackend {

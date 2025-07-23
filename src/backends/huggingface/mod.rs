@@ -107,7 +107,7 @@ mod tests {
     fn test_validation_empty_model_name() {
         let empty_name = ModelName::new("");
         let temp_dir = TempDir::new().unwrap();
-        let cache_dir = CachePath::new(temp_dir.path());
+        let _cache_dir = CachePath::new(temp_dir.path());
 
         let result = validation::validate_model_name(&empty_name);
         assert!(result.is_err());
@@ -119,7 +119,10 @@ mod tests {
         let invalid_name = ModelName::new("invalid-name-without-slash");
         let result = validation::validate_model_name(&invalid_name);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("organization/model-name"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("organization/model-name"));
     }
 
     #[test]
@@ -131,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_validation_nonexistent_cache_dir() {
-        let model_name = ModelName::new("test/model");
+        let _model_name = ModelName::new("test/model");
         let nonexistent_cache = CachePath::new("/nonexistent/path");
 
         let result = validation::validate_cache_directory(&nonexistent_cache);

@@ -30,8 +30,8 @@
 //! # });
 //! ```
 
-pub mod batch;
 pub mod backends;
+pub mod batch;
 pub mod config;
 pub mod generator;
 
@@ -39,9 +39,9 @@ pub mod generator;
 pub mod mock;
 
 // Re-export main public API
-pub use batch::{BatchProcessor, process_texts_in_batches};
 pub use backends::EmbeddingBackendType;
-pub use config::{EmbeddingConfig, EmbeddingOptions, DEFAULT_MODEL, DEFAULT_EMBEDDING_DIMENSIONS};
+pub use batch::{process_texts_in_batches, BatchProcessor};
+pub use config::{EmbeddingConfig, EmbeddingOptions, DEFAULT_EMBEDDING_DIMENSIONS, DEFAULT_MODEL};
 pub use generator::EmbeddingGenerator;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -50,8 +50,6 @@ pub use mock::MockEmbeddingGenerator;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ModelInfo, ModelInfoConfig};
-    use crate::types::{ModelBackend, ModelName, ModelType};
     use std::path::PathBuf;
 
     #[tokio::test]

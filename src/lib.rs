@@ -202,6 +202,7 @@ pub mod filters;
 pub mod git;
 pub mod incremental;
 pub mod index;
+pub mod model_validation;
 pub mod models;
 pub mod output;
 pub mod parallel;

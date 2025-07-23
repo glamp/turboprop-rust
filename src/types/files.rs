@@ -53,7 +53,7 @@ impl FileDiscoveryConfig {
 /// Parse a human-readable file size string into bytes
 ///
 /// Supports formats like "100", "2kb", "5mb", "1gb" (case-insensitive)
-/// 
+///
 /// # Examples
 /// ```
 /// # use turboprop::types::parse_filesize;

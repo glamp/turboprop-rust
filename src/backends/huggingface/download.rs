@@ -11,15 +11,11 @@ use std::path::{Path, PathBuf};
 use tokenizers::Tokenizer;
 use tracing::{debug, info, warn};
 
-use crate::types::{CachePath, ModelName};
 use super::model::Qwen3EmbeddingModel;
+use crate::types::{CachePath, ModelName};
 
 /// Download a file from HuggingFace repository, using cache if available
-pub async fn download_file(
-    repo: &ApiRepo,
-    filename: &str,
-    cache_dir: &Path,
-) -> Result<PathBuf> {
+pub async fn download_file(repo: &ApiRepo, filename: &str, cache_dir: &Path) -> Result<PathBuf> {
     let local_path = cache_dir.join(filename);
 
     // Return cached file if it exists
@@ -52,9 +48,8 @@ pub fn load_qwen3_weights(
 
     // Load model weights using candle's safetensors or pytorch loader
     let weights = if model_path.extension().and_then(|s| s.to_str()) == Some("safetensors") {
-        candle_core::safetensors::load(model_path, device).with_context(|| {
-            format!("Failed to load safetensors from {}", model_path.display())
-        })?
+        candle_core::safetensors::load(model_path, device)
+            .with_context(|| format!("Failed to load safetensors from {}", model_path.display()))?
     } else {
         // For pytorch_model.bin, attempt to load as PyTorch tensors
         debug!(
@@ -128,7 +123,9 @@ pub async fn load_qwen3_model(
     let tokenizer_path = download_file(&repo, "tokenizer.json", model_cache_dir.as_path()).await?;
 
     // Try to download model weights (safetensors preferred, fallback to pytorch)
-    let model_path = match download_file(&repo, "model.safetensors", model_cache_dir.as_path()).await {
+    let model_path = match download_file(&repo, "model.safetensors", model_cache_dir.as_path())
+        .await
+    {
         Ok(path) => path,
         Err(e) => {
             warn!("[HUGGINGFACE] [DOWNLOAD] safetensors download failed: {}. Trying pytorch_model.bin as fallback", e);
@@ -148,9 +145,8 @@ pub async fn load_qwen3_model(
     })?;
 
     // Load model configuration
-    let config_content = std::fs::read_to_string(&config_path).with_context(|| {
-        format!("Failed to read model config from {}", config_path.display())
-    })?;
+    let config_content = std::fs::read_to_string(&config_path)
+        .with_context(|| format!("Failed to read model config from {}", config_path.display()))?;
     let config_json: serde_json::Value = serde_json::from_str(&config_content)
         .context("[HUGGINGFACE] [CONFIG] failed: Cannot parse model configuration JSON. Verify config file format and completeness.")?;
 

@@ -1,6 +1,8 @@
 use clap::Parser;
 use turboprop::cli::{Cli, Commands};
-use turboprop::commands::{execute_index_command_cli, execute_search_command_cli, SearchCliArgs};
+use turboprop::commands::{
+    execute_index_command_cli, execute_search_command_cli, handle_model_command, SearchCliArgs,
+};
 use turboprop::config::{CliConfigOverrides, TurboPropConfig};
 use turboprop::types::parse_filesize;
 
@@ -17,6 +19,7 @@ async fn main() -> anyhow::Result<()> {
             repo,
             max_filesize,
             model,
+            instruction,
             cache_dir,
             verbose,
             worker_threads,
@@ -27,9 +30,19 @@ async fn main() -> anyhow::Result<()> {
             let mut config = TurboPropConfig::load()?;
 
             // Build CLI overrides
-            let mut cli_overrides = CliConfigOverrides::new()
-                .with_model(model)
-                .with_verbose(verbose);
+            let mut cli_overrides = CliConfigOverrides::new().with_verbose(verbose);
+
+            // Apply global model options (command-level overrides global)
+            let effective_model = model.or(cli.model);
+            let effective_instruction = instruction.or(cli.instruction);
+
+            if let Some(model_name) = effective_model {
+                cli_overrides = cli_overrides.with_model(model_name);
+            }
+
+            if let Some(instruction_text) = effective_instruction {
+                cli_overrides = cli_overrides.with_instruction(instruction_text);
+            }
 
             if let Some(cache_dir) = cache_dir {
                 cli_overrides = cli_overrides.with_cache_dir(cache_dir);
@@ -66,6 +79,8 @@ async fn main() -> anyhow::Result<()> {
         Commands::Search {
             query,
             repo,
+            model,
+            instruction,
             limit,
             threshold,
             output,
@@ -75,11 +90,35 @@ async fn main() -> anyhow::Result<()> {
             // Load base configuration for search command
             let config = TurboPropConfig::load()?;
 
+            // Apply global model options (command-level overrides global)
+            let effective_model = model.or(cli.model);
+            let effective_instruction = instruction.or(cli.instruction);
+
+            // Apply model and instruction overrides to configuration
+            let mut config_overrides = CliConfigOverrides::new();
+            if let Some(model_name) = effective_model {
+                config_overrides = config_overrides.with_model(model_name);
+            }
+            if let Some(instruction_text) = effective_instruction {
+                config_overrides = config_overrides.with_instruction(instruction_text);
+            }
+
+            // TODO: Apply config overrides to search command when supported
+            let config =
+                if config_overrides.model.is_some() || config_overrides.instruction.is_some() {
+                    config.merge_cli_args(&config_overrides)
+                } else {
+                    config
+                };
+
             // Create CLI args struct
             let args = SearchCliArgs::new(query, repo, limit, threshold, output, filetype, filter);
 
             // Execute the search command using the new implementation
             execute_search_command_cli(args, &config).await?;
+        }
+        Commands::Model { action } => {
+            handle_model_command(action).await?;
         }
     }
 

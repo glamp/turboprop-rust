@@ -8,6 +8,7 @@ use std::path::Path;
 use tracing::{debug, info, warn};
 
 use crate::filters::SearchFilter;
+use crate::model_validation::{validate_instruction_compatibility, validate_model_selection};
 use crate::output::{OutputFormat, ResultFormatter};
 use crate::search_with_config;
 
@@ -119,6 +120,23 @@ pub async fn execute_search_command(
     config
         .validate()
         .context("Search configuration validation failed")?;
+
+    // Validate the specified embedding model
+    let model_info = validate_model_selection(&turboprop_config.embedding.model_name)
+        .await
+        .with_context(|| {
+            format!(
+                "Model validation failed for '{}'",
+                turboprop_config.embedding.model_name
+            )
+        })?;
+
+    // Validate instruction compatibility if instruction is provided
+    validate_instruction_compatibility(
+        &model_info,
+        turboprop_config.current_instruction.as_deref(),
+    )
+    .with_context(|| "Instruction validation failed")?;
 
     // Log search parameters
     info!("Searching for: '{}'", config.query);

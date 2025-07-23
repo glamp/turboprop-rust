@@ -5,8 +5,8 @@
 
 use anyhow::Result;
 
-use crate::constants;
 use super::config::EmbeddingConfig;
+use crate::constants;
 
 /// Mock embedding generator for testing
 #[cfg(any(test, feature = "test-utils"))]

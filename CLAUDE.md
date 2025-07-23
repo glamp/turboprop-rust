@@ -15,10 +15,17 @@ cargo build --release
 # Run all tests (unit + integration)
 cargo test
 
+# Run tests with detailed timing and better output (recommended)
+cargo nextest run
+
 # Run specific test suites
 cargo test --test integration_tests    # Integration tests
 cargo test --test complete_workflow    # End-to-end workflow tests
 cargo test chunking_tests             # Unit tests for chunking module
+
+# Run specific test suites with nextest (shows timing)
+cargo nextest run --test embedding_tests
+cargo nextest run --test integration_tests
 
 # Run benchmarks
 cargo bench

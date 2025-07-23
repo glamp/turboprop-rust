@@ -17,8 +17,7 @@ async fn test_embedding_generator_initialization() {
         return;
     }
 
-    let temp_dir = TempDir::new().unwrap();
-    let config = EmbeddingConfig::default().with_cache_dir(temp_dir.path().join("models"));
+    let config = EmbeddingConfig::default();
 
     let result = EmbeddingGenerator::new(config).await;
     assert!(
@@ -42,8 +41,7 @@ async fn test_single_embedding_generation() {
         return;
     }
 
-    let temp_dir = TempDir::new().unwrap();
-    let config = EmbeddingConfig::default().with_cache_dir(temp_dir.path().join("models"));
+    let config = EmbeddingConfig::default();
 
     let mut generator = EmbeddingGenerator::new(config).await.unwrap();
 
@@ -71,9 +69,7 @@ async fn test_batch_embedding_generation() {
         return;
     }
 
-    let temp_dir = TempDir::new().unwrap();
     let config = EmbeddingConfig::default()
-        .with_cache_dir(temp_dir.path().join("models"))
         .with_batch_size(2); // Small batch for testing
 
     let mut generator = EmbeddingGenerator::new(config).await.unwrap();
@@ -123,8 +119,7 @@ async fn test_embedding_consistency() {
         return;
     }
 
-    let temp_dir = TempDir::new().unwrap();
-    let config = EmbeddingConfig::default().with_cache_dir(temp_dir.path().join("models"));
+    let config = EmbeddingConfig::default();
 
     let mut generator = EmbeddingGenerator::new(config).await.unwrap();
 
@@ -153,8 +148,7 @@ async fn test_empty_string_embedding() {
         return;
     }
 
-    let temp_dir = TempDir::new().unwrap();
-    let config = EmbeddingConfig::default().with_cache_dir(temp_dir.path().join("models"));
+    let config = EmbeddingConfig::default();
 
     let mut generator = EmbeddingGenerator::new(config).await.unwrap();
 
@@ -252,9 +246,7 @@ async fn test_large_batch_processing() {
         return;
     }
 
-    let temp_dir = TempDir::new().unwrap();
     let config = EmbeddingConfig::default()
-        .with_cache_dir(temp_dir.path().join("models"))
         .with_batch_size(5); // Small batches to test batching logic
 
     let mut generator = EmbeddingGenerator::new(config).await.unwrap();
@@ -281,11 +273,8 @@ async fn test_different_model_config() {
         return;
     }
 
-    let temp_dir = TempDir::new().unwrap();
-
     // Test with explicitly specified model
-    let config = EmbeddingConfig::with_model("sentence-transformers/all-MiniLM-L6-v2")
-        .with_cache_dir(temp_dir.path().join("models"));
+    let config = EmbeddingConfig::with_model("sentence-transformers/all-MiniLM-L6-v2");
 
     let generator = EmbeddingGenerator::new(config).await.unwrap();
     assert_eq!(

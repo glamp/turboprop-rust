@@ -62,9 +62,18 @@ pub enum Commands {
         #[arg(long)]
         filetype: Option<String>,
         /// Filter results by file glob pattern.
-        /// Examples: "*.rs" (Rust files), "src/**/*.js" (JS files in src/),
-        /// "test/**/*.{rs,ts}" (Rust/TypeScript in test/), "!target/**" (exclude target/).
-        /// Supports wildcards: * (any), ? (single char), ** (recursive), {} (alternatives)
+        ///
+        /// Glob patterns use Unix shell-style wildcards to match file paths.
+        /// 
+        /// Basic wildcards: * (any chars in dir), ? (single char), ** (recursive),
+        /// [abc] (char set), [!abc] (not in set).
+        ///
+        /// Examples: "*.rs" (all Rust files), "src/*.js" (JS in src only),
+        /// "**/*.py" (Python anywhere), "tests/**/*_test.rs" (test files),
+        /// "*.{js,ts,jsx,tsx}" (JS/TS files), "src/**/handlers/*.rs" (handlers).
+        ///
+        /// Notes: Case-sensitive, matches full path, use forward slashes,
+        /// can combine with --filetype. See 'tp search --help' for more details.
         #[arg(long)]
         filter: Option<String>,
     },

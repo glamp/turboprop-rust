@@ -106,6 +106,7 @@ tp search <QUERY> [OPTIONS]
 - `--threshold <FLOAT>`: Minimum similarity threshold (0.0 to 1.0)
 - `--output <FORMAT>`: Output format: 'json' (default) or 'text'
 - `--filetype <EXT>`: Filter results by file extension (e.g., '.rs', '.js', '.py')
+- `--filter <PATTERN>`: Filter results by glob pattern (e.g., '*.rs', 'src/**/*.js')
 
 #### Examples:
 
@@ -124,7 +125,134 @@ tp search "jwt token validation" --repo . --threshold 0.8
 
 # Search in specific directory
 tp search "api routes" --repo ./backend
+
+# Filter by glob pattern
+tp search "authentication" --repo . --filter "src/*.js"
+
+# Recursive glob patterns
+tp search "error handling" --repo . --filter "**/*.{rs,py}"
+
+# Combine filters
+tp search "database" --repo . --filetype .rs --filter "src/**/*.rs"
 ```
+
+## Glob Pattern Filtering
+
+TurboProp supports powerful glob pattern filtering to search within specific files or directories. Glob patterns use Unix shell-style wildcards to match file paths.
+
+### Basic Wildcards
+
+| Wildcard | Description | Example |
+|----------|-------------|---------|
+| `*` | Match any characters within a directory | `*.rs` matches all Rust files |
+| `?` | Match exactly one character | `file?.rs` matches `file1.rs`, `fileA.rs` |
+| `**` | Match any characters across directories | `**/*.js` matches JS files anywhere |
+| `[abc]` | Match any character in the set | `file[123].rs` matches `file1.rs`, `file2.rs`, `file3.rs` |
+| `[!abc]` | Match any character NOT in the set | `file[!0-9].rs` matches `filea.rs` but not `file1.rs` |
+| `{a,b}` | Match any of the alternatives | `*.{js,ts}` matches both `.js` and `.ts` files |
+
+### Common Pattern Examples
+
+#### File Type Filtering
+```bash
+# All Rust files anywhere in the codebase
+tp search "async function" --filter "*.rs"
+
+# All JavaScript and TypeScript files
+tp search "react component" --filter "*.{js,ts,jsx,tsx}"
+
+# All configuration files
+tp search "database" --filter "*.{json,yaml,yml,toml,ini}"
+```
+
+#### Directory-Specific Filtering
+```bash
+# Files only in the src directory
+tp search "main function" --filter "src/*.rs"
+
+# Files only in tests directory
+tp search "test case" --filter "tests/*.py"
+
+# Files in specific subdirectories
+tp search "handler" --filter "src/api/*.js"
+```
+
+#### Recursive Directory Filtering
+```bash
+# Python files anywhere in the project
+tp search "authentication" --filter "**/*.py"
+
+# Test files in any subdirectory
+tp search "unit test" --filter "**/test_*.rs"
+
+# Source files in src and all subdirectories
+tp search "database connection" --filter "src/**/*.{rs,py,js}"
+
+# Handler files in nested API directories
+tp search "request handler" --filter "**/api/**/handlers/*.rs"
+```
+
+#### Advanced Pattern Examples
+```bash
+# Test files with specific naming patterns
+tp search "integration test" --filter "tests/**/*_{test,spec}.{js,ts}"
+
+# Source files excluding certain directories
+tp search "function definition" --filter "src/**/*.rs" --filter "!**/target/**"
+
+# Files in multiple specific directories
+tp search "configuration" --filter "{src,config,scripts}/**/*.{json,yaml}"
+
+# Files with numeric suffixes
+tp search "version" --filter "**/*[0-9].{js,py,rs}"
+```
+
+### Pattern Behavior
+
+**Path Matching**: Patterns match against the entire file path, not just the filename:
+- `*.rs` matches `main.rs`, `src/main.rs`, and `lib/nested/file.rs`
+- `src/*.rs` matches `src/main.rs` but not `src/nested/file.rs`
+- `src/**/*.rs` matches both `src/main.rs` and `src/nested/file.rs`
+
+**Case Sensitivity**: Patterns are case-sensitive by default:
+- `*.RS` matches `FILE.RS` but not `file.rs`
+- `*.rs` matches `file.rs` but not `FILE.RS`
+
+**Path Separators**: Always use forward slashes (`/`) in patterns:
+- ✅ `src/api/*.js` (correct)
+- ❌ `src\\api\\*.js` (incorrect)
+
+**Combining with File Type Filter**: You can use both `--filter` and `--filetype` together:
+```bash
+# Search for Rust files in src directory only
+tp search "async" --filetype .rs --filter "src/**/*"
+```
+
+### Performance Tips
+
+- **Simple patterns are faster**: `*.rs` is faster than `**/*.rs`
+- **Be specific when possible**: `src/*.js` is faster than `**/*.js` if you know files are in `src/`
+- **Avoid excessive wildcards**: Patterns with many `**` can be slower on large codebases
+- **Use file type filter for extensions**: `--filetype .rs` is optimized compared to `--filter "*.rs"`
+
+### Troubleshooting Glob Patterns
+
+**Pattern doesn't match expected files**:
+- Check case sensitivity: `*.RS` vs `*.rs`
+- Verify path structure: `src/*.js` only matches direct children of `src/`
+- Use `**` for recursive matching: `src/**/*.js` matches nested files
+
+**Pattern matching too many files**:
+- Be more specific: use `src/*.js` instead of `*.js`
+- Add more path components: `src/components/*.jsx`
+- Use character classes: `test_[0-9]*.rs` instead of `test_*.rs`
+
+**Complex patterns not working**:
+- Test simpler patterns first: start with `*.ext` then add complexity
+- Check for typos in braces: `{js,ts}` not `{js, ts}` (no spaces)
+- Validate bracket expressions: `[a-z]` not `[a-Z]`
+
+For more pattern examples and troubleshooting, see the `TROUBLESHOOTING.md` file.
 
 ## Configuration
 

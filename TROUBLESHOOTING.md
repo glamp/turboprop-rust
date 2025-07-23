@@ -357,6 +357,312 @@ rm -rf .turboprop/
 tp index --repo .
 ```
 
+## Glob Pattern Issues
+
+Glob patterns provide powerful file filtering but can be tricky to get right. Here are common issues and solutions.
+
+### Pattern doesn't match expected files
+
+**Problem**: Your glob pattern isn't matching files you expect it to match.
+
+**Common causes and solutions**:
+
+1. **Case sensitivity issues**:
+   ```bash
+   # Problem: Pattern is case-sensitive by default
+   tp search "function" --filter "*.RS"    # Won't match file.rs
+   
+   # Solution: Use correct case
+   tp search "function" --filter "*.rs"    # Matches file.rs
+   ```
+
+2. **Path structure misunderstanding**:
+   ```bash
+   # Problem: * doesn't cross directory boundaries
+   tp search "test" --filter "src/*.rs"    # Won't match src/lib/mod.rs
+   
+   # Solution: Use ** for recursive matching
+   tp search "test" --filter "src/**/*.rs" # Matches src/lib/mod.rs
+   ```
+
+3. **Literal vs. pattern interpretation**:
+   ```bash
+   # Problem: Special characters not escaped
+   tp search "config" --filter "file[1].json"  # Treats [1] as character class
+   
+   # Solution: Quote or escape if needed
+   tp search "config" --filter "file\[1\].json"  # Literal brackets
+   ```
+
+4. **Relative path confusion**:
+   ```bash
+   # Test what files exist
+   find . -name "*.rs" | head -5
+   
+   # Then design pattern to match those paths
+   tp search "query" --filter "**/*.rs"  # For any depth
+   tp search "query" --filter "src/*.rs" # For src/ only
+   ```
+
+### Pattern matches too many files
+
+**Problem**: Your glob pattern is too broad and matching unwanted files.
+
+**Solutions**:
+
+1. **Be more specific about directories**:
+   ```bash
+   # Too broad
+   tp search "test" --filter "*.rs"
+   
+   # More specific
+   tp search "test" --filter "tests/*.rs"
+   tp search "test" --filter "src/tests/**/*.rs"
+   ```
+
+2. **Use character classes to limit matches**:
+   ```bash
+   # Instead of
+   tp search "handler" --filter "*_handler.rs"
+   
+   # Use more specific pattern
+   tp search "handler" --filter "*_[a-z]*_handler.rs"
+   ```
+
+3. **Combine with file type filters**:
+   ```bash
+   # Narrow down with both filters
+   tp search "async" --filetype .rs --filter "src/**/*"
+   ```
+
+### Complex patterns not working
+
+**Problem**: Advanced glob patterns with braces, brackets, or multiple wildcards aren't working as expected.
+
+**Debugging steps**:
+
+1. **Test pattern components separately**:
+   ```bash
+   # Start simple and build up
+   tp search "query" --filter "*.js"           # Basic wildcard
+   tp search "query" --filter "src/*.js"       # Add directory
+   tp search "query" --filter "src/**/*.js"    # Add recursion
+   tp search "query" --filter "src/**/*.{js,ts}" # Add alternatives
+   ```
+
+2. **Check brace expansion syntax**:
+   ```bash
+   # Correct: no spaces in braces
+   tp search "query" --filter "*.{js,ts,jsx}"
+   
+   # Incorrect: spaces will cause issues
+   tp search "query" --filter "*.{js, ts, jsx}"
+   ```
+
+3. **Validate bracket expressions**:
+   ```bash
+   # Correct character ranges
+   tp search "query" --filter "file[0-9]*.rs"     # Numbers
+   tp search "query" --filter "file[a-z]*.rs"     # Lowercase
+   tp search "query" --filter "file[A-Z]*.rs"     # Uppercase
+   
+   # Negation
+   tp search "query" --filter "file[!0-9]*.rs"    # Not numbers
+   ```
+
+### Glob patterns vs. regular expressions
+
+**Problem**: Trying to use regex syntax in glob patterns.
+
+**Key differences**:
+- Glob: `*.js` (shell-style wildcards)
+- Regex: `.*\.js$` (regular expression)
+
+**Common mistakes**:
+```bash
+# Don't use regex syntax in --filter
+tp search "query" --filter ".*\.js$"     # Wrong (regex syntax)
+tp search "query" --filter "*.js"        # Correct (glob syntax)
+
+# Don't use + or other regex quantifiers
+tp search "query" --filter "test+.rs"    # Wrong (+ is literal)
+tp search "query" --filter "test*.rs"    # Correct (use * for repetition)
+```
+
+### Performance issues with patterns
+
+**Problem**: Complex glob patterns are making searches very slow.
+
+**Solutions**:
+
+1. **Avoid excessive wildcards**:
+   ```bash
+   # Can be slow on large codebases
+   tp search "query" --filter "**/**/**/*.rs"
+   
+   # Simpler and faster
+   tp search "query" --filter "**/*.rs"
+   ```
+
+2. **Be as specific as possible**:
+   ```bash
+   # Slower (searches everywhere)
+   tp search "api" --filter "**/*.js"
+   
+   # Faster (limited scope)
+   tp search "api" --filter "src/api/**/*.js"
+   ```
+
+3. **Use file type filter for extensions**:
+   ```bash
+   # Optimized path for extensions
+   tp search "async" --filetype .rs
+   
+   # Less optimized
+   tp search "async" --filter "*.rs"
+   ```
+
+### Unicode and special characters
+
+**Problem**: Patterns with Unicode or special characters not working correctly.
+
+**Solutions**:
+
+1. **Unicode in patterns**:
+   ```bash
+   # Unicode characters are supported
+   tp search "测试" --filter "测试_*.js"
+   tp search "café" --filter "café_*.py"
+   ```
+
+2. **Spaces in file names**:
+   ```bash
+   # Quote the pattern if it contains spaces
+   tp search "config" --filter "*config file*.json"
+   tp search "test" --filter "test */*.rs"
+   ```
+
+3. **Special shell characters**:
+   ```bash
+   # Some characters may need quoting
+   tp search "data" --filter "file\$money.js"     # Escape $
+   tp search "backup" --filter "*.backup~"        # ~ is usually OK
+   ```
+
+### Platform-specific path issues
+
+**Problem**: Patterns work on one operating system but not another.
+
+**Solutions**:
+
+1. **Always use forward slashes**:
+   ```bash
+   # Correct on all platforms
+   tp search "module" --filter "src/modules/*.rs"
+   
+   # Wrong on Unix-like systems
+   tp search "module" --filter "src\\modules\\*.rs"
+   ```
+
+2. **Case sensitivity varies by filesystem**:
+   ```bash
+   # Test both cases if unsure
+   tp search "readme" --filter "*README*"
+   tp search "readme" --filter "*readme*"
+   tp search "readme" --filter "*[Rr][Ee][Aa][Dd][Mm][Ee]*"
+   ```
+
+### Debugging glob patterns
+
+**Problem**: Need to understand what files a pattern would match before using it in search.
+
+**Debugging techniques**:
+
+1. **Use find command to test patterns** (Unix-like systems):
+   ```bash
+   # Test the pattern with find first
+   find . -path "./src/*.js" -type f
+   find . -path "./**/*.{js,ts}" -type f
+   ```
+
+2. **Use ls with bash globbing**:
+   ```bash
+   # Enable extended globbing in bash
+   shopt -s globstar
+   ls src/**/*.rs  # See what files match
+   ```
+
+3. **Start simple and add complexity**:
+   ```bash
+   # Step 1: Basic pattern
+   tp search "test" --filter "*.rs" --limit 5
+   
+   # Step 2: Add directory
+   tp search "test" --filter "src/*.rs" --limit 5
+   
+   # Step 3: Add recursion
+   tp search "test" --filter "src/**/*.rs" --limit 5
+   ```
+
+4. **Use verbose output to see what's happening**:
+   ```bash
+   export RUST_LOG=turboprop=debug
+   tp search "query" --filter "pattern" --limit 3
+   ```
+
+### Common pattern recipes
+
+**Problem**: Need examples of patterns for common use cases.
+
+**Recipe collection**:
+
+```bash
+# All source files in any language
+tp search "function" --filter "**/*.{rs,js,py,go,java,cpp,c,h}"
+
+# Test files only  
+tp search "assert" --filter "**/*{test,spec}*.{rs,js,py}"
+tp search "mock" --filter "**/{test,tests,spec,specs}/**/*.{rs,js,py}"
+
+# Configuration files
+tp search "database" --filter "**/*.{json,yaml,yml,toml,ini,conf,cfg}"
+
+# Source files excluding tests
+tp search "business logic" --filter "src/**/*.{rs,js,py}" 
+
+# Files in specific frameworks/directories
+tp search "component" --filter "src/components/**/*.{jsx,tsx,vue}"
+tp search "model" --filter "src/models/**/*.{rs,py,js}"
+tp search "handler" --filter "src/{api,handlers,routes}/**/*.{rs,js,py}"
+
+# Documentation and text files
+tp search "installation" --filter "**/*.{md,rst,txt,adoc}"
+
+# Build and config files in project root
+tp search "version" --filter "{package,Cargo,build,webpack,vite}.{json,toml,js,ts}"
+
+# Files modified recently (use with find)
+# find . -mtime -7 -name "*.rs" | head -10  # Files changed in last 7 days
+```
+
+### Glob pattern validation
+
+**Problem**: Want to validate patterns before using them.
+
+**Manual validation**:
+```bash
+# Check pattern syntax (will show validation error if invalid)
+tp search --help | grep -A 20 "filter.*PATTERN"
+
+# Test with a simple query first
+tp search "test" --filter "your_pattern_here" --limit 1
+
+# Use dry-run approach: search for something that definitely exists
+echo "test content" > test_file.rs
+tp search "test content" --filter "*.rs" --limit 1
+rm test_file.rs
+```
+
 ## Performance Issues
 
 ### High CPU usage

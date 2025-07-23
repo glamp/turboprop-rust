@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tp::error::{TurboPropError, TurboPropResult};
-use tp::retry::{ExponentialBackoff, RetryConfig, RetryableOperation};
+use turboprop::error::TurboPropError;
+use turboprop::retry::{ExponentialBackoff, RetryConfig, RetryableOperation};
 
 struct FailingOperation {
     attempts: Arc<Mutex<u32>>,
@@ -186,9 +186,8 @@ async fn test_jitter_adds_randomness() {
 
     // With jitter, delays should vary (though they might occasionally be the same)
     let delays = vec![delay1, delay2, delay3];
-    let base_delay = Duration::from_millis(200); // 100ms * 2
 
-    // All delays should be within reasonable bounds (50% to 150% of base)
+    // All delays should be within reasonable bounds (50% to 150% of 200ms base)
     for delay in delays {
         assert!(delay >= Duration::from_millis(100)); // At least 50% of base
         assert!(delay <= Duration::from_millis(300)); // At most 150% of base

@@ -6,9 +6,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
-use tp::commands::execute_index_command;
-use tp::config::TurboPropConfig;
-use tp::index::PersistentChunkIndex;
+use turboprop::commands::execute_index_command;
+use turboprop::config::TurboPropConfig;
+use turboprop::index::PersistentChunkIndex;
 
 /// Create a test file with the given content
 fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {

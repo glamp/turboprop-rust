@@ -1,18 +1,20 @@
 use clap::Parser;
-use tp::cli::{Cli, Commands};
-use tp::commands::{execute_index_command_cli, execute_search_command_cli};
-use tp::config::{CliConfigOverrides, TurboPropConfig};
-use tp::types::parse_filesize;
+use turboprop::cli::{Cli, Commands};
+use turboprop::commands::{execute_index_command_cli, execute_search_command_cli};
+use turboprop::config::{CliConfigOverrides, TurboPropConfig};
+use turboprop::types::parse_filesize;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .init();
 
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Index {
-            path,
+            repo,
             max_filesize,
             model,
             cache_dir,
@@ -55,10 +57,10 @@ async fn main() -> anyhow::Result<()> {
             // Show progress bars by default (true), they work fine with verbose logging
             if watch {
                 // Execute the watch mode
-                use tp::commands::index::execute_watch_command_cli;
-                execute_watch_command_cli(&path, &config, true).await?;
+                use turboprop::commands::index::execute_watch_command_cli;
+                execute_watch_command_cli(&repo, &config, true).await?;
             } else {
-                execute_index_command_cli(&path, &config, true).await?;
+                execute_index_command_cli(&repo, &config, true).await?;
             }
         }
         Commands::Search {

@@ -17,7 +17,7 @@ use crate::error::TurboPropError;
 /// # Examples
 ///
 /// ```
-/// use tp::compression::{CompressionConfig, CompressionAlgorithm};
+/// use turboprop::compression::{CompressionConfig, CompressionAlgorithm};
 ///
 /// // Create a configuration for scalar quantization
 /// let config = CompressionConfig {
@@ -64,7 +64,7 @@ impl Default for CompressionConfig {
 /// # Examples
 ///
 /// ```
-/// use tp::compression::CompressionAlgorithm;
+/// use turboprop::compression::CompressionAlgorithm;
 ///
 /// // For maximum accuracy, use no compression
 /// let no_compression = CompressionAlgorithm::None;
@@ -156,7 +156,7 @@ impl CompressionStats {
 /// # Examples
 ///
 /// ```no_run
-/// use tp::compression::{VectorCompressor, CompressionConfig, CompressionAlgorithm};
+/// use turboprop::compression::{VectorCompressor, CompressionConfig, CompressionAlgorithm};
 ///
 /// // Create a compressor with scalar quantization
 /// let config = CompressionConfig {
@@ -194,7 +194,7 @@ impl VectorCompressor {
     /// # Examples
     ///
     /// ```
-    /// use tp::compression::{VectorCompressor, CompressionConfig, CompressionAlgorithm};
+    /// use turboprop::compression::{VectorCompressor, CompressionConfig, CompressionAlgorithm};
     ///
     /// // Create compressor for scalar quantization
     /// let config = CompressionConfig {
@@ -236,7 +236,7 @@ impl VectorCompressor {
     /// # Examples
     ///
     /// ```no_run
-    /// use tp::compression::{VectorCompressor, CompressionConfig, CompressionAlgorithm};
+    /// use turboprop::compression::{VectorCompressor, CompressionConfig, CompressionAlgorithm};
     ///
     /// let config = CompressionConfig::default();
     /// let mut compressor = VectorCompressor::new(config);

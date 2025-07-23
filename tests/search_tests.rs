@@ -7,10 +7,10 @@ mod common;
 
 use anyhow::Result;
 use std::path::Path;
-use tp::config::TurboPropConfig;
-use tp::index::PersistentChunkIndex;
-use tp::search::{search_index, SearchConfig, SearchEngine};
-use tp::{build_persistent_index, search_with_config};
+use turboprop::config::TurboPropConfig;
+use turboprop::index::PersistentChunkIndex;
+use turboprop::search::{search_index, SearchConfig, SearchEngine};
+use turboprop::{build_persistent_index, search_with_config};
 
 /// Maximum allowed duration for performance tests in seconds
 const PERFORMANCE_TEST_TIMEOUT_SECONDS: u64 = 30;
@@ -334,7 +334,7 @@ async fn test_search_performance_baseline() -> Result<()> {
 
 #[test]
 fn test_query_validation() {
-    use tp::query::validate_query;
+    use turboprop::query::validate_query;
 
     // Valid queries
     assert!(validate_query("test query").is_ok());
@@ -359,7 +359,7 @@ fn test_query_validation() {
 #[test]
 fn test_search_result_formatting() {
     use std::path::PathBuf;
-    use tp::types::*;
+    use turboprop::types::*;
 
     let chunk = ContentChunk {
         id: "test-chunk".to_string().into(),

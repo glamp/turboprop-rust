@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::path::Path;
 use tempfile::NamedTempFile;
-use tp::{
+use turboprop::{
     chunking::ChunkingStrategy,
     content::ContentProcessor,
     types::{ChunkIndexNum, ChunkingConfig},

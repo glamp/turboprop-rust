@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use tp::error::{TurboPropError, TurboPropResult};
+use turboprop::error::{TurboPropError, TurboPropResult};
 
 #[test]
 fn test_network_error_display() {

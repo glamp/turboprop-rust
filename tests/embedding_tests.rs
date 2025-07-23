@@ -5,9 +5,9 @@
 
 use std::path::PathBuf;
 use tempfile::TempDir;
-use tp::config::TurboPropConfig;
-use tp::embeddings::{EmbeddingConfig, EmbeddingGenerator};
-use tp::models::{CacheStats, ModelManager};
+use turboprop::config::TurboPropConfig;
+use turboprop::embeddings::{EmbeddingConfig, EmbeddingGenerator};
+use turboprop::models::{CacheStats, ModelManager};
 
 /// Test embedding generator initialization with default model
 #[tokio::test]

@@ -1,7 +1,19 @@
 [package]
-name = "tp"
+name = "turboprop"
 version = "0.1.0"
 edition = "2021"
+authors = ["Turboprop Contributors"]
+description = "Fast semantic code search and indexing tool"
+readme = "README.md"
+repository = "https://github.com/your-org/turboprop-rust"
+license = "MIT OR Apache-2.0"
+keywords = ["search", "code", "semantic", "indexing", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["test_dir/", "sample-codebases/", "issues/", "benches/"]
+
+[[bin]]
+name = "tp"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
@@ -38,6 +50,10 @@ tempfile = "3.8"
 criterion = { version = "0.5", features = ["html_reports"] }
 pprof = { version = "0.13", features = ["flamegraph", "criterion"] }
 walkdir = "2.4"
+
+[build-dependencies]
+clap = { version = "4.4", features = ["derive"] }
+clap_mangen = "0.2"
 
 [[bench]]
 name = "performance"

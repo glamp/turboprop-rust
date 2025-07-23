@@ -152,7 +152,7 @@ impl ErrorType {
 ///
 /// ```no_run
 /// use std::path::Path;
-/// use tp::{config::TurboPropConfig, commands::index::execute_index_command};
+/// use turboprop::{config::TurboPropConfig, commands::index::execute_index_command};
 ///
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
 /// let config = TurboPropConfig::default();

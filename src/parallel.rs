@@ -26,7 +26,7 @@ use crate::types::{ChunkingConfig, ContentChunk, FileMetadata, IndexedChunk};
 /// # Examples
 ///
 /// ```
-/// use tp::parallel::ParallelConfig;
+/// use turboprop::parallel::ParallelConfig;
 ///
 /// // Create configuration optimized for high-memory systems
 /// let config = ParallelConfig {
@@ -37,7 +37,7 @@ use crate::types::{ChunkingConfig, ContentChunk, FileMetadata, IndexedChunk};
 /// };
 /// 
 /// // Or use the system-optimized configuration
-/// let optimized = tp::parallel::config::optimize_for_system();
+/// let optimized = turboprop::parallel::config::optimize_for_system();
 /// ```
 #[derive(Debug, Clone)]
 pub struct ParallelConfig {

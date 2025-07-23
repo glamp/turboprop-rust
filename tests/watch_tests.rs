@@ -7,11 +7,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
-use tp::config::TurboPropConfig;
-use tp::git::GitignoreFilter;
-use tp::incremental::{IncrementalStats, IncrementalUpdater};
-use tp::storage::PersistentIndex;
-use tp::watcher::{FileWatcher, WatchEvent, WatchEventBatch};
+use turboprop::config::TurboPropConfig;
+use turboprop::git::GitignoreFilter;
+use turboprop::incremental::{IncrementalStats, IncrementalUpdater};
+use turboprop::storage::PersistentIndex;
+use turboprop::watcher::{FileWatcher, WatchEvent, WatchEventBatch};
 
 /// Helper function to create a test file with content
 fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
@@ -183,7 +183,7 @@ fn test_incremental_stats() {
 // Integration tests that require a real file system and index
 mod integration_tests {
     use super::*;
-    use tp::commands::index::execute_index_command;
+    use turboprop::commands::index::execute_index_command;
 
     #[tokio::test]
     async fn test_file_modification_detection() {

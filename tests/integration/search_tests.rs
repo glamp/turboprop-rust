@@ -6,10 +6,10 @@
 use anyhow::Result;
 use std::path::Path;
 use tempfile::TempDir;
-use tp::commands::{execute_search_command_cli, search::SearchCommandConfig};
-use tp::config::TurboPropConfig;
-use tp::output::OutputFormat;
-use tp::{build_persistent_index, index_exists};
+use turboprop::commands::{execute_search_command_cli, search::SearchCommandConfig};
+use turboprop::config::TurboPropConfig;
+use turboprop::output::OutputFormat;
+use turboprop::{build_persistent_index, index_exists};
 
 // Import shared test utilities
 mod common;

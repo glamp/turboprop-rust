@@ -1,5 +1,5 @@
 use std::path::Path;
-use tp::{files::FileDiscovery, git::GitRepo, index_files, types::FileDiscoveryConfig};
+use turboprop::{files::FileDiscovery, git::GitRepo, index_files, types::FileDiscoveryConfig};
 
 #[test]
 fn test_discover_poker_codebase_files() {
@@ -133,7 +133,7 @@ fn test_invalid_directory() {
 
 #[test]
 fn test_filesize_parsing() {
-    use tp::types::parse_filesize;
+    use turboprop::types::parse_filesize;
 
     assert_eq!(parse_filesize("100"), Ok(100));
     assert_eq!(parse_filesize("2kb"), Ok(2048));

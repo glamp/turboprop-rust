@@ -1,9 +1,8 @@
 use std::fs;
-use std::path::PathBuf;
 use tempfile::TempDir;
-use tp::config::TurboPropConfig;
-use tp::error::{TurboPropError, TurboPropResult};
-use tp::recovery::{IndexRecovery, RecoveryStrategy, ValidationResult};
+use turboprop::config::TurboPropConfig;
+use turboprop::error::TurboPropError;
+use turboprop::recovery::{IndexRecovery, RecoveryStrategy, ValidationResult};
 
 #[tokio::test]
 async fn test_validate_healthy_index() {

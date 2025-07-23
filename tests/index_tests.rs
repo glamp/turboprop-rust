@@ -10,10 +10,10 @@ use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;
 
-use tp::config::TurboPropConfig;
-use tp::index::{PersistentChunkIndex, UpdateResult};
-use tp::storage::{IndexConfig, IndexStorage};
-use tp::types::{ContentChunk, IndexStats, IndexedChunk, SourceLocation};
+use turboprop::config::TurboPropConfig;
+use turboprop::index::{PersistentChunkIndex, UpdateResult};
+use turboprop::storage::{IndexConfig, IndexStorage};
+use turboprop::types::{ContentChunk, IndexStats, IndexedChunk, SourceLocation};
 
 /// Helper function to create a test file with content
 fn create_test_file(dir: &std::path::Path, name: &str, content: &str) -> PathBuf {

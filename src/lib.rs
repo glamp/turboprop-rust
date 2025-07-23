@@ -1,7 +1,189 @@
-//! TurboProp library for fast code search and indexing.
+//! # TurboProp - Fast Semantic Code Search and Indexing
 //!
-//! This library provides functionality for indexing files and searching through
-//! indexed content for fast code discovery.
+//! TurboProp is a Rust library and CLI tool that enables fast semantic search across codebases
+//! using machine learning embeddings. It indexes your code files and allows you to search for
+//! functionality using natural language queries.
+//!
+//! ## Features
+//!
+//! - **Semantic Search**: Find code by meaning, not just keywords
+//! - **Git Integration**: Automatically respects `.gitignore` and only indexes tracked files  
+//! - **Watch Mode**: Monitor file changes and automatically update the index
+//! - **File Filtering**: Filter by file type, size, and custom patterns
+//! - **Multiple Output Formats**: JSON for tools, human-readable text for reading
+//! - **Performance Optimized**: Handles codebases with 50-10,000+ files efficiently
+//! - **Configurable Models**: Use any HuggingFace sentence-transformer model
+//!
+//! ## Quick Start
+//!
+//! ### CLI Usage
+//!
+//! ```bash
+//! # Index your codebase
+//! tp index --repo . --max-filesize 2mb
+//!
+//! # Search for code
+//! tp search "jwt authentication" --repo .
+//!
+//! # Filter by file type
+//! tp search --filetype .js "error handling" --repo .
+//!
+//! # Get human-readable output
+//! tp search "database queries" --repo . --output text
+//! ```
+//!
+//! ### Library Usage
+//!
+//! The library provides both high-level convenience functions and low-level components
+//! for building custom search solutions.
+//!
+//! #### Basic Indexing and Search
+//!
+//! ```no_run
+//! use turboprop::{config::TurboPropConfig, build_persistent_index, search_with_config};
+//! use std::path::Path;
+//!
+//! # tokio::runtime::Runtime::new().unwrap().block_on(async {
+//! // Build an index with default settings
+//! let config = TurboPropConfig::default();
+//! let index = build_persistent_index(Path::new("./src"), &config).await?;
+//!
+//! // Search the index
+//! let results = search_with_config(
+//!     "error handling patterns",
+//!     Path::new("./src"),
+//!     Some(10),  // limit results
+//!     Some(0.7)  // similarity threshold
+//! ).await?;
+//!
+//! for result in results {
+//!     println!("{}: {}", result.location_display(), result.content_preview(80));
+//! }
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # });
+//! ```
+//!
+//! #### Custom Configuration
+//!
+//! ```no_run
+//! use turboprop::{
+//!     config::TurboPropConfig,
+//!     embeddings::EmbeddingConfig,
+//!     types::FileDiscoveryConfig,
+//!     build_persistent_index
+//! };
+//! use std::path::Path;
+//!
+//! # tokio::runtime::Runtime::new().unwrap().block_on(async {
+//! // Configure embedding model
+//! let embedding_config = EmbeddingConfig::with_model("sentence-transformers/all-mpnet-base-v2")
+//!     .with_batch_size(16);
+//!
+//! // Configure file discovery
+//! let file_config = FileDiscoveryConfig::default()
+//!     .with_max_filesize(5_000_000)  // 5MB limit
+//!     .with_gitignore_respect(true)
+//!     .with_untracked(false);
+//!
+//! // Create complete configuration
+//! let config = TurboPropConfig {
+//!     embedding: embedding_config,
+//!     file_discovery: file_config,
+//!     ..Default::default()
+//! };
+//!
+//! // Build index with custom configuration
+//! let index = build_persistent_index(Path::new("./project"), &config).await?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # });
+//! ```
+//!
+//! #### Incremental Updates
+//!
+//! ```no_run
+//! use turboprop::{config::TurboPropConfig, update_persistent_index, index_exists};
+//! use std::path::Path;
+//!
+//! # tokio::runtime::Runtime::new().unwrap().block_on(async {
+//! let path = Path::new("./src");
+//! let config = TurboPropConfig::default();
+//!
+//! if index_exists(path) {
+//!     // Update existing index incrementally
+//!     let (updated_index, update_result) = update_persistent_index(path, &config).await?;
+//!     
+//!     println!("Index updated: {} files added, {} files modified, {} files removed",
+//!              update_result.added_files, 
+//!              update_result.updated_files,
+//!              update_result.removed_files);
+//! } else {
+//!     println!("No existing index found, create one first");
+//! }
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # });
+//! ```
+//!
+//! ## Architecture
+//!
+//! TurboProp uses a multi-stage pipeline for indexing:
+//!
+//! 1. **File Discovery**: Finds files to index based on git status and filters
+//! 2. **Content Processing**: Reads and preprocesses file content
+//! 3. **Chunking**: Breaks large files into smaller, searchable chunks
+//! 4. **Embedding Generation**: Creates vector embeddings using ML models
+//! 5. **Index Storage**: Stores embeddings and metadata for fast retrieval
+//!
+//! For searching, it:
+//!
+//! 1. **Query Embedding**: Converts the search query to a vector
+//! 2. **Similarity Search**: Finds the most similar code chunks using cosine similarity  
+//! 3. **Result Ranking**: Sorts results by relevance score
+//! 4. **Output Formatting**: Presents results in the requested format
+//!
+//! ## Performance Characteristics
+//!
+//! - **Indexing Speed**: ~100-500 files/second (varies by file size and hardware)
+//! - **Search Speed**: ~10-50ms per query (after model loading)
+//! - **Memory Usage**: ~50-200MB (varies with model and index size)
+//! - **Index Size**: Typically 10-30% of source code size
+//!
+//! ## Supported Models
+//!
+//! TurboProp supports any HuggingFace sentence-transformer model:
+//!
+//! - `sentence-transformers/all-MiniLM-L6-v2` (default, 384 dims, ~90MB)
+//! - `sentence-transformers/all-MiniLM-L12-v2` (384 dims, ~130MB)  
+//! - `sentence-transformers/all-mpnet-base-v2` (768 dims, ~420MB, highest quality)
+//! - `sentence-transformers/paraphrase-MiniLM-L6-v2` (384 dims, ~90MB)
+//!
+//! ## Error Handling
+//!
+//! All functions return `anyhow::Result<T>` for comprehensive error handling.
+//! Common error types include:
+//!
+//! - **I/O Errors**: File access, permission issues
+//! - **Model Errors**: Download failures, model loading issues
+//! - **Configuration Errors**: Invalid settings, malformed config files
+//! - **Index Errors**: Corrupted index, version mismatches
+//!
+//! ## Thread Safety
+//!
+//! Most operations are thread-safe and designed for concurrent use:
+//!
+//! - Index building uses multiple worker threads for parallel processing
+//! - Search operations are read-only and fully concurrent
+//! - File watching runs in a separate background thread
+//!
+//! ## Module Organization
+//!
+//! - [`cli`]: Command-line interface definitions
+//! - [`commands`]: CLI command implementations  
+//! - [`config`]: Configuration structures and loading
+//! - [`embeddings`]: ML embedding generation
+//! - [`files`]: File discovery and git integration
+//! - [`index`]: Core indexing and storage functionality
+//! - [`search`]: Search algorithms and result processing
+//! - [`types`]: Common data structures and utilities
 
 pub mod chunking;
 pub mod cli;
@@ -62,7 +244,7 @@ pub const DEFAULT_INDEX_PATH: &str = ".";
 /// Index current directory without size limit:
 /// ```
 /// use std::path::Path;
-/// use tp::index_files;
+/// use turboprop::index_files;
 ///
 /// let result = index_files(Path::new("."), None);
 /// assert!(result.is_ok());
@@ -71,7 +253,7 @@ pub const DEFAULT_INDEX_PATH: &str = ".";
 /// Index with maximum file size filter:
 /// ```
 /// use std::path::Path;
-/// use tp::index_files;
+/// use turboprop::index_files;
 ///
 /// // Index files up to 2MB in size
 /// # std::fs::create_dir_all("test_dir").unwrap();
@@ -141,7 +323,7 @@ pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
 /// Basic usage with default configuration:
 /// ```no_run
 /// use std::path::Path;
-/// use tp::{config::TurboPropConfig, index_files_with_config};
+/// use turboprop::{config::TurboPropConfig, index_files_with_config};
 ///
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
 /// let config = TurboPropConfig::default();
@@ -156,7 +338,7 @@ pub fn index_files(path: &Path, max_filesize: Option<&str>) -> Result<()> {
 /// Advanced usage with custom embedding model and batch size:
 /// ```no_run
 /// use std::path::Path;
-/// use tp::{config::TurboPropConfig, embeddings::EmbeddingConfig, index_files_with_config};
+/// use turboprop::{config::TurboPropConfig, embeddings::EmbeddingConfig, index_files_with_config};
 ///
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
 /// let embedding_config = EmbeddingConfig::with_model("sentence-transformers/all-MiniLM-L12-v2")
@@ -270,7 +452,7 @@ pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> R
 ///
 /// Simple text search:
 /// ```
-/// use tp::search_files;
+/// use turboprop::search_files;
 ///
 /// let result = search_files("function main");
 /// assert!(result.is_ok());
@@ -278,7 +460,7 @@ pub async fn index_files_with_config(path: &Path, config: &TurboPropConfig) -> R
 ///
 /// Search for specific patterns or keywords:
 /// ```
-/// use tp::search_files;
+/// use turboprop::search_files;
 ///
 /// // Search for function definitions
 /// let result = search_files("fn calculate_total");
@@ -318,7 +500,7 @@ pub fn search_files(query: &str) -> Result<()> {
 /// Basic search with default parameters:
 /// ```no_run
 /// use std::path::Path;
-/// use tp::search_with_config;
+/// use turboprop::search_with_config;
 ///
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
 /// let results = search_with_config("jwt authentication", Path::new("."), None, None).await;
@@ -336,7 +518,7 @@ pub fn search_files(query: &str) -> Result<()> {
 /// Search with custom limit and threshold:
 /// ```no_run
 /// use std::path::Path;
-/// use tp::search_with_config;
+/// use turboprop::search_with_config;
 ///
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
 /// let results = search_with_config(
@@ -391,7 +573,7 @@ pub async fn search_with_config(
 /// Build an index with default configuration:
 /// ```no_run
 /// use std::path::Path;
-/// use tp::{config::TurboPropConfig, build_persistent_index};
+/// use turboprop::{config::TurboPropConfig, build_persistent_index};
 ///
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
 /// let config = TurboPropConfig::default();
@@ -424,7 +606,7 @@ pub async fn build_persistent_index(
 /// Load an existing index:
 /// ```no_run
 /// use std::path::Path;
-/// use tp::load_persistent_index;
+/// use turboprop::load_persistent_index;
 ///
 /// let result = load_persistent_index(Path::new("./src"));
 /// if let Ok(index) = result {
@@ -449,7 +631,7 @@ pub fn load_persistent_index(path: &Path) -> Result<PersistentChunkIndex> {
 ///
 /// ```no_run
 /// use std::path::Path;
-/// use tp::index_exists;
+/// use turboprop::index_exists;
 ///
 /// if index_exists(Path::new("./src")) {
 ///     println!("Index found, can load it");
@@ -482,7 +664,7 @@ pub fn index_exists(path: &Path) -> bool {
 /// Update an existing index:
 /// ```no_run
 /// use std::path::Path;
-/// use tp::{config::TurboPropConfig, update_persistent_index};
+/// use turboprop::{config::TurboPropConfig, update_persistent_index};
 ///
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
 /// let config = TurboPropConfig::default();

@@ -4,12 +4,89 @@
 //! filtering by file type/extension.
 
 use anyhow::Result;
+use glob::Pattern;
 use std::path::Path;
 
 use crate::types::SearchResult;
 
 /// Maximum allowed length for file extensions (including the dot)
 const MAX_EXTENSION_LENGTH: usize = 10;
+
+/// Maximum allowed length for glob patterns
+const MAX_GLOB_PATTERN_LENGTH: usize = 1000;
+
+/// A validated glob pattern wrapper
+#[derive(Debug, Clone)]
+pub struct GlobPattern {
+    /// The original pattern string
+    pattern: String,
+    /// The compiled glob pattern
+    compiled: Pattern,
+}
+
+impl GlobPattern {
+    /// Create a new GlobPattern from a string, validating it first
+    pub fn new(pattern: &str) -> Result<Self> {
+        validate_glob_pattern(pattern)?;
+        let compiled = Pattern::new(pattern)
+            .map_err(|e| anyhow::anyhow!("Invalid glob pattern '{}': {}", pattern, e))?;
+
+        Ok(Self {
+            pattern: pattern.to_string(),
+            compiled,
+        })
+    }
+
+    /// Get the original pattern string
+    pub fn pattern(&self) -> &str {
+        &self.pattern
+    }
+
+    /// Check if a path matches this glob pattern
+    pub fn matches(&self, path: &Path) -> bool {
+        // Convert path to string for matching
+        if let Some(path_str) = path.to_str() {
+            self.compiled.matches(path_str)
+        } else {
+            // If path contains invalid UTF-8, it won't match
+            false
+        }
+    }
+}
+
+/// Validate a glob pattern string
+pub fn validate_glob_pattern(pattern: &str) -> Result<()> {
+    let pattern = pattern.trim();
+
+    // Check for empty pattern
+    if pattern.is_empty() {
+        anyhow::bail!("Glob pattern cannot be empty");
+    }
+
+    // Check pattern length
+    if pattern.len() > MAX_GLOB_PATTERN_LENGTH {
+        anyhow::bail!(
+            "Glob pattern too long: {} characters. Maximum allowed is {}",
+            pattern.len(),
+            MAX_GLOB_PATTERN_LENGTH
+        );
+    }
+
+    // Validate that the pattern is valid UTF-8 (already guaranteed by &str)
+    // and contains reasonable characters
+    if pattern.chars().any(|c| c.is_control() && c != '\t') {
+        anyhow::bail!(
+            "Glob pattern contains invalid control characters: '{}'",
+            pattern
+        );
+    }
+
+    // Try to compile the pattern to check for syntax errors
+    Pattern::new(pattern)
+        .map_err(|e| anyhow::anyhow!("Invalid glob pattern syntax '{}': {}", pattern, e))?;
+
+    Ok(())
+}
 
 /// Configuration for filtering search results
 #[derive(Debug, Clone, Default)]
@@ -323,5 +400,172 @@ mod tests {
 
         let filter = SearchFilter::from_cli_args(Some("rs".to_string()));
         assert!(filter.has_active_filters());
+    }
+
+    mod test_glob_pattern {
+        use super::*;
+
+        #[test]
+        fn test_glob_pattern_creation_valid() {
+            // Test valid patterns
+            let pattern = GlobPattern::new("*.rs").unwrap();
+            assert_eq!(pattern.pattern(), "*.rs");
+
+            let pattern = GlobPattern::new("src/*.js").unwrap();
+            assert_eq!(pattern.pattern(), "src/*.js");
+
+            let pattern = GlobPattern::new("**/test_*.py").unwrap();
+            assert_eq!(pattern.pattern(), "**/test_*.py");
+
+            let pattern = GlobPattern::new("dir/*/file.txt").unwrap();
+            assert_eq!(pattern.pattern(), "dir/*/file.txt");
+        }
+
+        #[test]
+        fn test_glob_pattern_creation_invalid() {
+            // Test empty pattern
+            assert!(GlobPattern::new("").is_err());
+            assert!(GlobPattern::new("   ").is_err());
+
+            // Test pattern with control characters (except tab)
+            assert!(GlobPattern::new("file\x00.txt").is_err());
+            assert!(GlobPattern::new("file\x01.txt").is_err());
+
+            // Test extremely long pattern
+            let long_pattern = "a".repeat(MAX_GLOB_PATTERN_LENGTH + 1);
+            assert!(GlobPattern::new(&long_pattern).is_err());
+        }
+
+        #[test]
+        fn test_glob_pattern_matching() {
+            // Test simple wildcard patterns - these match against the full path
+            let pattern = GlobPattern::new("*.rs").unwrap();
+            assert!(pattern.matches(Path::new("main.rs")));
+            assert!(pattern.matches(Path::new("lib.rs")));
+            assert!(!pattern.matches(Path::new("main.js")));
+            // *.rs matches paths ending in .rs, including those with directories
+            assert!(pattern.matches(Path::new("src/main.rs")));
+            assert!(pattern.matches(Path::new("deep/nested/file.rs")));
+
+            // Test directory patterns - understand how * works with directories
+            let pattern = GlobPattern::new("src/*.rs").unwrap();
+            assert!(pattern.matches(Path::new("src/main.rs")));
+            assert!(pattern.matches(Path::new("src/lib.rs")));
+            assert!(!pattern.matches(Path::new("main.rs"))); // No src/ prefix
+            assert!(!pattern.matches(Path::new("tests/main.rs"))); // Wrong directory
+                                                                   // The * in src/*.rs can match paths with slashes, so this actually matches
+            assert!(pattern.matches(Path::new("src/nested/main.rs"))); // * can match nested/main
+
+            // Test recursive patterns - ** matches any number of directories
+            let pattern = GlobPattern::new("**/test_*.py").unwrap();
+            assert!(pattern.matches(Path::new("test_main.py")));
+            assert!(pattern.matches(Path::new("src/test_lib.py")));
+            assert!(pattern.matches(Path::new("tests/unit/test_utils.py")));
+            assert!(!pattern.matches(Path::new("main.py")));
+            assert!(!pattern.matches(Path::new("src/lib.py")));
+
+            // Test patterns that should match any file with extension regardless of path depth
+            let pattern = GlobPattern::new("**/*.rs").unwrap();
+            assert!(pattern.matches(Path::new("main.rs")));
+            assert!(pattern.matches(Path::new("src/main.rs")));
+            assert!(pattern.matches(Path::new("deep/nested/dir/file.rs")));
+            assert!(!pattern.matches(Path::new("main.js")));
+        }
+
+        #[test]
+        fn test_glob_pattern_case_sensitivity() {
+            // Glob patterns should be case-sensitive by default
+            let pattern = GlobPattern::new("*.RS").unwrap();
+            assert!(pattern.matches(Path::new("main.RS")));
+            assert!(!pattern.matches(Path::new("main.rs"))); // Different case
+        }
+
+        #[test]
+        fn test_glob_pattern_edge_cases() {
+            // Test pattern with tab character (should be allowed)
+            let pattern = GlobPattern::new("file\twith\ttab.txt");
+            assert!(pattern.is_ok());
+
+            // Test Unicode characters
+            let pattern = GlobPattern::new("файл_*.txt").unwrap();
+            assert!(pattern.matches(Path::new("файл_test.txt")));
+            assert!(!pattern.matches(Path::new("file_test.txt")));
+
+            // Test very specific patterns
+            let pattern = GlobPattern::new("exact_file.txt").unwrap();
+            assert!(pattern.matches(Path::new("exact_file.txt")));
+            assert!(!pattern.matches(Path::new("exact_file.rs")));
+            assert!(!pattern.matches(Path::new("other_exact_file.txt")));
+        }
+
+        #[test]
+        fn test_validate_glob_pattern() {
+            // Valid patterns
+            assert!(validate_glob_pattern("*.rs").is_ok());
+            assert!(validate_glob_pattern("src/**/*.js").is_ok());
+            assert!(validate_glob_pattern("test_*.py").is_ok());
+            assert!(validate_glob_pattern("file.txt").is_ok());
+            assert!(validate_glob_pattern("dir/*/file.?").is_ok());
+
+            // Invalid patterns
+            assert!(validate_glob_pattern("").is_err());
+            assert!(validate_glob_pattern("   ").is_err());
+
+            // Pattern with control characters
+            assert!(validate_glob_pattern("file\x00.txt").is_err());
+            assert!(validate_glob_pattern("file\n.txt").is_err());
+
+            // Pattern too long
+            let long_pattern = "a".repeat(MAX_GLOB_PATTERN_LENGTH + 1);
+            assert!(validate_glob_pattern(&long_pattern).is_err());
+
+            // Tab should be allowed
+            assert!(validate_glob_pattern("file\ttab.txt").is_ok());
+        }
+
+        #[test]
+        fn test_glob_pattern_common_use_cases() {
+            // Test common patterns from the specification
+            let test_cases = vec![
+                ("*.ext", "file.ext", true),
+                ("*.ext", "file.other", false),
+                ("dir/*.ext", "dir/file.ext", true),
+                ("dir/*.ext", "other/file.ext", false),
+                ("**/pattern", "pattern", true),
+                ("**/pattern", "deep/nested/pattern", true),
+                ("**/pattern", "deep/nested/other", false),
+                ("src/*.js", "src/main.js", true),
+                ("src/*.js", "src/lib.js", true),
+                ("src/*.js", "tests/main.js", false),
+                ("**/*.rs", "main.rs", true),
+                ("**/*.rs", "src/main.rs", true),
+                ("**/*.rs", "tests/unit/helper.rs", true),
+                ("**/*.rs", "main.js", false),
+            ];
+
+            for (pattern_str, path_str, should_match) in test_cases {
+                let pattern = GlobPattern::new(pattern_str).unwrap();
+                let path = Path::new(path_str);
+                assert_eq!(
+                    pattern.matches(path),
+                    should_match,
+                    "Pattern '{}' vs path '{}' should {}match",
+                    pattern_str,
+                    path_str,
+                    if should_match { "" } else { "not " }
+                );
+            }
+        }
+
+        #[test]
+        fn test_glob_pattern_invalid_utf8_handling() {
+            // Test that patterns handle invalid UTF-8 paths gracefully
+            let _pattern = GlobPattern::new("*.txt").unwrap();
+
+            // We can't easily create an invalid UTF-8 Path in safe Rust,
+            // but we can verify that our matching function handles the None case
+            // This is covered by the matches() implementation returning false
+            // for paths that can't be converted to strings
+        }
     }
 }

@@ -56,8 +56,8 @@ impl Default for CompressionConfig {
             enable_delta_compression: true,
             clustering_threshold: 0.9,
             kmeans_iterations: 10, // Default to 10 iterations
-            subvector_size: 8, // Split into 8-dimensional subvectors
-            codebook_size: 256, // 256 centroids per subspace
+            subvector_size: 8,     // Split into 8-dimensional subvectors
+            codebook_size: 256,    // 256 centroids per subspace
         }
     }
 }

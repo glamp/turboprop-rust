@@ -12,7 +12,7 @@ cargo build
 # Build for production (optimized)
 cargo build --release
 
-# FAST UNIT TESTS (recommended for daily development - ~8-10 seconds)
+# FAST UNIT TESTS (default - recommended for daily development - ~8-10 seconds)
 cargo test
 
 # Run tests with detailed timing and better output (recommended)
@@ -174,7 +174,7 @@ These tests validate end-to-end functionality and are run when comprehensive tes
 
 #### **When to Use Each Tier:**
 
-**Fast Unit Tests** (`cargo test`):
+**Fast Unit Tests** (`cargo test` - default):
 - ✅ Daily development workflow
 - ✅ Pre-commit hooks
 - ✅ Continuous Integration (PR builds)

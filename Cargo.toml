@@ -20,6 +20,7 @@ path = "src/main.rs"
 name = "integration"
 path = "tests/integration/mod.rs"
 harness = true
+test = false
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
@@ -35,7 +36,14 @@ walkdir = "2.4"
 encoding_rs = "0.8"
 unicode-segmentation = "1.10"
 fastembed = "5.0"
-reqwest = { version = "0.11", features = ["json"] }
+# Candle framework for ML model loading (supports GGUF)
+candle-core = "0.9"
+candle-transformers = "0.8" 
+candle-nn = "0.9"
+# For direct Hugging Face model access
+hf-hub = "0.4"
+tokenizers = "0.21"
+reqwest = { version = "0.12", features = ["json", "stream"] }
 futures = "0.3"
 dirs = "5.0"
 bincode = "1.3"

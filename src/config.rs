@@ -119,6 +119,10 @@ pub struct YamlConfig {
 /// embedding:
 ///   model: "sentence-transformers/all-MiniLM-L6-v2"
 ///   batch_size: 32
+///   gguf:
+///     device: "cpu"
+///     memory_limit: "2GB"
+///     context_length: 512
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlEmbeddingConfig {
@@ -126,6 +130,39 @@ pub struct YamlEmbeddingConfig {
     pub model: Option<ModelName>,
     /// Batch size for embedding generation (default: 32)
     pub batch_size: Option<usize>,
+    /// GGUF-specific configuration options
+    pub gguf: Option<YamlGGUFConfig>,
+}
+
+/// Configuration for GGUF model behavior in YAML format
+///
+/// This struct maps to the `embedding.gguf` section in .turboprop.yml files.
+/// Controls GGUF model loading and inference settings.
+///
+/// # Example
+/// ```yaml
+/// embedding:
+///   gguf:
+///     device: "cpu"  # or "gpu", "cuda", "metal"
+///     memory_limit: "2GB"
+///     context_length: 512
+///     enable_batching: true
+///     gpu_layers: 0  # Number of layers to offload to GPU
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlGGUFConfig {
+    /// Device to use for GGUF model inference ("cpu", "gpu", "cuda", "metal")
+    pub device: Option<String>,
+    /// Maximum memory limit for model loading (e.g., "2GB", "4096MB")
+    pub memory_limit: Option<String>,
+    /// Maximum context length for text processing (default: 512)
+    pub context_length: Option<usize>,
+    /// Whether to enable batch processing for better performance (default: true)
+    pub enable_batching: Option<bool>,
+    /// Number of transformer layers to offload to GPU (0 = CPU only, default: 0)
+    pub gpu_layers: Option<u32>,
+    /// Number of threads to use for CPU inference (default: auto-detect)
+    pub cpu_threads: Option<usize>,
 }
 
 /// Configuration for indexing behavior in YAML format

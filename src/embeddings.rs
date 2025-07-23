@@ -253,7 +253,7 @@ impl EmbeddingGenerator {
                 info!("GGUF model available at: {}", model_path.display());
                 
                 // Load the GGUF model using our backend
-                let gguf_model = GGUFEmbeddingModel::load_from_path(&model_path)?;
+                let gguf_model = GGUFEmbeddingModel::load_from_path(&model_path, model_info)?;
                 
                 EmbeddingBackendType::GGUF(gguf_model)
             },

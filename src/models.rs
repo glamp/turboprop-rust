@@ -375,7 +375,10 @@ impl ModelManager {
                 ).into());
             }
             
-            info!("GGUF model download completed: {} bytes", metadata.len());
+            // Validate the GGUF file format
+            crate::backends::gguf::validate_gguf_file(&model_file_path)?;
+            
+            info!("GGUF model download completed and validated: {} bytes", metadata.len());
             Ok(model_file_path)
         } else {
             Err(crate::error::TurboPropError::gguf_download(
@@ -481,9 +484,15 @@ mod tests {
     
     // Mock HTTP server for testing downloads
     async fn setup_mock_model_file(temp_dir: &TempDir) -> (String, PathBuf) {
-        let model_content = b"mock GGUF model file content";
         let model_file = temp_dir.path().join("test_model.gguf");
-        tokio::fs::write(&model_file, model_content).await.unwrap();
+        
+        // Create a valid GGUF file with proper header
+        let mut model_content = Vec::new();
+        model_content.extend_from_slice(b"GGUF");       // Magic bytes
+        model_content.extend_from_slice(&[2, 0, 0, 0]); // Version 2 (little-endian)
+        model_content.extend_from_slice(&[0, 0, 0, 0]); // Additional bytes to meet minimum size
+        
+        tokio::fs::write(&model_file, &model_content).await.unwrap();
         
         // For actual tests, we would use a real HTTP server, but for unit tests
         // we'll create a file:// URL
@@ -716,9 +725,16 @@ mod tests {
         assert!(downloaded_path.exists());
         assert_eq!(downloaded_path.file_name().unwrap(), "model.gguf");
         
-        // Verify file content
+        // Verify file content - should be a valid GGUF file with proper header
         let content = tokio::fs::read(&downloaded_path).await.unwrap();
-        assert_eq!(content, b"mock GGUF model file content");
+        let expected_content = {
+            let mut expected = Vec::new();
+            expected.extend_from_slice(b"GGUF");       // Magic bytes
+            expected.extend_from_slice(&[2, 0, 0, 0]); // Version 2 (little-endian)
+            expected.extend_from_slice(&[0, 0, 0, 0]); // Additional bytes
+            expected
+        };
+        assert_eq!(content, expected_content);
     }
 
     #[tokio::test]

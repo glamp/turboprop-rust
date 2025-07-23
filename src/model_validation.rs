@@ -30,7 +30,8 @@ use crate::types::ModelBackend;
 /// # });
 /// ```
 pub async fn validate_model_selection(model_name: &str) -> Result<ModelInfo> {
-    let available_models = ModelManager::get_available_models();
+    let model_manager = ModelManager::default();
+    let available_models = model_manager.get_available_models();
 
     let model_info = available_models
         .iter()

@@ -66,7 +66,8 @@ pub fn validate_embedding_config(
     validation_config: &ValidationConfig,
 ) -> TurboPropResult<()> {
     // Validate model name
-    let available_models = ModelManager::get_available_models();
+    let model_manager = ModelManager::default();
+    let available_models = model_manager.get_available_models();
     if !available_models
         .iter()
         .any(|m| m.name.as_str() == config.model_name)

@@ -86,7 +86,7 @@ fn test_embedding_options_default() {
 #[test]
 fn test_model_manager_cache_operations() {
     let temp_dir = TempDir::new().unwrap();
-    let manager = ModelManager::new(temp_dir.path());
+    let manager = ModelManager::new_with_defaults(temp_dir.path());
 
     // Test cache initialization
     assert!(manager.init_cache().is_ok());
@@ -117,7 +117,8 @@ fn test_model_manager_cache_operations() {
 /// Test model information (no downloads required)
 #[test]
 fn test_model_information() {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
 
     assert!(!models.is_empty());
 
@@ -182,7 +183,8 @@ fn test_embedding_config_validation() {
 /// Test different Qwen3 model backend selection logic
 #[test]
 fn test_qwen3_model_backend_selection() {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
 
     // Check if Qwen3 model is available in the model list
     let qwen3_model = models.iter().find(|m| m.name.as_str().contains("Qwen3"));

@@ -422,7 +422,7 @@ fn test_gguf_model_download_and_load() -> Result<()> {
         "https://huggingface.co/nomic-ai/nomic-embed-code-GGUF/resolve/main/nomic-embed-code.Q5_K_S.gguf".to_string(),
     );
     
-    let manager = turboprop::models::ModelManager::new(temp_dir.path());
+    let manager = turboprop::models::ModelManager::new_with_defaults(temp_dir.path());
     let model_path = tokio::runtime::Runtime::new()?.block_on(async {
         manager.download_gguf_model(&model_info).await
     })?;

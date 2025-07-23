@@ -83,7 +83,8 @@ fn test_format_size_utility() {
 
 #[test]
 fn test_model_manager_available_models() {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
     assert!(!models.is_empty());
 
     // Check that we have the expected models
@@ -96,7 +97,7 @@ fn test_model_manager_available_models() {
 #[test]
 fn test_model_cache_management() {
     let temp_dir = TempDir::new().unwrap();
-    let manager = ModelManager::new(temp_dir.path());
+    let manager = ModelManager::new_with_defaults(temp_dir.path());
 
     // Test cache initialization
     assert!(manager.init_cache().is_ok());

@@ -14,7 +14,8 @@ use turboprop::types::{ModelBackend, ModelType};
 /// Test that Qwen3 model is available in the available models list
 #[test]
 fn test_qwen3_model_availability() {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
 
     // Check that Qwen3-Embedding-0.6B is in the list
     let qwen3_model = models
@@ -109,7 +110,8 @@ fn test_qwen3_embedding_config() {
 /// Test model validation for Qwen3 models
 #[test]
 fn test_qwen3_model_validation() {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
     let qwen3_model = models
         .iter()
         .find(|m| m.name == ModelName::from("Qwen/Qwen3-Embedding-0.6B"))
@@ -127,7 +129,8 @@ fn test_qwen3_model_validation() {
 /// Test that embedding backend selection works for Qwen3
 #[test]
 fn test_qwen3_backend_selection() {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
     let qwen3_model = models
         .iter()
         .find(|m| m.name == ModelName::from("Qwen/Qwen3-Embedding-0.6B"))
@@ -147,7 +150,7 @@ fn test_qwen3_backend_selection() {
 #[test]
 fn test_model_manager_qwen3_integration() {
     let temp_dir = TempDir::new().unwrap();
-    let manager = ModelManager::new(temp_dir.path());
+    let manager = ModelManager::new_with_defaults(temp_dir.path());
 
     // Test cache initialization
     let init_result = manager.init_cache();
@@ -158,7 +161,7 @@ fn test_model_manager_qwen3_integration() {
     assert!(
         model_path
             .to_string_lossy()
-            .contains("Qwen_Qwen3-Embedding-0.6B"),
+            .contains("Qwen_Qwen3-Embedding-0_6B"),
         "Model path should contain escaped model name"
     );
 

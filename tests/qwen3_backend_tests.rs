@@ -427,7 +427,8 @@ async fn test_qwen3_multilingual_inference() -> Result<()> {
 #[test]
 fn test_model_backend_selection_logic() {
     // Test that Qwen3 models use the correct backend
-    let models = turboprop::models::ModelManager::get_available_models();
+    let manager = turboprop::models::ModelManager::new_with_defaults(std::env::temp_dir());
+    let models = manager.get_available_models();
     
     // Find Qwen3 model in available models
     let qwen3_model = models.iter().find(|m| m.name.as_str().contains("Qwen3"));

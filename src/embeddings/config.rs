@@ -47,7 +47,8 @@ impl EmbeddingConfig {
         let model_name = model_name.into();
 
         // Look up model dimensions from available models
-        let embedding_dimensions = ModelManager::get_available_models()
+        let model_manager = ModelManager::default();
+        let embedding_dimensions = model_manager.get_available_models()
             .iter()
             .find(|model| model.name.as_str() == model_name)
             .map(|model| model.dimensions)

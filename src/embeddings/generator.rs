@@ -107,7 +107,8 @@ impl EmbeddingGenerator {
     /// # use turboprop::models::{ModelManager, ModelInfo};
     /// # use std::path::Path;
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let models = ModelManager::get_available_models();
+    /// let manager = ModelManager::new_with_defaults(std::env::temp_dir());
+    /// let models = manager.get_available_models();
     /// let gguf_model = models.iter().find(|m| m.name.as_str().contains("gguf")).unwrap();
     ///
     /// let generator = EmbeddingGenerator::new_with_model(gguf_model, Path::new(".cache")).await?;
@@ -164,7 +165,7 @@ impl EmbeddingGenerator {
                 info!("Using GGUF/Candle backend for model: {}", model_info.name);
 
                 // Initialize model manager and download GGUF model if needed
-                let model_manager = ModelManager::new(&config.cache_dir);
+                let model_manager = ModelManager::new_with_defaults(&config.cache_dir);
                 model_manager.init_cache()?;
 
                 let model_path = model_manager.download_gguf_model(model_info).await?;

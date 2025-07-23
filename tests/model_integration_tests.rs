@@ -16,7 +16,7 @@ use turboprop::types::ModelName;
 #[tokio::test]
 async fn test_model_manager_caching() -> Result<()> {
     let temp_dir = TempDir::new()?;
-    let manager = ModelManager::new(temp_dir.path());
+    let manager = ModelManager::new_with_defaults(temp_dir.path());
     
     // Initialize cache directory
     manager.init_cache()?;
@@ -30,7 +30,7 @@ async fn test_model_manager_caching() -> Result<()> {
     assert!(!manager.is_model_cached(&model_name_obj));
     
     // Verify model exists in available models
-    let models = ModelManager::get_available_models();
+    let models = manager.get_available_models();
     let model_info = models.iter()
         .find(|m| m.name == model_name_obj)
         .expect("Default model should be available");
@@ -80,7 +80,8 @@ async fn test_model_switching() -> Result<()> {
         "function calculateTotal(items) { return items.reduce((sum, item) => sum + item.price, 0); }".to_string(),
     ];
     
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
     let mut embeddings_by_model = HashMap::new();
     
     // Test with first two available models (using mock generators for speed)
@@ -156,7 +157,7 @@ async fn test_embedding_options() -> Result<()> {
 #[test]
 fn test_model_cache_stats() -> Result<()> {
     let temp_dir = TempDir::new()?;
-    let manager = ModelManager::new(temp_dir.path());
+    let manager = ModelManager::new_with_defaults(temp_dir.path());
     
     // Initialize cache
     manager.init_cache()?;
@@ -191,7 +192,8 @@ fn test_model_cache_stats() -> Result<()> {
 /// Test model validation across different model types
 #[test]
 fn test_model_validation() -> Result<()> {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
     
     // Test that all available models pass validation
     for model in &models {
@@ -233,7 +235,8 @@ fn test_model_validation() -> Result<()> {
 /// Test embedding configuration with different models
 #[test]
 fn test_embedding_config_models() {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
     
     for model in models.iter().take(3) { // Test first 3 models
         let config = EmbeddingConfig::with_model(model.name.as_str())
@@ -293,7 +296,8 @@ async fn test_batch_processing() -> Result<()> {
 /// Test model-specific features
 #[test]
 fn test_model_specific_features() {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
     
     // Test GGUF model features
     if let Some(gguf_model) = models.iter().find(|m| matches!(m.model_type, turboprop::types::ModelType::GGUF)) {

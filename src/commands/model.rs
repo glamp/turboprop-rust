@@ -22,8 +22,8 @@ pub async fn handle_model_command(cmd: ModelCommands) -> Result<()> {
 
 /// List all available embedding models
 async fn list_models() -> Result<()> {
-    let models = ModelManager::get_available_models();
     let manager = ModelManager::default();
+    let models = manager.get_available_models();
 
     println!("Available Embedding Models:\n");
 
@@ -59,13 +59,12 @@ async fn list_models() -> Result<()> {
 
 /// Download a specific model
 async fn download_model(model_name: &str) -> Result<()> {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
     let model_info = models
         .iter()
         .find(|m| m.name.as_str() == model_name)
         .ok_or_else(|| anyhow::anyhow!("Model '{}' not found", model_name))?;
-
-    let manager = ModelManager::default();
 
     match model_info.backend {
         ModelBackend::FastEmbed => {
@@ -106,7 +105,8 @@ async fn download_model(model_name: &str) -> Result<()> {
 
 /// Show detailed information about a specific model
 async fn show_model_info(model_name: &str) -> Result<()> {
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
     let model_info = models
         .iter()
         .find(|m| m.name.as_str() == model_name)
@@ -235,7 +235,7 @@ mod tests {
     #[tokio::test]
     async fn test_clear_cache_success() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
         manager.init_cache().unwrap();
 
         let result = clear_model_cache(None).await;

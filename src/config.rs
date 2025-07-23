@@ -258,6 +258,10 @@ pub struct ModelConfig {
     pub cache_dir: Option<PathBuf>,
     /// Custom download URL override
     pub download_url: Option<String>,
+    /// Number of dimensions in the model's embedding vectors
+    pub dimensions: Option<usize>,
+    /// Size of the model in bytes
+    pub size_bytes: Option<u64>,
 }
 
 /// Main configuration structure for TurboProp
@@ -580,6 +584,46 @@ impl TurboPropConfig {
         }
 
         self
+    }
+
+    /// Get model dimensions with defaults for known models
+    pub fn get_model_dimensions(&self, model_name: &str) -> usize {
+        // Check for custom configuration first
+        if let Some(models) = &self.models {
+            if let Some(model_config) = models.get(model_name) {
+                if let Some(dimensions) = model_config.dimensions {
+                    return dimensions;
+                }
+            }
+        }
+
+        // Default dimensions for known models
+        match model_name {
+            "nomic-embed-code.Q5_K_S.gguf" => 768,
+            "Qwen/Qwen3-Embedding-0.6B" => 1024,
+            "sentence-transformers/all-MiniLM-L6-v2" => 384,
+            _ => 384, // Default to MiniLM dimensions
+        }
+    }
+
+    /// Get model size in bytes with defaults for known models
+    pub fn get_model_size_bytes(&self, model_name: &str) -> u64 {
+        // Check for custom configuration first
+        if let Some(models) = &self.models {
+            if let Some(model_config) = models.get(model_name) {
+                if let Some(size_bytes) = model_config.size_bytes {
+                    return size_bytes;
+                }
+            }
+        }
+
+        // Default sizes for known models
+        match model_name {
+            "nomic-embed-code.Q5_K_S.gguf" => 2_500_000_000, // ~2.5GB
+            "Qwen/Qwen3-Embedding-0.6B" => 600_000_000, // ~600MB
+            "sentence-transformers/all-MiniLM-L6-v2" => 44_000_000, // ~44MB
+            _ => 44_000_000, // Default to MiniLM size
+        }
     }
 
     /// Validate the configuration and return any issues

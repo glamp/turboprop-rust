@@ -38,7 +38,7 @@ async fn test_invalid_model_selection() -> Result<()> {
 #[tokio::test]
 async fn test_corrupted_cache_handling() -> Result<()> {
     let temp_dir = TempDir::new()?;
-    let manager = ModelManager::new(temp_dir.path());
+    let manager = ModelManager::new_with_defaults(temp_dir.path());
     
     let model_name = ModelName::from("sentence-transformers/all-MiniLM-L6-v2");
     let fake_model_path = manager.get_model_path(&model_name);
@@ -372,7 +372,7 @@ fn test_model_info_validation_errors() {
 #[tokio::test]
 async fn test_network_failure_handling() -> Result<()> {
     let temp_dir = TempDir::new()?;
-    let manager = ModelManager::new(temp_dir.path());
+    let manager = ModelManager::new_with_defaults(temp_dir.path());
     
     // Test GGUF model download with invalid URL
     let invalid_url_model = ModelInfo::gguf_model(
@@ -422,14 +422,14 @@ async fn test_embedding_generator_errors() -> Result<()> {
 #[tokio::test]
 async fn test_concurrent_cache_access() -> Result<()> {
     let temp_dir = TempDir::new()?;
-    let manager = ModelManager::new(temp_dir.path());
+    let manager = ModelManager::new_with_defaults(temp_dir.path());
     manager.init_cache()?;
     
     // Spawn multiple tasks that access cache simultaneously
     let mut handles = Vec::new();
     
     for i in 0..5 {
-        let manager_clone = ModelManager::new(temp_dir.path());
+        let manager_clone = ModelManager::new_with_defaults(temp_dir.path());
         let handle = tokio::spawn(async move {
             let model_name = ModelName::from(format!("test/model-{}", i));
             let _is_cached = manager_clone.is_model_cached(&model_name);
@@ -451,7 +451,7 @@ async fn test_concurrent_cache_access() -> Result<()> {
 #[test]
 fn test_filesystem_error_handling() {
     // Test cache stats on inaccessible directory
-    let manager = ModelManager::new("/root/inaccessible"); // Typically not accessible
+    let manager = ModelManager::new_with_defaults("/root/inaccessible"); // Typically not accessible
     
     // Should handle permission errors gracefully
     let _stats_result = manager.get_cache_stats();

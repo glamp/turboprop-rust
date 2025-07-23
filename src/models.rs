@@ -9,12 +9,8 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
 use crate::types::{ModelBackend, ModelName, ModelType};
+use crate::config::TurboPropConfig;
 
-// Model dimension and size constants
-pub const NOMIC_EMBED_DIMENSIONS: usize = 768;
-pub const NOMIC_EMBED_SIZE_BYTES: u64 = 2_500_000_000; // ~2.5GB
-pub const QWEN_EMBED_DIMENSIONS: usize = 1024;
-pub const QWEN_EMBED_SIZE_BYTES: u64 = 600_000_000; // ~600MB
 
 /// Configuration for creating ModelInfo instances
 #[derive(Debug, Clone)]
@@ -165,19 +161,30 @@ impl ModelInfo {
 /// Manager for handling embedding model lifecycle
 pub struct ModelManager {
     cache_dir: PathBuf,
+    config: TurboPropConfig,
 }
 
 impl Default for ModelManager {
     fn default() -> Self {
-        Self::new(".turboprop/models")
+        Self::new(".turboprop/models", TurboPropConfig::default())
     }
 }
 
 impl ModelManager {
-    /// Create a new model manager with the specified cache directory
-    pub fn new(cache_dir: impl Into<PathBuf>) -> Self {
+    /// Create a new model manager with the specified cache directory and configuration
+    pub fn new(cache_dir: impl Into<PathBuf>, config: TurboPropConfig) -> Self {
         Self {
             cache_dir: cache_dir.into(),
+            config,
+        }
+    }
+
+    /// Create a new model manager with the specified cache directory and default configuration
+    /// This is a convenience method for cases where only the cache directory is known
+    pub fn new_with_defaults(cache_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            cache_dir: cache_dir.into(),
+            config: TurboPropConfig::default(),
         }
     }
 
@@ -204,12 +211,15 @@ impl ModelManager {
     /// Get the local path where a model should be cached
     pub fn get_model_path(&self, model_name: &ModelName) -> PathBuf {
         // Convert model name to filesystem-safe directory name
-        let safe_name = model_name.as_str().replace(['/', ':'], "_");
+        // Replace all potentially problematic characters with underscores
+        let safe_name = model_name.as_str()
+            .replace(['/', ':', '<', '>', '"', '|', '?', '*'], "_")
+            .replace(".", "_");
         self.cache_dir.join(safe_name)
     }
 
     /// Get information about available models
-    pub fn get_available_models() -> Vec<ModelInfo> {
+    pub fn get_available_models(&self) -> Vec<ModelInfo> {
         vec![
             // Existing sentence-transformer models
             ModelInfo::simple(
@@ -228,16 +238,16 @@ impl ModelManager {
             ModelInfo::gguf_model(
                 ModelName::from("nomic-embed-code.Q5_K_S.gguf"),
                 "Nomic code embedding model optimized for code search".to_string(),
-                NOMIC_EMBED_DIMENSIONS,
-                NOMIC_EMBED_SIZE_BYTES,
+                self.config.get_model_dimensions("nomic-embed-code.Q5_K_S.gguf"),
+                self.config.get_model_size_bytes("nomic-embed-code.Q5_K_S.gguf"),
                 "https://huggingface.co/nomic-ai/nomic-embed-code-GGUF/resolve/main/nomic-embed-code.Q5_K_S.gguf".to_string(),
             ),
             // New Qwen model
             ModelInfo::huggingface_model(
                 ModelName::from("Qwen/Qwen3-Embedding-0.6B"),
                 "Qwen3 embedding model for multilingual and code retrieval".to_string(),
-                QWEN_EMBED_DIMENSIONS,
-                QWEN_EMBED_SIZE_BYTES,
+                self.config.get_model_dimensions("Qwen/Qwen3-Embedding-0.6B"),
+                self.config.get_model_size_bytes("Qwen/Qwen3-Embedding-0.6B"),
             ),
         ]
     }
@@ -307,17 +317,15 @@ impl ModelManager {
             
             if path.is_dir() {
                 // For FastEmbed model directories, try extra cleanup steps
-                if path.file_name().map_or(false, |name| name.to_string_lossy().contains("models--")) {
+                if path.file_name().is_some_and(|name| name.to_string_lossy().contains("models--")) {
                     self.force_remove_fastembed_cache(&path)?;
                 } else if let Err(e) = std::fs::remove_dir_all(&path) {
                     warn!("Failed to remove directory {:?}: {}, trying alternative method", path, e);
                     self.force_remove_directory(&path)?;
                 }
-            } else {
-                if let Err(e) = std::fs::remove_file(&path) {
-                    warn!("Failed to remove file {:?}: {}", path, e);
-                    self.force_remove_file(&path)?;
-                }
+            } else if let Err(e) = std::fs::remove_file(&path) {
+                warn!("Failed to remove file {:?}: {}", path, e);
+                self.force_remove_file(&path)?;
             }
         }
 
@@ -343,7 +351,7 @@ impl ModelManager {
                 
                 if path.is_dir() {
                     remove_locks_recursive(&path)?;
-                } else if path.extension().map_or(false, |ext| ext == "lock") {
+                } else if path.extension().is_some_and(|ext| ext == "lock") {
                     if let Err(e) = std::fs::remove_file(&path) {
                         warn!("Failed to remove lock file {:?}: {}", path, e);
                     } else {
@@ -384,7 +392,7 @@ impl ModelManager {
 
         // If command line also fails, try to clean up what we can
         warn!("Could not fully remove FastEmbed cache {:?}, attempting partial cleanup", path);
-        let _ = self.partial_cleanup_directory(path);
+        let _ = Self::partial_cleanup_directory(path);
         
         Ok(())
     }
@@ -417,14 +425,14 @@ impl ModelManager {
     }
 
     /// Partial cleanup of a directory when full removal fails
-    fn partial_cleanup_directory(&self, dir: &std::path::Path) -> Result<()> {
+    fn partial_cleanup_directory(dir: &std::path::Path) -> Result<()> {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() {
                     let _ = std::fs::remove_file(&path);
                 } else if path.is_dir() {
-                    let _ = self.partial_cleanup_directory(&path);
+                    let _ = Self::partial_cleanup_directory(&path);
                     let _ = std::fs::remove_dir(&path);
                 }
             }
@@ -777,7 +785,7 @@ mod tests {
     #[test]
     fn test_model_manager_new() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
         assert_eq!(manager.cache_dir, temp_dir.path());
     }
 
@@ -791,7 +799,7 @@ mod tests {
     fn test_init_cache() {
         let temp_dir = TempDir::new().unwrap();
         let cache_path = temp_dir.path().join("models");
-        let manager = ModelManager::new(&cache_path);
+        let manager = ModelManager::new_with_defaults(&cache_path);
 
         assert!(!cache_path.exists());
         manager.init_cache().unwrap();
@@ -801,7 +809,7 @@ mod tests {
     #[test]
     fn test_get_model_path() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
 
         let path =
             manager.get_model_path(&ModelName::from("sentence-transformers/all-MiniLM-L6-v2"));
@@ -814,14 +822,15 @@ mod tests {
     #[test]
     fn test_is_model_cached_not_exists() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
 
         assert!(!manager.is_model_cached(&ModelName::from("nonexistent-model")));
     }
 
     #[test]
     fn test_get_available_models() {
-        let models = ModelManager::get_available_models();
+        let manager = ModelManager::default();
+        let models = manager.get_available_models();
         assert!(!models.is_empty());
         assert!(models
             .iter()
@@ -849,7 +858,7 @@ mod tests {
     fn test_clear_cache_nonexistent() {
         let temp_dir = TempDir::new().unwrap();
         let cache_path = temp_dir.path().join("nonexistent");
-        let manager = ModelManager::new(&cache_path);
+        let manager = ModelManager::new_with_defaults(&cache_path);
 
         // Should not error even if cache doesn't exist
         assert!(manager.clear_cache().is_ok());
@@ -858,7 +867,7 @@ mod tests {
     #[test]
     fn test_get_cache_stats_empty() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
 
         let stats = manager.get_cache_stats().unwrap();
         assert_eq!(stats.model_count, 0);
@@ -960,7 +969,7 @@ mod tests {
     #[tokio::test]
     async fn test_download_gguf_model_no_url() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
 
         let model_info = ModelInfo::new(ModelInfoConfig {
             name: ModelName::from("test-model.gguf"),
@@ -984,7 +993,7 @@ mod tests {
     #[tokio::test]
     async fn test_download_gguf_model_success() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
         manager.init_cache().unwrap();
 
         let (mock_url, _mock_file) = setup_mock_model_file(&temp_dir).await;
@@ -1020,7 +1029,7 @@ mod tests {
     #[tokio::test]
     async fn test_download_gguf_model_already_cached() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
         manager.init_cache().unwrap();
 
         let (mock_url, _mock_file) = setup_mock_model_file(&temp_dir).await;
@@ -1073,7 +1082,7 @@ mod tests {
     #[tokio::test]
     async fn test_download_huggingface_model_placeholder() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
         manager.init_cache().unwrap();
 
         let model_name = "Qwen/Qwen3-Embedding-0.6B";
@@ -1097,7 +1106,7 @@ mod tests {
     #[tokio::test]
     async fn test_download_huggingface_model_already_cached() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
         manager.init_cache().unwrap();
 
         let model_name = "test-model";

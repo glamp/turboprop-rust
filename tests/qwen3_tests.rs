@@ -186,7 +186,8 @@ fn test_qwen3_backend_selection() {
 /// Integration test for model manager with Qwen3 models
 #[test]
 fn test_model_manager_qwen3_integration() {
-    let manager = ModelManager::default();
+    let temp_dir = TempDir::new().unwrap();
+    let manager = ModelManager::new(temp_dir.path());
 
     // Test cache initialization
     let init_result = manager.init_cache();

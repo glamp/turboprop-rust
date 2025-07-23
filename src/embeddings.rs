@@ -326,7 +326,7 @@ impl EmbeddingGenerator {
 
                 // Load the Qwen3 model
                 let qwen3_model = hf_backend
-                    .load_qwen3_model(&model_info.name, &config.cache_dir)
+                    .load_qwen3_model(&model_info.name.clone().into(), &config.cache_dir.clone().into())
                     .await
                     .with_context(|| format!("Failed to load Qwen3 model: {}", model_info.name))?;
 

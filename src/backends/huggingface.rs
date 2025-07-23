@@ -15,6 +15,7 @@ use tokenizers::Tokenizer;
 use tracing::{debug, info, warn};
 
 use crate::models::EmbeddingModel as EmbeddingModelTrait;
+use crate::types::{ModelName, CachePath};
 
 /// HuggingFace backend for loading and running models not supported by FastEmbed
 pub struct HuggingFaceBackend {
@@ -33,42 +34,42 @@ impl HuggingFaceBackend {
     /// Load a Qwen3 embedding model from HuggingFace
     pub async fn load_qwen3_model(
         &self,
-        model_name: &str,
-        cache_dir: &Path,
+        model_name: &ModelName,
+        cache_dir: &CachePath,
     ) -> Result<Qwen3EmbeddingModel> {
         info!("Loading Qwen3 model: {}", model_name);
 
         // Download model files from HuggingFace
-        let repo = self.api.model(model_name.to_string());
+        let repo = self.api.model(model_name.as_str().to_string());
 
         // Create model-specific cache directory
-        let model_cache_dir = cache_dir.join(model_name.replace('/', "_"));
+        let model_cache_dir = cache_dir.join(model_name.as_str().replace('/', "_"));
         if !model_cache_dir.exists() {
             std::fs::create_dir_all(&model_cache_dir).with_context(|| {
                 format!(
                     "Failed to create model cache directory: {}",
-                    model_cache_dir.display()
+                    model_cache_dir
                 )
             })?;
         }
 
         // Download required files
         let config_path = self
-            .download_file(&repo, "config.json", &model_cache_dir)
+            .download_file(&repo, "config.json", model_cache_dir.as_path())
             .await?;
         let tokenizer_path = self
-            .download_file(&repo, "tokenizer.json", &model_cache_dir)
+            .download_file(&repo, "tokenizer.json", model_cache_dir.as_path())
             .await?;
 
         // Try to download model weights (safetensors preferred, fallback to pytorch)
         let model_path = match self
-            .download_file(&repo, "model.safetensors", &model_cache_dir)
+            .download_file(&repo, "model.safetensors", model_cache_dir.as_path())
             .await
         {
             Ok(path) => path,
             Err(_) => {
                 warn!("Failed to download model.safetensors, trying pytorch_model.bin");
-                self.download_file(&repo, "pytorch_model.bin", &model_cache_dir)
+                self.download_file(&repo, "pytorch_model.bin", model_cache_dir.as_path())
                     .await
                     .context("Failed to download model weights in any format")?
             }
@@ -214,17 +215,32 @@ impl HuggingFaceBackend {
     ) -> Result<ModelForCausalLM> {
         debug!("Loading model weights from: {}", model_path.display());
 
-        // Load model weights using candle's safetensors or pickle loader
+        // Load model weights using candle's safetensors or pytorch loader
         let weights = if model_path.extension().and_then(|s| s.to_str()) == Some("safetensors") {
             candle_core::safetensors::load(model_path, &self.device).with_context(|| {
                 format!("Failed to load safetensors from {}", model_path.display())
             })?
         } else {
-            // For pytorch_model.bin, we need to use pickle loader
-            // This is more complex and might require additional dependencies
-            return Err(anyhow::anyhow!(
-                "PyTorch model loading not yet implemented. Please use safetensors format."
-            ));
+            // For pytorch_model.bin, attempt to load as PyTorch tensors
+            info!("Loading PyTorch model weights from: {}", model_path.display());
+            
+            // Try loading as PyTorch tensors using candle's built-in support
+            match candle_core::pickle::read_all(model_path) {
+                Ok(tensor_vec) => {
+                    debug!("Successfully loaded {} PyTorch tensors", tensor_vec.len());
+                    // Convert Vec<(String, Tensor)> to HashMap<String, Tensor> for compatibility
+                    tensor_vec.into_iter().collect::<std::collections::HashMap<_, _>>()
+                }
+                Err(e) => {
+                    warn!("Failed to load PyTorch model directly: {}", e);
+                    // Fallback: try loading as generic binary and convert
+                    return Err(anyhow::anyhow!(
+                        "Failed to load PyTorch model from {}: {}. Consider converting to safetensors format for better compatibility.",
+                        model_path.display(),
+                        e
+                    ));
+                }
+            }
         };
 
         // Create variable builder from the weights
@@ -302,7 +318,7 @@ impl Qwen3EmbeddingModel {
             let hidden_states = self
                 .model
                 .write()
-                .unwrap()
+                .map_err(|e| anyhow::anyhow!("Failed to acquire model lock: {}", e))?
                 .forward(&input_ids, 0)
                 .context("Failed to run model forward pass")?;
 
@@ -435,7 +451,10 @@ mod tests {
         // This would test actual model loading but requires large downloads
         // For now, we'll just test that the function can be called
         let result = backend
-            .load_qwen3_model("Qwen/Qwen3-Embedding-0.6B", temp_dir.path())
+            .load_qwen3_model(
+                &"Qwen/Qwen3-Embedding-0.6B".into(),
+                &temp_dir.path().into()
+            )
             .await;
 
         // In a real integration test, we would assert success

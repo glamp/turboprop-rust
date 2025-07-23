@@ -12,6 +12,7 @@ use std::path::Path;
 use tokenizers::Tokenizer;
 use tracing::{debug, info, warn};
 
+use crate::constants;
 use crate::error::TurboPropError;
 use crate::models::{EmbeddingBackend, EmbeddingModel, ModelInfo};
 use crate::types::ModelType;
@@ -185,7 +186,7 @@ pub fn validate_gguf_file(path: &Path) -> Result<()> {
         TurboPropError::gguf_format(model_name, format!("Cannot read file metadata: {}", e))
     })?;
 
-    if metadata.len() < 12 {
+    if metadata.len() < constants::gguf::MINIMUM_FILE_SIZE_BYTES {
         // GGUF header should be at least 12 bytes (magic + version + metadata)
         return Err(TurboPropError::gguf_format(
             model_name,
@@ -200,7 +201,7 @@ pub fn validate_gguf_file(path: &Path) -> Result<()> {
     })?;
 
     let mut reader = BufReader::new(file);
-    let mut magic_buf = [0u8; 4];
+    let mut magic_buf = [0u8; constants::gguf::MAGIC_HEADER_SIZE_BYTES];
 
     reader.read_exact(&mut magic_buf).map_err(|e| {
         TurboPropError::gguf_format(model_name, format!("Cannot read GGUF magic header: {}", e))
@@ -218,7 +219,7 @@ pub fn validate_gguf_file(path: &Path) -> Result<()> {
     }
 
     // Read version (4 bytes, little-endian)
-    let mut version_buf = [0u8; 4];
+    let mut version_buf = [0u8; constants::gguf::VERSION_FIELD_SIZE_BYTES];
     reader.read_exact(&mut version_buf).map_err(|e| {
         TurboPropError::gguf_format(model_name, format!("Cannot read GGUF version: {}", e))
     })?;
@@ -301,7 +302,7 @@ impl EmbeddingBackend for GGUFBackend {
     fn load_model(&self, model_info: &ModelInfo) -> Result<Box<dyn EmbeddingModel>> {
         if !self.supports_model(&model_info.model_type) {
             return Err(TurboPropError::gguf_model_load(
-                &model_info.name,
+                model_info.name.as_str(),
                 format!(
                     "GGUF backend does not support model type: {:?}",
                     model_info.model_type
@@ -329,7 +330,7 @@ impl EmbeddingBackend for GGUFBackend {
             // This handles cases where the model will be downloaded first
             info!("Creating GGUF model instance (model will be loaded from download)");
             GGUFEmbeddingModel::new_with_config(
-                model_info.name.clone(),
+                model_info.name.to_string(),
                 model_info.dimensions,
                 self.device.clone(),
                 self.config.clone(),
@@ -359,6 +360,39 @@ impl GGUFEmbeddingModel {
     /// Create a new GGUF embedding model with default configuration
     pub fn new(model_name: String, dimensions: usize, device: Device) -> Result<Self> {
         Self::new_with_config(model_name, dimensions, device, GGUFConfig::default())
+    }
+
+    /// Validate input texts for embedding generation
+    fn validate_embedding_inputs(&self, texts: &[String]) -> Result<()> {
+        // Check if texts array is empty (allowed, returns empty result)
+        if texts.is_empty() {
+            return Ok(());
+        }
+
+        // Check for empty texts and text length limits
+        for (i, text) in texts.iter().enumerate() {
+            if text.is_empty() {
+                return Err(TurboPropError::gguf_inference(
+                    &self.model_name,
+                    format!("Empty text found at index {}", i),
+                )
+                .into());
+            }
+
+            // Check text length against max sequence length
+            if text.len() > self.max_sequence_length * constants::text::CHARS_PER_TOKEN_ESTIMATE {
+                return Err(TurboPropError::gguf_inference(
+                    &self.model_name,
+                    format!(
+                        "Text at index {} is too long ({} chars). Maximum estimated length: {} chars",
+                        i, text.len(), self.max_sequence_length * constants::text::CHARS_PER_TOKEN_ESTIMATE
+                    ),
+                )
+                .into());
+            }
+        }
+
+        Ok(())
     }
 
     /// Create a new GGUF embedding model with custom configuration
@@ -408,7 +442,7 @@ impl GGUFEmbeddingModel {
 
         // TODO: Implement actual GGUF model loading using candle
         // For now, create a model instance without loading the actual model
-        let model = Self::new_with_config(model_name, model_info.dimensions, Device::Cpu, config)?;
+        let model = Self::new_with_config(model_name.to_string(), model_info.dimensions, Device::Cpu, config)?;
 
         // TODO: Load tokenizer from model directory or config
         // model.tokenizer = Some(load_tokenizer(model_path)?);
@@ -433,10 +467,10 @@ impl GGUFEmbeddingModel {
 
         // Create a minimal ModelInfo for compatibility
         use crate::models::ModelInfoConfig;
-        use crate::types::ModelBackend;
+        use crate::types::{ModelBackend, ModelName};
 
         let model_info = ModelInfo::new(ModelInfoConfig {
-            name: model_name,
+            name: ModelName::from(model_name),
             description: "Legacy loaded GGUF model".to_string(),
             dimensions: default_dimensions,
             size_bytes: 0, // Unknown size
@@ -489,33 +523,12 @@ impl EmbeddingModel for GGUFEmbeddingModel {
             texts.len()
         );
 
-        // Input validation
+        // Validate input texts
+        self.validate_embedding_inputs(texts)?;
+
+        // Handle empty input case
         if texts.is_empty() {
             return Ok(Vec::new());
-        }
-
-        // Check for empty texts and text length limits
-        for (i, text) in texts.iter().enumerate() {
-            if text.is_empty() {
-                return Err(TurboPropError::gguf_inference(
-                    &self.model_name,
-                    format!("Empty text found at index {}", i),
-                )
-                .into());
-            }
-
-            // Check text length against max sequence length
-            if text.len() > self.max_sequence_length * 4 {
-                // Rough estimate: 4 chars per token
-                return Err(TurboPropError::gguf_inference(
-                    &self.model_name,
-                    format!(
-                        "Text at index {} is too long ({} chars). Maximum estimated length: {} chars",
-                        i, text.len(), self.max_sequence_length * 4
-                    ),
-                )
-                .into());
-            }
         }
 
         // TODO: Implement actual embedding generation with loaded model and tokenizer
@@ -532,7 +545,9 @@ impl EmbeddingModel for GGUFEmbeddingModel {
         for text in texts {
             debug!(
                 "Processing text: {}",
-                text.chars().take(50).collect::<String>()
+                text.chars()
+                    .take(constants::text::ERROR_MESSAGE_TEXT_PREVIEW_LENGTH)
+                    .collect::<String>()
             );
 
             // TODO: Implement actual tokenization and model inference
@@ -542,8 +557,9 @@ impl EmbeddingModel for GGUFEmbeddingModel {
             // 4. Extract embeddings from model output
 
             // Create placeholder embedding vector with some variation based on text
-            let text_hash = text.len() % 100;
-            let base_value = 0.1 + (text_hash as f32) * 0.001;
+            let text_hash = text.len() % constants::test::TEXT_HASH_MODULO;
+            let base_value = constants::test::TEST_EMBEDDING_BASE_VALUE
+                + (text_hash as f32) * constants::test::TEST_EMBEDDING_VARIATION_FACTOR;
             let embedding = vec![base_value; self.dimensions];
             embeddings.push(embedding);
         }
@@ -582,7 +598,7 @@ impl std::fmt::Debug for GGUFEmbeddingModel {
 mod tests {
     use super::*;
     use crate::models::{ModelInfo, ModelInfoConfig};
-    use crate::types::{ModelBackend, ModelType};
+    use crate::types::{ModelBackend, ModelName, ModelType};
     use std::fs::File;
     use std::io::Write;
     use tempfile::TempDir;
@@ -610,10 +626,10 @@ mod tests {
         let backend = GGUFBackend::new().unwrap();
 
         let model_info = ModelInfo::new(ModelInfoConfig {
-            name: "nomic-embed-code.Q5_K_S.gguf".to_string(),
+            name: ModelName::from("nomic-embed-code.Q5_K_S.gguf"),
             description: "Test GGUF model".to_string(),
             dimensions: 768,
-            size_bytes: 1000,
+            size_bytes: constants::test::DEFAULT_MODEL_SIZE_BYTES,
             model_type: ModelType::GGUF,
             backend: ModelBackend::Candle,
             download_url: None,
@@ -633,10 +649,10 @@ mod tests {
         let backend = GGUFBackend::new().unwrap();
 
         let model_info = ModelInfo::new(ModelInfoConfig {
-            name: "sentence-transformer".to_string(),
+            name: ModelName::from("sentence-transformer"),
             description: "Test model".to_string(),
             dimensions: 384,
-            size_bytes: 1000,
+            size_bytes: constants::test::DEFAULT_MODEL_SIZE_BYTES,
             model_type: ModelType::SentenceTransformer,
             backend: ModelBackend::FastEmbed,
             download_url: None,

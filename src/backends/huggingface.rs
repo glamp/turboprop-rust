@@ -14,8 +14,9 @@ use std::path::{Path, PathBuf};
 use tokenizers::Tokenizer;
 use tracing::{debug, info, warn};
 
+use crate::constants;
 use crate::models::EmbeddingModel as EmbeddingModelTrait;
-use crate::types::{ModelName, CachePath};
+use crate::types::{CachePath, ModelName};
 
 /// HuggingFace backend for loading and running models not supported by FastEmbed
 pub struct HuggingFaceBackend {
@@ -31,13 +32,105 @@ impl HuggingFaceBackend {
         Ok(Self { device, api })
     }
 
+    /// Validate inputs for Qwen3 model loading
+    fn validate_model_inputs(model_name: &ModelName, cache_dir: &CachePath) -> Result<()> {
+        // Validate model name format (should follow HuggingFace convention: org/model-name)
+        let model_str = model_name.as_str();
+        if model_str.is_empty() {
+            return Err(anyhow::anyhow!(
+                "[HUGGINGFACE] [VALIDATION] failed: Model name cannot be empty"
+            ));
+        }
+
+        if !model_str.contains('/') {
+            return Err(anyhow::anyhow!(
+                "[HUGGINGFACE] [VALIDATION] failed: Model name '{}' must follow HuggingFace format 'organization/model-name'",
+                model_str
+            ));
+        }
+
+        let parts: Vec<&str> = model_str.split('/').collect();
+        if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+            return Err(anyhow::anyhow!(
+                "[HUGGINGFACE] [VALIDATION] failed: Model name '{}' has invalid format. Expected 'organization/model-name'",
+                model_str
+            ));
+        }
+
+        // Validate model name contains only allowed characters
+        let allowed_chars =
+            |c: char| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/';
+        if !model_str.chars().all(allowed_chars) {
+            return Err(anyhow::anyhow!(
+                "[HUGGINGFACE] [VALIDATION] failed: Model name '{}' contains invalid characters. Only alphanumeric, '-', '_', '.', and '/' are allowed",
+                model_str
+            ));
+        }
+
+        // Validate cache directory
+        let cache_path = cache_dir.as_ref();
+        if !cache_path.exists() {
+            return Err(anyhow::anyhow!(
+                "[HUGGINGFACE] [VALIDATION] failed: Cache directory does not exist: {}",
+                cache_dir
+            ));
+        }
+
+        if !cache_path.is_dir() {
+            return Err(anyhow::anyhow!(
+                "[HUGGINGFACE] [VALIDATION] failed: Cache path is not a directory: {}",
+                cache_dir
+            ));
+        }
+
+        // Check cache directory permissions (read, write, execute)
+        let metadata = std::fs::metadata(cache_path).with_context(|| {
+            format!(
+                "[HUGGINGFACE] [VALIDATION] failed: Cannot read cache directory metadata: {}",
+                cache_dir
+            )
+        })?;
+
+        if metadata.permissions().readonly() {
+            return Err(anyhow::anyhow!(
+                "[HUGGINGFACE] [VALIDATION] failed: Cache directory is read-only: {}. Write permissions required for model downloads",
+                cache_dir
+            ));
+        }
+
+        // Test write permissions by attempting to create a temporary file
+        let test_file = cache_path.join(".turboprop_write_test");
+        match std::fs::File::create(&test_file) {
+            Ok(_) => {
+                // Clean up test file
+                let _ = std::fs::remove_file(&test_file);
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "[HUGGINGFACE] [VALIDATION] failed: Cannot write to cache directory: {}. Error: {}",
+                    cache_dir,
+                    e
+                ));
+            }
+        }
+
+        // Note: Skipping disk space check as fs2 crate is not available
+        // In a production environment, you might want to add this dependency
+        // or implement platform-specific disk space checks
+
+        Ok(())
+    }
+
     /// Load a Qwen3 embedding model from HuggingFace
     pub async fn load_qwen3_model(
         &self,
         model_name: &ModelName,
         cache_dir: &CachePath,
     ) -> Result<Qwen3EmbeddingModel> {
-        info!("Loading Qwen3 model: {}", model_name);
+        // Validate inputs before proceeding
+        Self::validate_model_inputs(model_name, cache_dir)?;
+
+        info!("[HUGGINGFACE] [LOAD] Loading Qwen3 model: {}", model_name);
 
         // Download model files from HuggingFace
         let repo = self.api.model(model_name.as_str().to_string());
@@ -67,11 +160,11 @@ impl HuggingFaceBackend {
             .await
         {
             Ok(path) => path,
-            Err(_) => {
-                warn!("Failed to download model.safetensors, trying pytorch_model.bin");
+            Err(e) => {
+                warn!("[HUGGINGFACE] [DOWNLOAD] safetensors download failed: {}. Trying pytorch_model.bin as fallback", e);
                 self.download_file(&repo, "pytorch_model.bin", model_cache_dir.as_path())
                     .await
-                    .context("Failed to download model weights in any format")?
+                    .context("[HUGGINGFACE] [DOWNLOAD] failed: Neither safetensors nor pytorch model weights could be downloaded. Check network connectivity and model repository availability.")?
             }
         };
 
@@ -89,7 +182,7 @@ impl HuggingFaceBackend {
             format!("Failed to read model config from {}", config_path.display())
         })?;
         let config_json: Value =
-            serde_json::from_str(&config_content).context("Failed to parse model configuration")?;
+            serde_json::from_str(&config_content).context("[HUGGINGFACE] [CONFIG] failed: Cannot parse model configuration JSON. Verify config file format and completeness.")?;
 
         // Create Qwen2 config from the JSON
         let qwen_config = self.parse_qwen2_config(&config_json)?;
@@ -98,7 +191,7 @@ impl HuggingFaceBackend {
         let model = self.load_qwen3_weights(&model_path, &qwen_config)?;
 
         Ok(Qwen3EmbeddingModel {
-            model: std::sync::RwLock::new(model),
+            model: tokio::sync::RwLock::new(model),
             tokenizer,
             config: qwen_config,
             device: self.device.clone(),
@@ -121,7 +214,7 @@ impl HuggingFaceBackend {
             return Ok(local_path);
         }
 
-        info!("Downloading {}", filename);
+        info!("[HUGGINGFACE] [DOWNLOAD] Downloading {}", filename);
         let remote_file = repo
             .get(filename)
             .await
@@ -139,27 +232,27 @@ impl HuggingFaceBackend {
     fn parse_qwen2_config(&self, config_json: &Value) -> Result<Qwen2Config> {
         let vocab_size = config_json["vocab_size"]
             .as_u64()
-            .ok_or_else(|| anyhow::anyhow!("Missing vocab_size in config"))?
+            .ok_or_else(|| anyhow::anyhow!("[HUGGINGFACE] [CONFIG] failed: Missing required vocab_size field in model configuration"))?
             as usize;
 
         let hidden_size = config_json["hidden_size"]
             .as_u64()
-            .ok_or_else(|| anyhow::anyhow!("Missing hidden_size in config"))?
+            .ok_or_else(|| anyhow::anyhow!("[HUGGINGFACE] [CONFIG] failed: Missing required hidden_size field in model configuration"))?
             as usize;
 
         let intermediate_size = config_json["intermediate_size"]
             .as_u64()
-            .ok_or_else(|| anyhow::anyhow!("Missing intermediate_size in config"))?
+            .ok_or_else(|| anyhow::anyhow!("[HUGGINGFACE] [CONFIG] failed: Missing required intermediate_size field in model configuration"))?
             as usize;
 
         let num_hidden_layers = config_json["num_hidden_layers"]
             .as_u64()
-            .ok_or_else(|| anyhow::anyhow!("Missing num_hidden_layers in config"))?
+            .ok_or_else(|| anyhow::anyhow!("[HUGGINGFACE] [CONFIG] failed: Missing required num_hidden_layers field in model configuration"))?
             as usize;
 
         let num_attention_heads = config_json["num_attention_heads"]
             .as_u64()
-            .ok_or_else(|| anyhow::anyhow!("Missing num_attention_heads in config"))?
+            .ok_or_else(|| anyhow::anyhow!("[HUGGINGFACE] [CONFIG] failed: Missing required num_attention_heads field in model configuration"))?
             as usize;
 
         let num_key_value_heads = config_json["num_key_value_heads"]
@@ -168,14 +261,17 @@ impl HuggingFaceBackend {
 
         let max_position_embeddings = config_json["max_position_embeddings"]
             .as_u64()
-            .unwrap_or(2048) as usize;
+            .unwrap_or(constants::model_config::DEFAULT_MAX_POSITION_EMBEDDINGS)
+            as usize;
 
         let sliding_window = config_json["sliding_window"]
             .as_u64()
             .map(|v| v as usize)
             .unwrap_or(max_position_embeddings);
 
-        let rope_theta = config_json["rope_theta"].as_f64().unwrap_or(10000.0);
+        let rope_theta = config_json["rope_theta"]
+            .as_f64()
+            .unwrap_or(constants::model_config::DEFAULT_ROPE_THETA);
 
         let hidden_act = match config_json["hidden_act"].as_str().unwrap_or("silu") {
             "silu" => Activation::Silu,
@@ -194,7 +290,9 @@ impl HuggingFaceBackend {
             max_position_embeddings,
             sliding_window,
             rope_theta,
-            rms_norm_eps: config_json["rms_norm_eps"].as_f64().unwrap_or(1e-6),
+            rms_norm_eps: config_json["rms_norm_eps"]
+                .as_f64()
+                .unwrap_or(constants::model_config::DEFAULT_RMS_NORM_EPS),
             hidden_act,
             max_window_layers: config_json["max_window_layers"]
                 .as_u64()
@@ -222,20 +320,28 @@ impl HuggingFaceBackend {
             })?
         } else {
             // For pytorch_model.bin, attempt to load as PyTorch tensors
-            info!("Loading PyTorch model weights from: {}", model_path.display());
-            
+            debug!(
+                "Loading PyTorch model weights from: {}",
+                model_path.display()
+            );
+
             // Try loading as PyTorch tensors using candle's built-in support
             match candle_core::pickle::read_all(model_path) {
                 Ok(tensor_vec) => {
-                    debug!("Successfully loaded {} PyTorch tensors", tensor_vec.len());
+                    debug!(
+                        "[HUGGINGFACE] [LOAD] Successfully loaded {} PyTorch tensors",
+                        tensor_vec.len()
+                    );
                     // Convert Vec<(String, Tensor)> to HashMap<String, Tensor> for compatibility
-                    tensor_vec.into_iter().collect::<std::collections::HashMap<_, _>>()
+                    tensor_vec
+                        .into_iter()
+                        .collect::<std::collections::HashMap<_, _>>()
                 }
                 Err(e) => {
-                    warn!("Failed to load PyTorch model directly: {}", e);
-                    // Fallback: try loading as generic binary and convert
+                    warn!("[HUGGINGFACE] [LOAD] PyTorch model loading failed: {}", e);
+                    // Provide actionable error message
                     return Err(anyhow::anyhow!(
-                        "Failed to load PyTorch model from {}: {}. Consider converting to safetensors format for better compatibility.",
+                        "[HUGGINGFACE] [LOAD] failed: Cannot load PyTorch model from {}. Error: {}. Recommendation: Convert model to safetensors format for better compatibility, or verify model file integrity.",
                         model_path.display(),
                         e
                     ));
@@ -248,7 +354,7 @@ impl HuggingFaceBackend {
 
         // Load the Qwen2 model
         let model =
-            ModelForCausalLM::new(config, vb).context("Failed to load Qwen2 model from weights")?;
+            ModelForCausalLM::new(config, vb).context("[HUGGINGFACE] [LOAD] failed: Cannot initialize Qwen2 model from loaded weights. Verify model architecture compatibility.")?;
 
         debug!("Model weights loaded successfully");
         Ok(model)
@@ -257,7 +363,7 @@ impl HuggingFaceBackend {
 
 /// Qwen3 embedding model implementation
 pub struct Qwen3EmbeddingModel {
-    model: std::sync::RwLock<ModelForCausalLM>,
+    model: tokio::sync::RwLock<ModelForCausalLM>,
     tokenizer: Tokenizer,
     config: Qwen2Config,
     device: Device,
@@ -300,27 +406,33 @@ impl Qwen3EmbeddingModel {
             let encoding = self
                 .tokenizer
                 .encode(processed_text.as_str(), true)
-                .map_err(|e| anyhow::anyhow!("Failed to tokenize text: {}", e))?;
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "[HUGGINGFACE] [TOKENIZE] failed: Cannot tokenize input text. Error: {}",
+                        e
+                    )
+                })?;
 
             let token_ids: Vec<u32> = encoding.get_ids().to_vec();
             let attention_mask: Vec<u32> = vec![1u32; token_ids.len()];
 
             // Convert to tensors
             let input_ids = Tensor::new(&token_ids[..], &self.device)
-                .context("Failed to create input_ids tensor")?
+                .context("[HUGGINGFACE] [TENSOR] failed: Cannot create input_ids tensor from tokenized text")?
                 .unsqueeze(0)?; // Add batch dimension
 
             let attention_mask_tensor = Tensor::new(&attention_mask[..], &self.device)
-                .context("Failed to create attention_mask tensor")?
+                .context("[HUGGINGFACE] [TENSOR] failed: Cannot create attention_mask tensor for model input")?
                 .unsqueeze(0)?; // Add batch dimension
 
             // Run model inference - get hidden states from the language model
-            let hidden_states = self
-                .model
-                .write()
-                .map_err(|e| anyhow::anyhow!("Failed to acquire model lock: {}", e))?
-                .forward(&input_ids, 0)
-                .context("Failed to run model forward pass")?;
+            // Use blocking_write() to avoid async in sync method while still using tokio::sync::RwLock
+            let hidden_states = {
+                let mut model_guard = self.model.blocking_write();
+                model_guard
+                    .forward(&input_ids, 0)
+                    .context("[HUGGINGFACE] [INFERENCE] failed: Model forward pass execution failed. Check input tensor dimensions and model state.")?
+            };
 
             // Extract embedding using mean pooling of last hidden states
             let embedding = self.mean_pooling(&hidden_states, &attention_mask_tensor)?;
@@ -412,7 +524,7 @@ mod tests {
             "num_key_value_heads": 16,
             "max_position_embeddings": 8192,
             "rope_theta": 1000000.0,
-            "rms_norm_eps": 1e-6
+            "rms_norm_eps": constants::model_config::DEFAULT_RMS_NORM_EPS
         });
 
         let config = backend.parse_qwen2_config(&config_json);
@@ -451,10 +563,7 @@ mod tests {
         // This would test actual model loading but requires large downloads
         // For now, we'll just test that the function can be called
         let result = backend
-            .load_qwen3_model(
-                &"Qwen/Qwen3-Embedding-0.6B".into(),
-                &temp_dir.path().into()
-            )
+            .load_qwen3_model(&"Qwen/Qwen3-Embedding-0.6B".into(), &temp_dir.path().into())
             .await;
 
         // In a real integration test, we would assert success

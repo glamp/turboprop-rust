@@ -8,7 +8,7 @@ use futures::TryStreamExt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
-use crate::types::{ModelBackend, ModelType};
+use crate::types::{ModelBackend, ModelName, ModelType};
 
 // Model dimension and size constants
 pub const NOMIC_EMBED_DIMENSIONS: usize = 768;
@@ -19,7 +19,7 @@ pub const QWEN_EMBED_SIZE_BYTES: u64 = 600_000_000; // ~600MB
 /// Configuration for creating ModelInfo instances
 #[derive(Debug, Clone)]
 pub struct ModelInfoConfig {
-    pub name: String,
+    pub name: ModelName,
     pub description: String,
     pub dimensions: usize,
     pub size_bytes: u64,
@@ -33,7 +33,7 @@ pub struct ModelInfoConfig {
 #[derive(Debug, Clone)]
 pub struct ModelInfo {
     /// Model identifier (e.g., "sentence-transformers/all-MiniLM-L6-v2")
-    pub name: String,
+    pub name: ModelName,
     /// Human-readable description
     pub description: String,
     /// Embedding dimensions this model produces
@@ -66,7 +66,12 @@ impl ModelInfo {
     }
 
     /// Create a simple ModelInfo with default values for common cases
-    pub fn simple(name: String, description: String, dimensions: usize, size_bytes: u64) -> Self {
+    pub fn simple(
+        name: ModelName,
+        description: String,
+        dimensions: usize,
+        size_bytes: u64,
+    ) -> Self {
         Self::new(ModelInfoConfig {
             name,
             description,
@@ -81,7 +86,7 @@ impl ModelInfo {
 
     /// Create a GGUF model with Candle backend
     pub fn gguf_model(
-        name: String,
+        name: ModelName,
         description: String,
         dimensions: usize,
         size_bytes: u64,
@@ -101,7 +106,7 @@ impl ModelInfo {
 
     /// Create a HuggingFace model with Custom backend
     pub fn huggingface_model(
-        name: String,
+        name: ModelName,
         description: String,
         dimensions: usize,
         size_bytes: u64,
@@ -120,7 +125,7 @@ impl ModelInfo {
 
     /// Validate that this ModelInfo has consistent and valid configuration
     pub fn validate(&self) -> Result<(), String> {
-        if self.name.is_empty() {
+        if self.name.as_str().is_empty() {
             return Err("Model name cannot be empty".to_string());
         }
 
@@ -191,15 +196,15 @@ impl ModelManager {
     }
 
     /// Check if a model is cached locally
-    pub fn is_model_cached(&self, model_name: &str) -> bool {
+    pub fn is_model_cached(&self, model_name: &ModelName) -> bool {
         let model_path = self.get_model_path(model_name);
         model_path.exists() && self.is_valid_model_cache(&model_path)
     }
 
     /// Get the local path where a model should be cached
-    pub fn get_model_path(&self, model_name: &str) -> PathBuf {
+    pub fn get_model_path(&self, model_name: &ModelName) -> PathBuf {
         // Convert model name to filesystem-safe directory name
-        let safe_name = model_name.replace(['/', ':'], "_");
+        let safe_name = model_name.as_str().replace(['/', ':'], "_");
         self.cache_dir.join(safe_name)
     }
 
@@ -208,20 +213,20 @@ impl ModelManager {
         vec![
             // Existing sentence-transformer models
             ModelInfo::simple(
-                "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+                ModelName::from("sentence-transformers/all-MiniLM-L6-v2"),
                 "Fast and lightweight model, good for general use".to_string(),
                 384,
                 23_000_000, // ~23MB
             ),
             ModelInfo::simple(
-                "sentence-transformers/all-MiniLM-L12-v2".to_string(),
+                ModelName::from("sentence-transformers/all-MiniLM-L12-v2"),
                 "Larger model with better accuracy".to_string(),
                 384,
                 44_000_000, // ~44MB
             ),
             // New GGUF model
             ModelInfo::gguf_model(
-                "nomic-embed-code.Q5_K_S.gguf".to_string(),
+                ModelName::from("nomic-embed-code.Q5_K_S.gguf"),
                 "Nomic code embedding model optimized for code search".to_string(),
                 NOMIC_EMBED_DIMENSIONS,
                 NOMIC_EMBED_SIZE_BYTES,
@@ -229,7 +234,7 @@ impl ModelManager {
             ),
             // New Qwen model
             ModelInfo::huggingface_model(
-                "Qwen/Qwen3-Embedding-0.6B".to_string(),
+                ModelName::from("Qwen/Qwen3-Embedding-0.6B"),
                 "Qwen3 embedding model for multilingual and code retrieval".to_string(),
                 QWEN_EMBED_DIMENSIONS,
                 QWEN_EMBED_SIZE_BYTES,
@@ -276,7 +281,7 @@ impl ModelManager {
     }
 
     /// Remove a specific model from the cache
-    pub fn remove_model(&self, model_name: &str) -> Result<()> {
+    pub fn remove_model(&self, model_name: &ModelName) -> Result<()> {
         let model_path = self.get_model_path(model_name);
         if model_path.exists() {
             info!("Removing cached model: {} at {:?}", model_name, model_path);
@@ -302,10 +307,11 @@ impl ModelManager {
     /// # Examples
     /// ```no_run
     /// # use turboprop::models::{ModelManager, ModelInfo};
+    /// # use turboprop::types::ModelName;
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let manager = ModelManager::default();
     /// let model_info = ModelInfo::gguf_model(
-    ///     "nomic-embed-code.Q5_K_S.gguf".to_string(),
+    ///     ModelName::from("nomic-embed-code.Q5_K_S.gguf"),
     ///     "Nomic code embedding model".to_string(),
     ///     768,
     ///     2_500_000_000,
@@ -349,12 +355,15 @@ impl ModelManager {
             } else {
                 // For HTTP/HTTPS URLs, download with streaming
                 let response = reqwest::get(url).await.map_err(|e| {
-                    crate::error::TurboPropError::gguf_download(&model_info.name, e.to_string())
+                    crate::error::TurboPropError::gguf_download(
+                        model_info.name.as_str(),
+                        e.to_string(),
+                    )
                 })?;
 
                 if !response.status().is_success() {
                     return Err(crate::error::TurboPropError::gguf_download(
-                        &model_info.name,
+                        model_info.name.as_str(),
                         format!("HTTP error: {}", response.status()),
                     )
                     .into());
@@ -372,7 +381,10 @@ impl ModelManager {
 
                 let mut stream = response.bytes_stream();
                 while let Some(chunk) = stream.try_next().await.map_err(|e| {
-                    crate::error::TurboPropError::gguf_download(&model_info.name, e.to_string())
+                    crate::error::TurboPropError::gguf_download(
+                        model_info.name.as_str(),
+                        e.to_string(),
+                    )
                 })? {
                     tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
                         .await
@@ -397,7 +409,7 @@ impl ModelManager {
 
             if metadata.len() == 0 {
                 return Err(crate::error::TurboPropError::gguf_format(
-                    &model_info.name,
+                    model_info.name.as_str(),
                     "Downloaded file is empty",
                 )
                 .into());
@@ -413,7 +425,7 @@ impl ModelManager {
             Ok(model_file_path)
         } else {
             Err(crate::error::TurboPropError::gguf_download(
-                &model_info.name,
+                model_info.name.as_str(),
                 "No download URL provided for GGUF model",
             )
             .into())
@@ -561,7 +573,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let manager = ModelManager::new(temp_dir.path());
 
-        let path = manager.get_model_path("sentence-transformers/all-MiniLM-L6-v2");
+        let path = manager.get_model_path(&ModelName::from("sentence-transformers/all-MiniLM-L6-v2"));
         let expected = temp_dir
             .path()
             .join("sentence-transformers_all-MiniLM-L6-v2");
@@ -573,14 +585,14 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let manager = ModelManager::new(temp_dir.path());
 
-        assert!(!manager.is_model_cached("nonexistent-model"));
+        assert!(!manager.is_model_cached(&ModelName::from("nonexistent-model")));
     }
 
     #[test]
     fn test_get_available_models() {
         let models = ModelManager::get_available_models();
         assert!(!models.is_empty());
-        assert!(models.iter().any(|m| m.name.contains("all-MiniLM-L6-v2")));
+        assert!(models.iter().any(|m| m.name.as_str().contains("all-MiniLM-L6-v2")));
     }
 
     #[test]
@@ -623,7 +635,7 @@ mod tests {
     #[test]
     fn test_model_info_validation_valid() {
         let model = ModelInfo::simple(
-            "test-model".to_string(),
+            ModelName::from("test-model"),
             "Test description".to_string(),
             384,
             1000,
@@ -633,7 +645,12 @@ mod tests {
 
     #[test]
     fn test_model_info_validation_empty_name() {
-        let model = ModelInfo::simple("".to_string(), "Test description".to_string(), 384, 1000);
+        let model = ModelInfo::simple(
+            ModelName::from(""),
+            "Test description".to_string(),
+            384,
+            1000,
+        );
         let result = model.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Model name cannot be empty"));
@@ -641,7 +658,7 @@ mod tests {
 
     #[test]
     fn test_model_info_validation_empty_description() {
-        let model = ModelInfo::simple("test-model".to_string(), "".to_string(), 384, 1000);
+        let model = ModelInfo::simple(ModelName::from("test-model"), "".to_string(), 384, 1000);
         let result = model.validate();
         assert!(result.is_err());
         assert!(result
@@ -652,7 +669,7 @@ mod tests {
     #[test]
     fn test_model_info_validation_zero_dimensions() {
         let model = ModelInfo::simple(
-            "test-model".to_string(),
+            ModelName::from("test-model"),
             "Test description".to_string(),
             0,
             1000,
@@ -667,7 +684,7 @@ mod tests {
     #[test]
     fn test_model_info_validation_zero_size() {
         let model = ModelInfo::simple(
-            "test-model".to_string(),
+            ModelName::from("test-model"),
             "Test description".to_string(),
             384,
             0,
@@ -682,7 +699,7 @@ mod tests {
     #[test]
     fn test_model_info_validation_invalid_url() {
         let model = ModelInfo::gguf_model(
-            "test-model".to_string(),
+            ModelName::from("test-model"),
             "Test description".to_string(),
             384,
             1000,
@@ -698,7 +715,7 @@ mod tests {
     #[test]
     fn test_model_info_validation_valid_url() {
         let model = ModelInfo::gguf_model(
-            "test-model".to_string(),
+            ModelName::from("test-model"),
             "Test description".to_string(),
             384,
             1000,
@@ -713,7 +730,7 @@ mod tests {
         let manager = ModelManager::new(temp_dir.path());
 
         let model_info = ModelInfo::new(ModelInfoConfig {
-            name: "test-model.gguf".to_string(),
+            name: ModelName::from("test-model.gguf"),
             description: "Test GGUF model without URL".to_string(),
             dimensions: 768,
             size_bytes: 1000,
@@ -740,7 +757,7 @@ mod tests {
         let (mock_url, _mock_file) = setup_mock_model_file(&temp_dir).await;
 
         let model_info = ModelInfo::gguf_model(
-            "test-model.gguf".to_string(),
+            ModelName::from("test-model.gguf"),
             "Test GGUF model for download".to_string(),
             768,
             1000,
@@ -776,7 +793,7 @@ mod tests {
         let (mock_url, _mock_file) = setup_mock_model_file(&temp_dir).await;
 
         let model_info = ModelInfo::gguf_model(
-            "cached-model.gguf".to_string(),
+            ModelName::from("cached-model.gguf"),
             "Test GGUF model for caching".to_string(),
             768,
             1000,

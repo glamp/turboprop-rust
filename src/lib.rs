@@ -191,6 +191,7 @@ pub mod cli;
 pub mod commands;
 pub mod compression;
 pub mod config;
+pub mod constants;
 pub mod content;
 pub mod embeddings;
 pub mod error;

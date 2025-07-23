@@ -204,7 +204,7 @@ impl IndexingPipeline {
         let available_models = ModelManager::get_available_models();
         let model_info = available_models
             .iter()
-            .find(|m| m.name == self.config.embedding.model_name)
+            .find(|m| m.name.as_str() == self.config.embedding.model_name)
             .ok_or_else(|| {
                 anyhow::anyhow!(
                     "Unknown embedding model: {}",

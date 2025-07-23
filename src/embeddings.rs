@@ -9,9 +9,86 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
 use crate::backends::{GGUFEmbeddingModel, HuggingFaceBackend, Qwen3EmbeddingModel};
+use crate::constants;
 use crate::error::TurboPropError;
 use crate::models::{EmbeddingModel as EmbeddingModelTrait, ModelInfo, ModelManager};
 use crate::types::ModelBackend;
+
+/// Trait for processing embeddings in batches with common error handling and logging
+trait BatchProcessor<T> {
+    /// Process a batch of texts and return embeddings
+    fn process_batch(&mut self, texts: &[T]) -> Result<Vec<Vec<f32>>>;
+
+    /// Get the backend name for logging purposes
+    fn backend_name(&self) -> &'static str;
+}
+
+/// Helper function to process texts in batches using any BatchProcessor
+fn process_texts_in_batches<T, P: BatchProcessor<T>>(
+    processor: &mut P,
+    texts: &[T],
+    batch_size: usize,
+) -> Result<Vec<Vec<f32>>> {
+    let mut all_embeddings = Vec::with_capacity(texts.len());
+    let backend_name = processor.backend_name();
+
+    // Process in batches to avoid memory issues with large inputs
+    for chunk in texts.chunks(batch_size) {
+        debug!("Processing {} batch of {} texts", backend_name, chunk.len());
+
+        let batch_embeddings = processor.process_batch(chunk).with_context(|| {
+            format!(
+                "Failed to generate {} embeddings for batch of {} texts",
+                backend_name,
+                chunk.len()
+            )
+        })?;
+
+        all_embeddings.extend(batch_embeddings);
+    }
+
+    debug!(
+        "Generated {} {} embeddings total",
+        all_embeddings.len(),
+        backend_name
+    );
+
+    Ok(all_embeddings)
+}
+
+/// BatchProcessor implementation for FastEmbed backend
+impl BatchProcessor<String> for TextEmbedding {
+    fn process_batch(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+        self.embed(text_refs, None)
+    }
+
+    fn backend_name(&self) -> &'static str {
+        "FastEmbed"
+    }
+}
+
+/// BatchProcessor implementation for GGUF backend
+impl BatchProcessor<String> for GGUFEmbeddingModel {
+    fn process_batch(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        self.embed(texts)
+    }
+
+    fn backend_name(&self) -> &'static str {
+        "GGUF"
+    }
+}
+
+/// BatchProcessor implementation for HuggingFace backend
+impl BatchProcessor<String> for Qwen3EmbeddingModel {
+    fn process_batch(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        self.embed(texts)
+    }
+
+    fn backend_name(&self) -> &'static str {
+        "HuggingFace"
+    }
+}
 
 /// Default embedding model to use if none specified
 pub const DEFAULT_MODEL: &str = "sentence-transformers/all-MiniLM-L6-v2";
@@ -19,8 +96,7 @@ pub const DEFAULT_MODEL: &str = "sentence-transformers/all-MiniLM-L6-v2";
 /// Expected embedding dimensions for the default model
 pub const DEFAULT_EMBEDDING_DIMENSIONS: usize = 384;
 
-/// Maximum length for text in error messages before truncation
-const ERROR_MESSAGE_TEXT_PREVIEW_LENGTH: usize = 50;
+// constants::text::ERROR_MESSAGE_TEXT_PREVIEW_LENGTH is now defined in constants::text
 
 /// Configuration for embedding generation
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,7 +120,7 @@ impl Default for EmbeddingConfig {
             cache_dir: PathBuf::from(".turboprop/models"),
             batch_size: 32,
             embedding_dimensions: DEFAULT_EMBEDDING_DIMENSIONS,
-            batch_size_warning_threshold: 1000,
+            batch_size_warning_threshold: constants::text::BATCH_SIZE_WARNING_THRESHOLD,
         }
     }
 }
@@ -57,7 +133,7 @@ impl EmbeddingConfig {
         // Look up model dimensions from available models
         let embedding_dimensions = ModelManager::get_available_models()
             .iter()
-            .find(|model| model.name == model_name)
+            .find(|model| model.name.as_str() == model_name)
             .map(|model| model.dimensions)
             .unwrap_or(DEFAULT_EMBEDDING_DIMENSIONS);
 
@@ -250,7 +326,7 @@ impl EmbeddingGenerator {
     /// # use std::path::Path;
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let models = ModelManager::get_available_models();
-    /// let gguf_model = models.iter().find(|m| m.name.contains("gguf")).unwrap();
+    /// let gguf_model = models.iter().find(|m| m.name.as_str().contains("gguf")).unwrap();
     ///
     /// let generator = EmbeddingGenerator::new_with_model(gguf_model, Path::new(".cache")).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -268,11 +344,11 @@ impl EmbeddingGenerator {
 
         // Create configuration based on model info
         let config = EmbeddingConfig {
-            model_name: model_info.name.clone(),
+            model_name: model_info.name.to_string(),
             cache_dir: cache_dir.to_path_buf(),
             embedding_dimensions: model_info.dimensions,
             batch_size: 32,
-            batch_size_warning_threshold: 1000,
+            batch_size_warning_threshold: constants::text::BATCH_SIZE_WARNING_THRESHOLD,
         };
 
         let backend = match model_info.backend {
@@ -326,7 +402,10 @@ impl EmbeddingGenerator {
 
                 // Load the Qwen3 model
                 let qwen3_model = hf_backend
-                    .load_qwen3_model(&model_info.name.clone().into(), &config.cache_dir.clone().into())
+                    .load_qwen3_model(
+                        &model_info.name,
+                        &config.cache_dir.clone().into(),
+                    )
                     .await
                     .with_context(|| format!("Failed to load Qwen3 model: {}", model_info.name))?;
 
@@ -356,8 +435,8 @@ impl EmbeddingGenerator {
                 let embeddings = model.embed(vec![text], None).with_context(|| {
                     format!(
                         "Failed to generate FastEmbed embedding for text: {}",
-                        if text.len() > ERROR_MESSAGE_TEXT_PREVIEW_LENGTH {
-                            &text[..ERROR_MESSAGE_TEXT_PREVIEW_LENGTH]
+                        if text.len() > constants::text::ERROR_MESSAGE_TEXT_PREVIEW_LENGTH {
+                            &text[..constants::text::ERROR_MESSAGE_TEXT_PREVIEW_LENGTH]
                         } else {
                             text
                         }
@@ -376,8 +455,8 @@ impl EmbeddingGenerator {
                 let embeddings = model.embed(&texts).with_context(|| {
                     format!(
                         "Failed to generate GGUF embedding for text: {}",
-                        if text.len() > ERROR_MESSAGE_TEXT_PREVIEW_LENGTH {
-                            &text[..ERROR_MESSAGE_TEXT_PREVIEW_LENGTH]
+                        if text.len() > constants::text::ERROR_MESSAGE_TEXT_PREVIEW_LENGTH {
+                            &text[..constants::text::ERROR_MESSAGE_TEXT_PREVIEW_LENGTH]
                         } else {
                             text
                         }
@@ -396,8 +475,8 @@ impl EmbeddingGenerator {
                 let embeddings = model.embed(&texts).with_context(|| {
                     format!(
                         "Failed to generate HuggingFace embedding for text: {}",
-                        if text.len() > ERROR_MESSAGE_TEXT_PREVIEW_LENGTH {
-                            &text[..ERROR_MESSAGE_TEXT_PREVIEW_LENGTH]
+                        if text.len() > constants::text::ERROR_MESSAGE_TEXT_PREVIEW_LENGTH {
+                            &text[..constants::text::ERROR_MESSAGE_TEXT_PREVIEW_LENGTH]
                         } else {
                             text
                         }
@@ -425,72 +504,13 @@ impl EmbeddingGenerator {
 
         match &mut self.backend {
             EmbeddingBackendType::FastEmbed(model) => {
-                let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-                let mut all_embeddings = Vec::with_capacity(texts.len());
-
-                // Process in batches to avoid memory issues with large inputs
-                for chunk in text_refs.chunks(self.config.batch_size) {
-                    debug!("Processing FastEmbed batch of {} texts", chunk.len());
-
-                    let batch_embeddings =
-                        model.embed(chunk.to_vec(), None).with_context(|| {
-                            format!(
-                                "Failed to generate FastEmbed embeddings for batch of {} texts",
-                                chunk.len()
-                            )
-                        })?;
-
-                    all_embeddings.extend(batch_embeddings);
-                }
-
-                debug!(
-                    "Generated {} FastEmbed embeddings total",
-                    all_embeddings.len()
-                );
-                Ok(all_embeddings)
+                process_texts_in_batches(model, texts, self.config.batch_size)
             }
             EmbeddingBackendType::GGUF(model) => {
-                let mut all_embeddings = Vec::with_capacity(texts.len());
-
-                // Process in batches to avoid memory issues with large inputs
-                for chunk in texts.chunks(self.config.batch_size) {
-                    debug!("Processing GGUF batch of {} texts", chunk.len());
-
-                    let batch_embeddings = model.embed(chunk).with_context(|| {
-                        format!(
-                            "Failed to generate GGUF embeddings for batch of {} texts",
-                            chunk.len()
-                        )
-                    })?;
-
-                    all_embeddings.extend(batch_embeddings);
-                }
-
-                debug!("Generated {} GGUF embeddings total", all_embeddings.len());
-                Ok(all_embeddings)
+                process_texts_in_batches(model, texts, self.config.batch_size)
             }
             EmbeddingBackendType::HuggingFace(model) => {
-                let mut all_embeddings = Vec::with_capacity(texts.len());
-
-                // Process in batches to avoid memory issues with large inputs
-                for chunk in texts.chunks(self.config.batch_size) {
-                    debug!("Processing HuggingFace batch of {} texts", chunk.len());
-
-                    let batch_embeddings = model.embed(chunk).with_context(|| {
-                        format!(
-                            "Failed to generate HuggingFace embeddings for batch of {} texts",
-                            chunk.len()
-                        )
-                    })?;
-
-                    all_embeddings.extend(batch_embeddings);
-                }
-
-                debug!(
-                    "Generated {} HuggingFace embeddings total",
-                    all_embeddings.len()
-                );
-                Ok(all_embeddings)
+                process_texts_in_batches(model, texts, self.config.batch_size)
             }
         }
     }
@@ -605,7 +625,7 @@ impl EmbeddingGenerator {
                     debug!(
                         "FastEmbed batch {} completed in {:.2}ms ({:.1} texts/sec)",
                         batch_idx + 1,
-                        batch_time.as_secs_f64() * 1000.0,
+                        batch_time.as_secs_f64() * constants::memory::SECONDS_TO_MILLISECONDS,
                         chunk.len() as f64 / batch_time.as_secs_f64()
                     );
                 }
@@ -628,7 +648,7 @@ impl EmbeddingGenerator {
                     debug!(
                         "GGUF batch {} completed in {:.2}ms ({:.1} texts/sec)",
                         batch_idx + 1,
-                        batch_time.as_secs_f64() * 1000.0,
+                        batch_time.as_secs_f64() * constants::memory::SECONDS_TO_MILLISECONDS,
                         chunk.len() as f64 / batch_time.as_secs_f64()
                     );
                 }
@@ -651,7 +671,7 @@ impl EmbeddingGenerator {
                     debug!(
                         "HuggingFace batch {} completed in {:.2}ms ({:.1} texts/sec)",
                         batch_idx + 1,
-                        batch_time.as_secs_f64() * 1000.0,
+                        batch_time.as_secs_f64() * constants::memory::SECONDS_TO_MILLISECONDS,
                         chunk.len() as f64 / batch_time.as_secs_f64()
                     );
                 }
@@ -669,8 +689,8 @@ impl EmbeddingGenerator {
         Ok(all_embeddings)
     }
 
-    /// Calculate optimal batch size based on text characteristics and system resources
-    fn calculate_optimal_batch_size(&self, texts: &[String]) -> usize {
+    /// Analyze text characteristics to determine batch size adjustments
+    fn analyze_text_characteristics(&self, texts: &[String]) -> usize {
         if texts.is_empty() {
             return self.config.batch_size;
         }
@@ -678,34 +698,68 @@ impl EmbeddingGenerator {
         // Calculate average text length
         let avg_length = texts.iter().map(|t| t.len()).sum::<usize>() / texts.len();
 
-        // Adjust batch size based on text length and available memory
+        // Adjust batch size based on text length characteristics
         let base_batch_size = self.config.batch_size;
-        let adjusted_size = if avg_length > 1000 {
-            // Longer texts require smaller batches
+        if avg_length > constants::text::LONG_TEXT_LENGTH_THRESHOLD {
+            // Longer texts require smaller batches to avoid memory issues
             base_batch_size / 2
-        } else if avg_length < 100 {
-            // Shorter texts can use larger batches
+        } else if avg_length < constants::text::SHORT_TEXT_LENGTH_THRESHOLD {
+            // Shorter texts can use larger batches for better throughput
             base_batch_size * 2
         } else {
+            // Medium-length texts use the configured batch size
             base_batch_size
-        };
-
-        // Apply memory-based scaling
-        if let Ok(mem_info) = sys_info::mem_info() {
-            let available_gb = mem_info.avail / 1024 / 1024; // Convert KB to GB
-            let memory_factor = if available_gb >= 8 {
-                2.0 // Plenty of memory
-            } else if available_gb >= 4 {
-                1.5 // Moderate memory
-            } else {
-                0.75 // Limited memory
-            };
-
-            let memory_adjusted = (adjusted_size as f64 * memory_factor) as usize;
-            memory_adjusted.clamp(1, 256) // Clamp between 1 and 256
-        } else {
-            adjusted_size.clamp(1, 128) // Conservative default
         }
+    }
+
+    /// Calculate memory-based scaling factor for batch size
+    fn calculate_memory_scaling(&self) -> f64 {
+        match sys_info::mem_info() {
+            Ok(mem_info) => {
+                let available_gb = mem_info.avail / constants::memory::KB_TO_GB_DIVISOR;
+                if available_gb >= constants::memory::HIGH_MEMORY_THRESHOLD_GB {
+                    constants::memory::HIGH_MEMORY_SCALING_FACTOR // Plenty of memory
+                } else if available_gb >= constants::memory::MEDIUM_MEMORY_THRESHOLD_GB {
+                    constants::memory::MEDIUM_MEMORY_SCALING_FACTOR // Moderate memory
+                } else {
+                    constants::memory::LOW_MEMORY_SCALING_FACTOR // Limited memory
+                }
+            }
+            Err(_) => {
+                // Conservative scaling when memory info is unavailable
+                constants::memory::LOW_MEMORY_SCALING_FACTOR
+            }
+        }
+    }
+
+    /// Apply final constraints and bounds to the batch size
+    fn apply_batch_constraints(&self, batch_size: usize, has_memory_info: bool) -> usize {
+        if has_memory_info {
+            // With memory information, use full batch size range
+            batch_size.clamp(constants::batch::MIN_SIZE, constants::batch::MAX_SIZE)
+        } else {
+            // Without memory information, use conservative maximum
+            batch_size.clamp(
+                constants::batch::MIN_SIZE,
+                constants::batch::CONSERVATIVE_MAX_SIZE,
+            )
+        }
+    }
+
+    /// Calculate optimal batch size based on text characteristics and system resources
+    fn calculate_optimal_batch_size(&self, texts: &[String]) -> usize {
+        // Step 1: Analyze text characteristics and get initial batch size
+        let text_adjusted_size = self.analyze_text_characteristics(texts);
+
+        // Step 2: Calculate memory-based scaling factor
+        let memory_factor = self.calculate_memory_scaling();
+
+        // Step 3: Apply memory scaling to the text-adjusted batch size
+        let memory_adjusted_size = (text_adjusted_size as f64 * memory_factor) as usize;
+
+        // Step 4: Apply final constraints and bounds
+        let has_memory_info = sys_info::mem_info().is_ok();
+        self.apply_batch_constraints(memory_adjusted_size, has_memory_info)
     }
 
     /// Prepare texts for embedding by cleaning and normalizing them
@@ -713,12 +767,18 @@ impl EmbeddingGenerator {
         texts
             .iter()
             .map(|text| {
-                // Remove excessive whitespace and normalize
-                text.split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-                    .trim()
-                    .to_string()
+                // Remove excessive whitespace and normalize using iterators
+                // Avoid intermediate Vec allocation by manually joining with iterator
+                let mut result = String::new();
+                let mut first = true;
+                for word in text.split_whitespace() {
+                    if !first {
+                        result.push(' ');
+                    }
+                    result.push_str(word);
+                    first = false;
+                }
+                result
             })
             .collect()
     }
@@ -734,12 +794,61 @@ impl EmbeddingGenerator {
     }
 }
 
+/// Mock embedding generator for unit tests that doesn't require model downloads
+#[cfg(any(test, feature = "test-utils"))]
+#[derive(Debug)]
+pub struct MockEmbeddingGenerator {
+    config: EmbeddingConfig,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl MockEmbeddingGenerator {
+    /// Create a new mock embedding generator for testing
+    pub fn new(config: EmbeddingConfig) -> Self {
+        Self { config }
+    }
+
+    /// Generate a deterministic fake embedding for testing
+    pub fn embed_single(&mut self, text: &str) -> Result<Vec<f32>> {
+        if text.is_empty() {
+            return Ok(vec![0.0; self.config.embedding_dimensions]);
+        }
+
+        // Generate deterministic embeddings based on text content
+        let mut embedding = Vec::with_capacity(self.config.embedding_dimensions);
+        let text_hash = text.chars().map(|c| c as usize).sum::<usize>();
+
+        for i in 0..self.config.embedding_dimensions {
+            let value = constants::test::TEST_EMBEDDING_BASE_VALUE
+                + ((text_hash + i) % constants::test::TEXT_HASH_MODULO) as f32
+                    * constants::test::TEST_EMBEDDING_VARIATION_FACTOR;
+            embedding.push(value);
+        }
+
+        Ok(embedding)
+    }
+
+    /// Generate fake embeddings for a batch of texts
+    pub fn embed_batch(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        texts.iter().map(|text| self.embed_single(text)).collect()
+    }
+
+    /// Get embedding dimensions
+    pub fn embedding_dimensions(&self) -> usize {
+        self.config.embedding_dimensions
+    }
+
+    /// Get model name
+    pub fn model_name(&self) -> &str {
+        &self.config.model_name
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::models::{ModelInfo, ModelInfoConfig};
-    use crate::types::{ModelBackend, ModelType};
-    use tempfile::TempDir;
+    use crate::types::{ModelBackend, ModelName, ModelType};
 
     #[tokio::test]
     async fn test_embedding_config_default() {
@@ -768,25 +877,11 @@ mod tests {
         assert_eq!(config.batch_size, 16);
     }
 
-    #[tokio::test]
-    async fn test_embedding_generator_initialization() {
-        let temp_dir = TempDir::new().unwrap();
-        let config = EmbeddingConfig::default().with_cache_dir(temp_dir.path().to_path_buf());
+    #[test]
+    fn test_mock_embedding_generator_initialization() {
+        let config = EmbeddingConfig::default();
+        let generator = MockEmbeddingGenerator::new(config);
 
-        // This test requires network access to download the model
-        // Skip if we're in an offline environment
-        if std::env::var("OFFLINE_TESTS").is_ok() {
-            return;
-        }
-
-        let generator = EmbeddingGenerator::new(config).await;
-        assert!(
-            generator.is_ok(),
-            "Failed to initialize generator: {:?}",
-            generator.unwrap_err()
-        );
-
-        let generator = generator.unwrap();
         assert_eq!(generator.model_name(), DEFAULT_MODEL);
         assert_eq!(
             generator.embedding_dimensions(),
@@ -794,158 +889,89 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_embed_single_empty_string() {
-        let temp_dir = TempDir::new().unwrap();
-        let config = EmbeddingConfig::default().with_cache_dir(temp_dir.path().to_path_buf());
+    #[test]
+    fn test_mock_embed_single_empty_string() {
+        let config = EmbeddingConfig::default();
+        let mut generator = MockEmbeddingGenerator::new(config);
 
-        if std::env::var("OFFLINE_TESTS").is_ok() {
-            return;
-        }
-
-        let mut generator = EmbeddingGenerator::new(config).await.unwrap();
         let embedding = generator.embed_single("").unwrap();
         assert_eq!(embedding.len(), DEFAULT_EMBEDDING_DIMENSIONS);
         assert!(embedding.iter().all(|&x| x == 0.0));
     }
 
-    #[tokio::test]
-    async fn test_embedding_generator_new_with_model_fastembed() {
-        let temp_dir = TempDir::new().unwrap();
+    #[test]
+    fn test_mock_embed_single_non_empty() {
+        let config = EmbeddingConfig::default();
+        let mut generator = MockEmbeddingGenerator::new(config);
 
-        let model_info = ModelInfo::simple(
-            "sentence-transformers/all-MiniLM-L6-v2".to_string(),
-            "FastEmbed model".to_string(),
-            384,
-            23_000_000,
-        );
+        let text = "test text";
+        let embedding = generator.embed_single(text).unwrap();
 
-        if std::env::var("OFFLINE_TESTS").is_ok() {
-            return;
-        }
+        assert_eq!(embedding.len(), DEFAULT_EMBEDDING_DIMENSIONS);
+        assert!(embedding.iter().any(|&x| x != 0.0));
 
-        // Test that new_with_model works with FastEmbed backend
-        let result = EmbeddingGenerator::new_with_model(&model_info, temp_dir.path()).await;
-
-        // Should succeed for FastEmbed models
-        assert!(
-            result.is_ok(),
-            "new_with_model should work for FastEmbed models"
-        );
-
-        let generator = result.unwrap();
-        assert_eq!(
-            generator.model_name(),
-            "sentence-transformers/all-MiniLM-L6-v2"
-        );
-        assert_eq!(generator.embedding_dimensions(), 384);
+        // Test deterministic behavior
+        let embedding2 = generator.embed_single(text).unwrap();
+        assert_eq!(embedding, embedding2);
     }
 
-    #[tokio::test]
-    async fn test_embedding_generator_new_with_model_gguf() {
-        let temp_dir = TempDir::new().unwrap();
+    #[test]
+    fn test_mock_embed_batch() {
+        let config = EmbeddingConfig::default();
+        let mut generator = MockEmbeddingGenerator::new(config);
 
-        let model_info = ModelInfo::gguf_model(
-            "nomic-embed-code.Q5_K_S.gguf".to_string(),
-            "GGUF model for testing".to_string(),
-            768,
-            2_500_000_000,
-            "https://example.com/model.gguf".to_string(),
-        );
+        let texts = vec![
+            "first text".to_string(),
+            "second text".to_string(),
+            "third text".to_string(),
+        ];
 
-        // Test that new_with_model works with GGUF backend
-        let result = EmbeddingGenerator::new_with_model(&model_info, temp_dir.path()).await;
+        let embeddings = generator.embed_batch(&texts).unwrap();
 
-        // Should succeed for GGUF models (assuming network is available)
-        if result.is_ok() {
-            let generator = result.unwrap();
-            assert_eq!(generator.model_name(), "nomic-embed-code.Q5_K_S.gguf");
-            assert_eq!(generator.embedding_dimensions(), 768);
-        } else {
-            // Allow failure for network-related issues in test environment
-            let error_msg = result.err().unwrap().to_string();
-            println!("GGUF test failed (may be network-related): {}", error_msg);
+        assert_eq!(embeddings.len(), 3);
+        for embedding in &embeddings {
+            assert_eq!(embedding.len(), DEFAULT_EMBEDDING_DIMENSIONS);
+            assert!(embedding.iter().any(|&x| x != 0.0));
         }
+
+        // Different texts should produce different embeddings
+        assert_ne!(embeddings[0], embeddings[1]);
+        assert_ne!(embeddings[1], embeddings[2]);
     }
 
-    #[tokio::test]
-    async fn test_embedding_generator_backend_selection() {
-        // This test verifies that the correct backend is selected based on ModelInfo.backend
-        let temp_dir = TempDir::new().unwrap();
-
-        // Test FastEmbed backend selection
+    #[test]
+    fn test_model_info_configuration() {
+        // Test that ModelInfo can be created with different backends
         let fastembed_model = ModelInfo::new(ModelInfoConfig {
-            name: "test-fastembed".to_string(),
+            name: ModelName::from("test-fastembed"),
             description: "Test FastEmbed model".to_string(),
             dimensions: 384,
-            size_bytes: 1000,
+            size_bytes: constants::test::DEFAULT_MODEL_SIZE_BYTES,
             model_type: ModelType::SentenceTransformer,
             backend: ModelBackend::FastEmbed,
             download_url: None,
             local_path: None,
         });
 
-        // Test GGUF/Candle backend selection
+        assert_eq!(fastembed_model.backend, ModelBackend::FastEmbed);
+        assert_eq!(fastembed_model.dimensions, 384);
+        assert_eq!(fastembed_model.model_type, ModelType::SentenceTransformer);
+
         let gguf_model = ModelInfo::new(ModelInfoConfig {
-            name: "test-gguf".to_string(),
+            name: ModelName::from("test-gguf"),
             description: "Test GGUF model".to_string(),
             dimensions: 768,
-            size_bytes: 1000,
+            size_bytes: constants::test::DEFAULT_MODEL_SIZE_BYTES,
             model_type: ModelType::GGUF,
             backend: ModelBackend::Candle,
             download_url: Some("https://example.com/test.gguf".to_string()),
             local_path: None,
         });
 
-        // Test backend selection logic - should choose correct backend based on ModelInfo.backend
-        let fastembed_result =
-            EmbeddingGenerator::new_with_model(&fastembed_model, temp_dir.path()).await;
-        let gguf_result = EmbeddingGenerator::new_with_model(&gguf_model, temp_dir.path()).await;
-
-        // FastEmbed should work offline (but skip in offline test mode)
-        if std::env::var("OFFLINE_TESTS").is_err() {
-            assert!(fastembed_result.is_ok(), "FastEmbed backend should work");
-        }
-
-        // GGUF may fail due to network or URL issues in test environment, but shouldn't fail due to backend selection
-        if let Err(ref e) = gguf_result {
-            let error_msg = e.to_string();
-            // Should not fail due to backend selection issues
-            assert!(
-                !error_msg.contains("does not support model type"),
-                "Backend selection should work for GGUF"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn test_embedding_generator_custom_backend_model_loading_failure() {
-        let temp_dir = TempDir::new().unwrap();
-
-        // Test that custom backend fails gracefully when trying to load a non-existent model
-        let fake_model = ModelInfo::new(ModelInfoConfig {
-            name: "fake/nonexistent-model".to_string(),
-            description: "Test fake model for custom backend".to_string(),
-            dimensions: 512,
-            size_bytes: 1000,
-            model_type: ModelType::HuggingFace,
-            backend: ModelBackend::Custom, // Now supported backend
-            download_url: None,
-            local_path: None,
-        });
-
-        let result = EmbeddingGenerator::new_with_model(&fake_model, temp_dir.path()).await;
-
-        // Should fail when trying to download the fake model
-        assert!(result.is_err());
-
-        let error_msg = result.err().unwrap().to_string();
-        assert!(
-            error_msg.contains("Failed to load Qwen3 model")
-                || error_msg.contains("Failed to download"),
-            "Should fail with model loading error, got: {}",
-            error_msg
-        );
+        assert_eq!(gguf_model.backend, ModelBackend::Candle);
+        assert_eq!(gguf_model.dimensions, 768);
+        assert_eq!(gguf_model.model_type, ModelType::GGUF);
+        assert!(gguf_model.download_url.is_some());
     }
 
     #[test]
@@ -983,42 +1009,18 @@ mod tests {
         assert_eq!(options.max_length, Some(512));
     }
 
-    #[tokio::test]
-    async fn test_embed_with_options_empty_input() {
-        let temp_dir = TempDir::new().unwrap();
-        let config = EmbeddingConfig::default().with_cache_dir(temp_dir.path().to_path_buf());
+    #[test]
+    fn test_embedding_config_validation() {
+        // Test that embedding configurations can be created and validated
+        let config = EmbeddingConfig::with_model("custom-model")
+            .with_batch_size(64)
+            .with_embedding_dimensions(512)
+            .with_cache_dir("/tmp/test-cache");
 
-        if std::env::var("OFFLINE_TESTS").is_ok() {
-            return;
-        }
-
-        let mut generator = EmbeddingGenerator::new(config).await.unwrap();
-        let options = EmbeddingOptions::default();
-        let embeddings = generator.embed_with_options(&[], &options).unwrap();
-        assert!(embeddings.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_embed_with_options_max_length_truncation() {
-        let temp_dir = TempDir::new().unwrap();
-        let config = EmbeddingConfig::default().with_cache_dir(temp_dir.path().to_path_buf());
-
-        if std::env::var("OFFLINE_TESTS").is_ok() {
-            return;
-        }
-
-        let mut generator = EmbeddingGenerator::new(config).await.unwrap();
-
-        // Create a long text that should be truncated
-        let long_text =
-            "This is a very long text that should be truncated when max_length is applied. "
-                .repeat(20);
-        let texts = vec![long_text];
-
-        let options = EmbeddingOptions::with_max_length(50);
-        let result = generator.embed_with_options(&texts, &options);
-
-        // Should succeed even with truncation
-        assert!(result.is_ok(), "Should handle max_length truncation");
+        assert_eq!(config.model_name, "custom-model");
+        assert_eq!(config.batch_size, 64);
+        assert_eq!(config.embedding_dimensions, 512);
+        assert_eq!(config.cache_dir.to_string_lossy(), "/tmp/test-cache");
     }
 }
+

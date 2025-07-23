@@ -2,17 +2,32 @@
 //!
 //! These tests validate the end-to-end embedding pipeline including
 //! model downloading, caching, and embedding generation with real models.
-//! 
+//!
 //! Run these tests with: `cargo test --test integration`
 //!
 //! These tests are moved here from unit tests to avoid slow model downloads
 //! during regular unit test runs.
+//!
+//! ## Test Mode Configuration
+//!
+//! These tests default to offline mode to avoid slow model downloads. Use `TURBOPROP_TEST_ONLINE=1`
+//! to enable online mode with real model downloads when needed.
 
+use std::env;
 use tempfile::TempDir;
-use turboprop::embeddings::{EmbeddingConfig, EmbeddingGenerator, EmbeddingOptions, DEFAULT_MODEL, DEFAULT_EMBEDDING_DIMENSIONS};
+use turboprop::constants;
+use turboprop::embeddings::{
+    EmbeddingConfig, EmbeddingGenerator, EmbeddingOptions, DEFAULT_EMBEDDING_DIMENSIONS,
+    DEFAULT_MODEL,
+};
 use turboprop::models::{ModelInfo, ModelInfoConfig};
 use turboprop::types::{ModelBackend, ModelName, ModelType};
-use turboprop::constants;
+
+/// Check if tests should run in offline mode (default: offline)
+fn is_offline_mode() -> bool {
+    // Default to offline mode unless explicitly enabled online
+    env::var("TURBOPROP_TEST_ONLINE").unwrap_or_default() != "1"
+}
 
 /// Test embedding generator initialization with default model (MOVED FROM UNIT TESTS)
 #[tokio::test]
@@ -22,7 +37,8 @@ async fn test_embedding_generator_initialization() {
 
     // This test requires network access to download the model
     // Skip if we're in an offline environment
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -44,7 +60,8 @@ async fn test_embedding_generator_initialization() {
 /// Test embedding generation for single text (MOVED FROM UNIT TESTS)
 #[tokio::test]
 async fn test_single_embedding_generation() {
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -72,7 +89,8 @@ async fn test_single_embedding_generation() {
 /// Test batch embedding generation (MOVED FROM UNIT TESTS)
 #[tokio::test]
 async fn test_batch_embedding_generation() {
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -121,7 +139,8 @@ async fn test_batch_embedding_generation() {
 /// Test embedding consistency (same input produces same output) (MOVED FROM UNIT TESTS)
 #[tokio::test]
 async fn test_embedding_consistency() {
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -150,7 +169,8 @@ async fn test_embedding_consistency() {
 /// Test empty string handling (MOVED FROM UNIT TESTS)
 #[tokio::test]
 async fn test_empty_string_embedding() {
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -167,7 +187,8 @@ async fn test_empty_string_embedding() {
 /// Test large batch processing (MOVED FROM UNIT TESTS)
 #[tokio::test]
 async fn test_large_batch_processing() {
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -193,7 +214,8 @@ async fn test_large_batch_processing() {
 /// Test different model configurations (MOVED FROM UNIT TESTS)
 #[tokio::test]
 async fn test_different_model_config() {
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -219,7 +241,8 @@ async fn test_embedding_generator_new_with_model_fastembed() {
         23_000_000,
     );
 
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -304,7 +327,7 @@ async fn test_embedding_generator_backend_selection() {
     let gguf_result = EmbeddingGenerator::new_with_model(&gguf_model, temp_dir.path()).await;
 
     // FastEmbed should work offline (but skip in offline test mode)
-    if std::env::var("OFFLINE_TESTS").is_err() {
+    if !is_offline_mode() {
         assert!(fastembed_result.is_ok(), "FastEmbed backend should work");
     }
 
@@ -356,7 +379,8 @@ async fn test_embed_with_options_empty_input() {
     let temp_dir = TempDir::new().unwrap();
     let config = EmbeddingConfig::default().with_cache_dir(temp_dir.path().to_path_buf());
 
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -372,7 +396,8 @@ async fn test_embed_with_options_max_length_truncation() {
     let temp_dir = TempDir::new().unwrap();
     let config = EmbeddingConfig::default().with_cache_dir(temp_dir.path().to_path_buf());
 
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -380,8 +405,7 @@ async fn test_embed_with_options_max_length_truncation() {
 
     // Create a long text that should be truncated
     let long_text =
-        "This is a very long text that should be truncated when max_length is applied. "
-            .repeat(20);
+        "This is a very long text that should be truncated when max_length is applied. ".repeat(20);
     let texts = vec![long_text];
 
     let options = EmbeddingOptions::with_max_length(50);
@@ -395,7 +419,7 @@ async fn test_embed_with_options_max_length_truncation() {
 #[tokio::test]
 async fn test_qwen3_embedding_generator_creation() {
     // Skip this test if we're in offline mode or network tests are disabled
-    if std::env::var("OFFLINE_TESTS").is_ok() || std::env::var("SKIP_NETWORK_TESTS").is_ok() {
+    if is_offline_mode() || std::env::var("SKIP_NETWORK_TESTS").is_ok() {
         return;
     }
 

@@ -16,10 +16,7 @@ use turboprop::types::ModelName;
 #[test]
 fn test_embedding_config_initialization() {
     let config = EmbeddingConfig::default();
-    assert_eq!(
-        config.model_name,
-        "sentence-transformers/all-MiniLM-L6-v2"
-    );
+    assert_eq!(config.model_name, "sentence-transformers/all-MiniLM-L6-v2");
     assert_eq!(config.embedding_dimensions, 384);
     assert_eq!(config.batch_size, 32);
 }
@@ -96,7 +93,8 @@ fn test_model_manager_cache_operations() {
     assert!(temp_dir.path().exists());
 
     // Test model path generation
-    let model_path = manager.get_model_path(&ModelName::from("sentence-transformers/all-MiniLM-L6-v2"));
+    let model_path =
+        manager.get_model_path(&ModelName::from("sentence-transformers/all-MiniLM-L6-v2"));
     let expected_name = "sentence-transformers_all-MiniLM-L6-v2";
     assert!(model_path
         .file_name()
@@ -185,12 +183,10 @@ fn test_embedding_config_validation() {
 #[test]
 fn test_qwen3_model_backend_selection() {
     let models = ModelManager::get_available_models();
-    
+
     // Check if Qwen3 model is available in the model list
-    let qwen3_model = models
-        .iter()
-        .find(|m| m.name.as_str().contains("Qwen3"));
-    
+    let qwen3_model = models.iter().find(|m| m.name.as_str().contains("Qwen3"));
+
     if let Some(model) = qwen3_model {
         // Verify it uses the Custom backend (which maps to HuggingFace)
         assert_eq!(model.backend, turboprop::types::ModelBackend::Custom);

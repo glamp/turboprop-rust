@@ -1,5 +1,10 @@
 
-max_filesize: "1mb"
-model: "sentence-transformers/all-MiniLM-L6-v2"
-worker_threads: 2
-batch_size: 16
+indexing:
+  max_file_size: "1mb"
+
+embedding:
+  model: "mock://test-model"
+  batch_size: 8
+
+parallel:
+  worker_threads: 2

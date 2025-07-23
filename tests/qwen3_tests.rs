@@ -1,5 +1,5 @@
 //! Unit tests for Qwen3 embedding functionality (configuration and API only).
-//! 
+//!
 //! For integration tests with real model downloads, see tests/integration/embedding_tests.rs
 
 use anyhow::Result;
@@ -8,8 +8,8 @@ use tempfile::TempDir;
 use turboprop::backends::HuggingFaceBackend;
 use turboprop::embeddings::{EmbeddingConfig, EmbeddingGenerator, EmbeddingOptions};
 use turboprop::models::ModelManager;
-use turboprop::types::{ModelBackend, ModelType};
 use turboprop::types::ModelName;
+use turboprop::types::{ModelBackend, ModelType};
 
 /// Test that Qwen3 model is available in the available models list
 #[test]
@@ -75,7 +75,6 @@ fn test_qwen3_config_concept() {
         "Should support long sequences"
     );
 }
-
 
 /// Test instruction-based embedding support
 #[test]

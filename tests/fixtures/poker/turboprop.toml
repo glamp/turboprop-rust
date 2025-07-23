@@ -4,12 +4,14 @@ max_file_size = "2mb"
 include_gitignore = false
 
 [embedding]
-model = "sentence-transformers/all-MiniLM-L6-v2"
-batch_size = 16
+# Use minimal model or mock embeddings in offline mode
+model = "mock://test-model"
+batch_size = 8
 cache_dir = ".turboprop/cache"
 
 [storage]
 index_dir = ".turboprop"
+compression_enabled = false  # Disable compression to avoid complexity in offline mode
 
 [parallel]
-max_concurrent_files = 4
+max_concurrent_files = 2  # Reduce for test stability

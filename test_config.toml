@@ -1,0 +1,15 @@
+[indexing]
+max_file_size = "2mb"
+include_gitignore = false
+
+[embedding]
+model = "mock://test-model"
+batch_size = 8
+cache_dir = ".turboprop/cache"
+
+[storage]
+index_dir = ".turboprop"
+compression_enabled = false
+
+[parallel]
+max_concurrent_files = 2

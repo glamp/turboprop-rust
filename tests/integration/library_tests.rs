@@ -2,13 +2,25 @@
 //!
 //! These tests verify the end-to-end functionality by calling library functions directly,
 //! including embedding generation, progress tracking, error handling, and index completeness.
+//!
+//! ## Test Mode Configuration
+//!
+//! These tests default to offline mode to avoid slow model downloads. Use `TURBOPROP_TEST_ONLINE=1`
+//! to enable online mode with real model downloads when needed.
 
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use turboprop::commands::execute_index_command;
 use turboprop::config::TurboPropConfig;
 use turboprop::index::PersistentChunkIndex;
+
+/// Check if tests should run in offline mode (default: offline)
+fn is_offline_mode() -> bool {
+    // Default to offline mode unless explicitly enabled online
+    env::var("TURBOPROP_TEST_ONLINE").unwrap_or_default() != "1"
+}
 
 /// Create a test file with the given content
 fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
@@ -221,8 +233,9 @@ logging:
 
 #[tokio::test]
 async fn test_index_command_with_small_codebase() {
-    // Skip if offline tests are requested
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    // Skip if in offline mode (default)
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -300,8 +313,9 @@ async fn test_index_command_error_handling() {
 
 #[tokio::test]
 async fn test_index_command_with_unreadable_files() {
-    // Skip if offline tests are requested
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    // Skip if in offline mode (default)
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -348,8 +362,9 @@ async fn test_index_command_with_unreadable_files() {
 
 #[tokio::test]
 async fn test_index_directory_structure() {
-    // Skip if offline tests are requested
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    // Skip if in offline mode (default)
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 
@@ -398,8 +413,9 @@ async fn test_index_directory_structure() {
 
 #[tokio::test]
 async fn test_index_persistence() {
-    // Skip if offline tests are requested
-    if std::env::var("OFFLINE_TESTS").is_ok() {
+    // Skip if in offline mode (default)
+    if is_offline_mode() {
+        println!("Skipping test in offline mode");
         return;
     }
 

@@ -26,6 +26,8 @@ use crate::error::TurboPropError;
 ///     enable_delta_compression: false,
 ///     clustering_threshold: 0.95,
 ///     kmeans_iterations: 10,
+///     subvector_size: 8,
+///     codebook_size: 256,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +42,10 @@ pub struct CompressionConfig {
     pub clustering_threshold: f32,
     /// Number of iterations for k-means clustering algorithm
     pub kmeans_iterations: usize,
+    /// Size of subvectors for product quantization (dimensions per subvector)
+    pub subvector_size: usize,
+    /// Number of centroids per subspace in product quantization
+    pub codebook_size: usize,
 }
 
 impl Default for CompressionConfig {
@@ -50,6 +56,8 @@ impl Default for CompressionConfig {
             enable_delta_compression: true,
             clustering_threshold: 0.9,
             kmeans_iterations: 10, // Default to 10 iterations
+            subvector_size: 8, // Split into 8-dimensional subvectors
+            codebook_size: 256, // 256 centroids per subspace
         }
     }
 }
@@ -169,6 +177,8 @@ impl CompressionStats {
 ///     enable_delta_compression: false,
 ///     clustering_threshold: 0.95,
 ///     kmeans_iterations: 10,
+///     subvector_size: 8,
+///     codebook_size: 256,
 /// };
 /// let mut compressor = VectorCompressor::new(config);
 ///
@@ -208,6 +218,8 @@ impl VectorCompressor {
     ///     enable_delta_compression: false,
     ///     clustering_threshold: 0.95,
     ///     kmeans_iterations: 10,
+    ///     subvector_size: 8,
+    ///     codebook_size: 256,
     /// };
     /// let compressor = VectorCompressor::new(config);
     /// ```
@@ -282,12 +294,13 @@ impl VectorCompressor {
     }
 
     /// Apply the configured compression algorithm to the vectors
-    fn apply_compression_algorithm(&mut self, vectors: &[Vec<f32>]) -> Result<Vec<CompressedVector>> {
+    fn apply_compression_algorithm(
+        &mut self,
+        vectors: &[Vec<f32>],
+    ) -> Result<Vec<CompressedVector>> {
         match self.config.algorithm {
             CompressionAlgorithm::None => self.compress_none(vectors),
-            CompressionAlgorithm::ScalarQuantization => {
-                self.compress_scalar_quantization(vectors)
-            }
+            CompressionAlgorithm::ScalarQuantization => self.compress_scalar_quantization(vectors),
             CompressionAlgorithm::ProductQuantization => {
                 self.compress_product_quantization(vectors)
             }
@@ -395,9 +408,9 @@ impl VectorCompressor {
         }
 
         let vector_dim = vectors[0].len();
-        let subvector_size = 8; // Split into 8-dimensional subvectors
+        let subvector_size = self.config.subvector_size;
         let num_subvectors = vector_dim.div_ceil(subvector_size);
-        let codebook_size = 256; // 256 centroids per subspace
+        let codebook_size = self.config.codebook_size;
 
         info!(
             "Building product quantization codebook: {} subvectors of size {}",
@@ -412,7 +425,7 @@ impl VectorCompressor {
         let compressed = vectors
             .iter()
             .map(|vector| {
-                let mut codes = Vec::new();
+                let mut codes = Vec::with_capacity(codebook.len());
 
                 for (i, centroid) in codebook.iter().enumerate() {
                     let start = i * subvector_size;
@@ -638,11 +651,10 @@ impl VectorCompressor {
         best_idx as u8
     }
 
-    
     /// Calculate squared Euclidean distance (avoiding sqrt for performance when only comparing)
     fn euclidean_distance_squared(&self, a: &[f32], b: &[f32]) -> f32 {
         debug_assert_eq!(a.len(), b.len(), "Vector dimensions must match");
-        
+
         let mut sum = 0.0f32;
         for (&x, &y) in a.iter().zip(b.iter()) {
             let diff = x - y;

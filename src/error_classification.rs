@@ -34,18 +34,27 @@ mod error_messages {
     pub const HELP_NO_FILES_FOUND: &str = "Try specifying a directory that contains code files.";
     pub const HELP_CHECK_GITIGNORE: &str = "Check if files are excluded by .gitignore patterns.";
     pub const HELP_MODEL_DOWNLOAD: &str = "The embedding model may need to be downloaded first. This requires an internet connection.";
-    pub const HELP_RETRY_CONNECTION: &str = "If this is a transient network issue, try running the command again.";
-    pub const HELP_TRY_DIFFERENT_MODEL: &str = "Consider using a different embedding model with --embedding-model.";
-    pub const HELP_RUN_WITH_PERMISSIONS: &str = "Try running with appropriate file system permissions, or use sudo if necessary.";
+    pub const HELP_RETRY_CONNECTION: &str =
+        "If this is a transient network issue, try running the command again.";
+    pub const HELP_TRY_DIFFERENT_MODEL: &str =
+        "Consider using a different embedding model with --embedding-model.";
+    pub const HELP_RUN_WITH_PERMISSIONS: &str =
+        "Try running with appropriate file system permissions, or use sudo if necessary.";
     pub const HELP_DISK_SPACE: &str = "Free up disk space and try again.";
-    pub const HELP_FREE_SPACE: &str = "You may need several GB of free space for embeddings and model files.";
-    pub const HELP_USE_MAX_FILESIZE: &str = "Use --max-filesize to limit processing to smaller files.";
-    pub const HELP_MODEL_DOWNLOAD_ISSUE: &str = "There may be an issue downloading the embedding model.";
+    pub const HELP_FREE_SPACE: &str =
+        "You may need several GB of free space for embeddings and model files.";
+    pub const HELP_USE_MAX_FILESIZE: &str =
+        "Use --max-filesize to limit processing to smaller files.";
+    pub const HELP_MODEL_DOWNLOAD_ISSUE: &str =
+        "There may be an issue downloading the embedding model.";
     pub const HELP_CHECK_CONNECTION: &str = "Check your internet connection and try again.";
-    pub const HELP_USE_CACHE_DIR: &str = "Specify a cache directory with --cache-dir if there are permission issues.";
+    pub const HELP_USE_CACHE_DIR: &str =
+        "Specify a cache directory with --cache-dir if there are permission issues.";
     pub const HELP_USE_VERBOSE: &str = "Use --verbose to see more detailed error information.";
-    pub const HELP_EXCLUDE_LARGE_FILES: &str = "Consider using --max-filesize to exclude large files that might be causing issues.";
-    pub const HELP_CHECK_DIRECTORY: &str = "Check that the directory is accessible and contains readable files.";
+    pub const HELP_EXCLUDE_LARGE_FILES: &str =
+        "Consider using --max-filesize to exclude large files that might be causing issues.";
+    pub const HELP_CHECK_DIRECTORY: &str =
+        "Check that the directory is accessible and contains readable files.";
 }
 
 use error_messages::*;

@@ -54,7 +54,6 @@ struct BenchmarkSizes {
     small: usize,  // 10 files
     medium: usize, // 100 files
     large: usize,  // 1000 files
-    xlarge: usize, // 10000 files
 }
 
 impl BenchmarkSizes {
@@ -63,7 +62,6 @@ impl BenchmarkSizes {
             small: 10,
             medium: 100,
             large: 1000,
-            xlarge: 10000,
         }
     }
 }
@@ -363,7 +361,7 @@ fn bench_streaming(c: &mut Criterion) {
             |b, chunks| {
                 b.iter(|| {
                     let config = StreamingConfig::default();
-                    let mut processor = StreamingChunkProcessor::new(config);
+                    let _processor = StreamingChunkProcessor::new(config);
 
                     // Simulate streaming processing by just counting chunks
                     black_box(chunks.len())

@@ -430,7 +430,7 @@ async fn test_index_command_specification_api() -> Result<()> {
     // Test: tp index --repo . --max-filesize 2mb
     // This is the exact command from the specification
     let mut args = vec!["index", "--repo", "."];
-    
+
     if offline_mode {
         // In offline mode, use the test config and add flags to make test more robust
         args.extend_from_slice(&["--config", "turboprop.toml", "--max-filesize", "2mb"]);
@@ -453,10 +453,13 @@ async fn test_index_command_specification_api() -> Result<()> {
                 );
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                
+
                 if offline_mode {
                     // In offline mode, we expect model-related errors and that's OK
-                    println!("Index command failed in offline mode (expected): {}", stderr);
+                    println!(
+                        "Index command failed in offline mode (expected): {}",
+                        stderr
+                    );
                     return Ok(());
                 } else {
                     // In online mode, only allow specific model/network-related failures

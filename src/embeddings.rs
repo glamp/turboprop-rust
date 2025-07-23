@@ -120,7 +120,10 @@ impl EmbeddingGenerator {
         // Ensure cache directory exists
         if !config.cache_dir.exists() {
             std::fs::create_dir_all(&config.cache_dir).with_context(|| {
-                format!("Failed to create cache directory: {}", config.cache_dir.display())
+                format!(
+                    "Failed to create cache directory: {}",
+                    config.cache_dir.display()
+                )
             })?;
             debug!("Created cache directory: {}", config.cache_dir.display());
         }
@@ -144,7 +147,10 @@ impl EmbeddingGenerator {
 
         info!("Loading embedding model (this may download the model on first use)...");
         let model = TextEmbedding::try_new(init_options).with_context(|| {
-            format!("Failed to initialize embedding model: {}", config.model_name)
+            format!(
+                "Failed to initialize embedding model: {}",
+                config.model_name
+            )
         })?;
 
         info!("Embedding model loaded successfully");

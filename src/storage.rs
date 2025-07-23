@@ -530,8 +530,8 @@ impl IndexStorage {
         let backup_paths: Vec<_> = files_to_delete.to_vec();
 
         // Phase 3: Perform deletions with detailed error context
-        let mut deleted_files = Vec::new();
-        let mut deletion_errors = Vec::new();
+        let mut deleted_files = Vec::with_capacity(backup_paths.len());
+        let mut deletion_errors = Vec::with_capacity(backup_paths.len());
 
         for path in files_to_delete {
             match std::fs::remove_file(&path) {

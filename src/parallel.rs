@@ -79,7 +79,8 @@ impl Default for ParallelConfig {
     fn default() -> Self {
         let num_cpus = num_cpus::get();
         Self {
-            max_concurrent_files: num_cpus * parallel_constants::MEDIUM_MEMORY_CONCURRENCY_MULTIPLIER,
+            max_concurrent_files: num_cpus
+                * parallel_constants::MEDIUM_MEMORY_CONCURRENCY_MULTIPLIER,
             embedding_batch_size: parallel_constants::DEFAULT_EMBEDDING_BATCH_SIZE,
             chunk_buffer_size: parallel_constants::DEFAULT_CHUNK_BUFFER_SIZE,
             enable_work_stealing: true,
@@ -158,7 +159,7 @@ impl ParallelFileProcessor {
 
         // Collect all successful chunks and track errors
         let mut all_chunks = Vec::new();
-        let mut errors = Vec::new();
+        let mut errors = Vec::with_capacity(files.len());
         let mut files_processed = 0;
 
         for (idx, result) in chunk_results.into_iter().enumerate() {
@@ -402,8 +403,10 @@ pub mod config {
     pub fn for_large_codebases() -> ParallelConfig {
         let base_config = optimize_for_system();
         ParallelConfig {
-            embedding_batch_size: base_config.embedding_batch_size * parallel_constants::LARGE_CODEBASE_BATCH_MULTIPLIER,
-            chunk_buffer_size: base_config.chunk_buffer_size * parallel_constants::LARGE_CODEBASE_BUFFER_MULTIPLIER,
+            embedding_batch_size: base_config.embedding_batch_size
+                * parallel_constants::LARGE_CODEBASE_BATCH_MULTIPLIER,
+            chunk_buffer_size: base_config.chunk_buffer_size
+                * parallel_constants::LARGE_CODEBASE_BUFFER_MULTIPLIER,
             ..base_config
         }
     }

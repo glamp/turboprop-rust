@@ -19,7 +19,6 @@ use crate::watcher::{FileWatcher, SignalHandler};
 const ERROR_ICON: &str = "❌";
 const HELP_ICON: &str = "💡";
 
-
 /// Execute the index command with the provided configuration
 ///
 /// This is the main entry point for the `tp index` command that replaces the

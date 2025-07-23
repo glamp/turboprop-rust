@@ -61,7 +61,10 @@ pub enum Commands {
         /// Filter results by file extension (e.g., '.rs', '.js', '.py')
         #[arg(long)]
         filetype: Option<String>,
-        /// Filter results by file glob pattern (e.g., "src/*.js", "**/*.rs")
+        /// Filter results by file glob pattern.
+        /// Examples: "*.rs" (Rust files), "src/**/*.js" (JS files in src/),
+        /// "test/**/*.{rs,ts}" (Rust/TypeScript in test/), "!target/**" (exclude target/).
+        /// Supports wildcards: * (any), ? (single char), ** (recursive), {} (alternatives)
         #[arg(long)]
         filter: Option<String>,
     },

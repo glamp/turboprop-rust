@@ -58,24 +58,29 @@ impl SearchCommandConfig {
     /// Validate the search command configuration
     pub fn validate(&self) -> Result<()> {
         // Validate query
-        crate::query::validate_query(&self.query).context("Invalid search query")?;
+        crate::query::validate_query(&self.query)
+            .with_context(|| format!("Search query validation failed: '{}'", self.query))?;
 
         // Validate repository path
         let repo_path = Path::new(&self.repo_path);
         if !repo_path.exists() {
-            anyhow::bail!("Repository path does not exist: {}", self.repo_path);
+            return Err(anyhow::anyhow!("Repository path does not exist"))
+                .with_context(|| format!("Invalid repository path: {}", self.repo_path));
         }
 
         // Validate threshold range
         if let Some(threshold) = self.threshold {
             if !(0.0..=1.0).contains(&threshold) {
-                anyhow::bail!("Threshold must be between 0.0 and 1.0, got: {}", threshold);
+                return Err(anyhow::anyhow!("Threshold out of valid range")).with_context(|| {
+                    format!("Threshold must be between 0.0 and 1.0, got: {}", threshold)
+                });
             }
         }
 
         // Validate limit
         if self.limit == 0 {
-            anyhow::bail!("Limit must be greater than 0, got: {}", self.limit);
+            return Err(anyhow::anyhow!("Invalid limit value"))
+                .with_context(|| format!("Limit must be greater than 0, got: {}", self.limit));
         }
 
         if self.limit > LARGE_RESULT_LIMIT_WARNING_THRESHOLD {

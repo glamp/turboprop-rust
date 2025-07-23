@@ -195,6 +195,7 @@ async fn test_search_command_config_validation() -> Result<()> {
         Some(0.5),
         OutputFormat::Json,
         Some("rs".to_string()),
+        None, // glob_pattern
     );
     assert!(config.validate().is_ok());
 
@@ -206,6 +207,7 @@ async fn test_search_command_config_validation() -> Result<()> {
         None,
         OutputFormat::Json,
         None,
+        None, // glob_pattern
     );
     assert!(config.validate().is_err());
 
@@ -217,6 +219,7 @@ async fn test_search_command_config_validation() -> Result<()> {
         Some(1.5),
         OutputFormat::Json,
         None,
+        None, // glob_pattern
     );
     assert!(config.validate().is_err());
 
@@ -228,6 +231,7 @@ async fn test_search_command_config_validation() -> Result<()> {
         None,
         OutputFormat::Json,
         None,
+        None, // glob_pattern
     );
     assert!(config.validate().is_err());
 
@@ -580,6 +584,251 @@ async fn test_search_poker_codebase() -> Result<()> {
             // This is acceptable in test environments
         }
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_search_command_with_valid_glob_patterns() -> Result<()> {
+    let temp_dir = create_test_codebase()?;
+    let temp_path = temp_dir.path();
+
+    // Try to build index, skip test if not possible
+    if !build_test_index_if_needed(temp_path).await? {
+        println!("Skipping test - unable to build index (likely missing model in test environment)");
+        return Ok(());
+    }
+
+    // Test simple glob pattern for Rust files
+    let result = execute_search_command_cli(
+        "authenticate".to_string(),
+        temp_path.to_path_buf(),
+        5,
+        None,
+        "json".to_string(),
+        None,
+        Some("*.rs".to_string()),
+    ).await;
+
+    match result {
+        Ok(_) => {
+            println!("Search with glob pattern *.rs completed successfully");
+        }
+        Err(e) => {
+            let error_msg = e.to_string();
+            assert!(
+                error_msg.contains("index") 
+                || error_msg.contains("model") 
+                || error_msg.contains("embedding")
+                || error_msg.contains("load"),
+                "Unexpected error: {}", error_msg
+            );
+        }
+    }
+
+    // Test recursive glob pattern
+    let result = execute_search_command_cli(
+        "function".to_string(),
+        temp_path.to_path_buf(),
+        5,
+        None,
+        "json".to_string(),
+        None,
+        Some("**/*.js".to_string()),
+    ).await;
+
+    match result {
+        Ok(_) => {
+            println!("Search with recursive glob pattern **/*.js completed successfully");
+        }
+        Err(e) => {
+            let error_msg = e.to_string();
+            assert!(
+                error_msg.contains("index") 
+                || error_msg.contains("model") 
+                || error_msg.contains("embedding")
+                || error_msg.contains("load"),
+                "Unexpected error: {}", error_msg
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_search_command_with_invalid_glob_patterns() -> Result<()> {
+    let temp_dir = create_test_codebase()?;
+    let temp_path = temp_dir.path();
+
+    // Test invalid glob pattern with path traversal
+    let result = execute_search_command_cli(
+        "test query".to_string(),
+        temp_path.to_path_buf(),
+        10,
+        None,
+        "json".to_string(),
+        None,
+        Some("../malicious/*".to_string()),
+    ).await;
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(
+        error_msg.contains("path traversal") 
+        || error_msg.contains("invalid pattern")
+        || error_msg.contains("security")
+    );
+
+    // Test invalid glob pattern - too long
+    let long_pattern = "a".repeat(2000) + "/*.rs";
+    let result = execute_search_command_cli(
+        "test query".to_string(),
+        temp_path.to_path_buf(),
+        10,
+        None,
+        "json".to_string(),
+        None,
+        Some(long_pattern),
+    ).await;
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(
+        error_msg.contains("too long") 
+        || error_msg.contains("length limit")
+        || error_msg.contains("pattern")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_search_command_filetype_and_glob_integration() -> Result<()> {
+    let temp_dir = create_test_codebase()?;
+    let temp_path = temp_dir.path();
+
+    // Try to build index, skip test if not possible
+    if !build_test_index_if_needed(temp_path).await? {
+        println!("Skipping test - unable to build index (likely missing model in test environment)");
+        return Ok(());
+    }
+
+    // Test using both filetype and glob pattern filters
+    let result = execute_search_command_cli(
+        "authenticate".to_string(),
+        temp_path.to_path_buf(),
+        5,
+        None,
+        "json".to_string(),
+        Some("js".to_string()), // filetype filter
+        Some("**/*.js".to_string()), // glob pattern filter
+    ).await;
+
+    match result {
+        Ok(_) => {
+            println!("Search with both filetype and glob filters completed successfully");
+        }
+        Err(e) => {
+            let error_msg = e.to_string();
+            assert!(
+                error_msg.contains("index") 
+                || error_msg.contains("model") 
+                || error_msg.contains("embedding")
+                || error_msg.contains("load"),
+                "Unexpected error: {}", error_msg
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_search_command_config_with_glob_pattern() -> Result<()> {
+    let temp_dir = create_test_codebase()?;
+    let temp_path = temp_dir.path().to_string_lossy().to_string();
+
+    // Valid configuration with glob pattern
+    let config = SearchCommandConfig::new(
+        "test query".to_string(),
+        temp_path.clone(),
+        10,
+        Some(0.5),
+        OutputFormat::Json,
+        None,
+        Some("*.rs".to_string()), // glob_pattern
+    );
+    assert!(config.validate().is_ok());
+
+    // Valid configuration with complex glob pattern
+    let config = SearchCommandConfig::new(
+        "test query".to_string(),
+        temp_path.clone(),
+        10,
+        Some(0.5),
+        OutputFormat::Json,
+        None,
+        Some("src/**/*.{rs,ts}".to_string()), // glob_pattern
+    );
+    assert!(config.validate().is_ok());
+
+    // Invalid configuration - glob pattern with path traversal
+    let config = SearchCommandConfig::new(
+        "test query".to_string(),
+        temp_path,
+        10,
+        Some(0.5),
+        OutputFormat::Json,
+        None,
+        Some("../unsafe/*".to_string()), // invalid glob_pattern
+    );
+    assert!(config.validate().is_err());
+
+    Ok(())
+}
+
+#[tokio::test] 
+async fn test_search_command_glob_pattern_error_messages() -> Result<()> {
+    let temp_dir = create_test_codebase()?;
+    let temp_path = temp_dir.path();
+
+    // Test empty glob pattern
+    let result = execute_search_command_cli(
+        "test query".to_string(),
+        temp_path.to_path_buf(),
+        10,
+        None,
+        "json".to_string(),
+        None,
+        Some("".to_string()),
+    ).await;
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(
+        error_msg.contains("empty") 
+        || error_msg.contains("invalid pattern")
+    );
+
+    // Test glob pattern with invalid characters
+    let result = execute_search_command_cli(
+        "test query".to_string(),
+        temp_path.to_path_buf(),
+        10,
+        None,
+        "json".to_string(),
+        None,
+        Some("invalid\0pattern".to_string()),
+    ).await;
+
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(
+        error_msg.contains("invalid") 
+        || error_msg.contains("character")
+        || error_msg.contains("pattern")
+    );
 
     Ok(())
 }

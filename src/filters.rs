@@ -1263,7 +1263,7 @@ mod tests {
             assert!(normalize_file_extension_with_config("rs", &config).is_ok());
 
             let long_ext = "verylongext";
-            assert!(normalize_file_extension_with_config(&long_ext, &config).is_err());
+            assert!(normalize_file_extension_with_config(long_ext, &config).is_err());
         }
 
         #[test]
@@ -1334,10 +1334,9 @@ mod tests {
                 let matches_lower = caret_negated_pattern.matches(Path::new("loga.txt"));
 
                 // The behavior might vary depending on glob crate implementation
-                // Just ensure it doesn't panic and produces some consistent behavior
-                assert!(matches_digit || !matches_digit); // Should not panic
-                assert!(matches_upper || !matches_upper); // Should not panic
-                assert!(matches_lower || !matches_lower); // Should not panic
+                // Just ensure it doesn't panic - if we reach this point, it didn't panic
+                // The actual match results depend on the glob implementation
+                let _matches = [matches_digit, matches_upper, matches_lower];
             }
 
             // Test single character wildcard

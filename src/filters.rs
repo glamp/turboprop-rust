@@ -603,6 +603,8 @@ fn validate_problematic_patterns(pattern: &str) -> Result<()> {
 pub struct FilterConfig {
     /// File extension filter (e.g., ".rs", ".js", ".py")
     pub file_extension: Option<String>,
+    /// Glob pattern filter (e.g., "*.rs", "src/**/*.js")
+    pub glob_pattern: Option<String>,
     /// Maximum allowed length for glob patterns
     pub max_glob_pattern_length: usize,
     /// Maximum allowed length for file extensions (including the dot)
@@ -613,6 +615,7 @@ impl Default for FilterConfig {
     fn default() -> Self {
         Self {
             file_extension: None,
+            glob_pattern: None,
             max_glob_pattern_length: DEFAULT_MAX_GLOB_PATTERN_LENGTH,
             max_extension_length: DEFAULT_MAX_EXTENSION_LENGTH,
         }
@@ -629,6 +632,7 @@ impl FilterConfig {
     pub fn with_limits(max_glob_pattern_length: usize, max_extension_length: usize) -> Self {
         Self {
             file_extension: None,
+            glob_pattern: None,
             max_glob_pattern_length,
             max_extension_length,
         }
@@ -645,25 +649,39 @@ impl FilterConfig {
         self.file_extension = Some(normalized);
         self
     }
+
+    /// Set the glob pattern filter
+    pub fn with_glob_pattern(mut self, pattern: String) -> Self {
+        self.glob_pattern = Some(pattern);
+        self
+    }
 }
 
 /// Filter for search results
 pub struct SearchFilter {
     config: FilterConfig,
+    glob_cache: Arc<GlobPatternCache>,
 }
 
 impl SearchFilter {
     /// Create a new search filter with the given configuration
     pub fn new(config: FilterConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            glob_cache: Arc::new(GlobPatternCache::new()),
+        }
     }
 
     /// Create a search filter from optional command line arguments
-    pub fn from_cli_args(filetype: Option<String>) -> Self {
+    pub fn from_cli_args(filetype: Option<String>, glob_pattern: Option<String>) -> Self {
         let mut config = FilterConfig::new();
 
         if let Some(extension) = filetype {
             config = config.with_file_extension(extension);
+        }
+
+        if let Some(pattern) = glob_pattern {
+            config = config.with_glob_pattern(pattern);
         }
 
         Self::new(config)
@@ -673,12 +691,34 @@ impl SearchFilter {
     pub fn apply_filters(&self, results: Vec<SearchResult>) -> Result<Vec<SearchResult>> {
         let mut filtered = results;
 
+        // Apply glob pattern filter if configured (first priority)
+        if let Some(ref pattern) = self.config.glob_pattern {
+            filtered = self.filter_by_glob_pattern(filtered, pattern)?;
+        }
+
         // Apply file extension filter if configured
         if let Some(ref extension) = self.config.file_extension {
             filtered = self.filter_by_extension(filtered, extension)?;
         }
 
         Ok(filtered)
+    }
+
+    /// Filter results by glob pattern
+    fn filter_by_glob_pattern(
+        &self,
+        results: Vec<SearchResult>,
+        pattern: &str,
+    ) -> Result<Vec<SearchResult>> {
+        let glob_pattern = self.glob_cache.get_or_create(pattern, &self.config)?;
+
+        Ok(results
+            .into_iter()
+            .filter(|result| {
+                let file_path = &result.chunk.chunk.source_location.file_path;
+                self.matches_glob_pattern(file_path, &glob_pattern)
+            })
+            .collect())
     }
 
     /// Filter results by file extension
@@ -696,6 +736,11 @@ impl SearchFilter {
             .collect())
     }
 
+    /// Check if a file path matches the given glob pattern
+    fn matches_glob_pattern(&self, path: &Path, glob_pattern: &GlobPattern) -> bool {
+        glob_pattern.matches(path)
+    }
+
     /// Check if a file path matches the given extension
     fn matches_extension(&self, path: &Path, target_extension: &str) -> bool {
         if let Some(file_extension) = path.extension() {
@@ -710,6 +755,10 @@ impl SearchFilter {
     pub fn describe_filters(&self) -> Vec<String> {
         let mut descriptions = Vec::new();
 
+        if let Some(ref pattern) = self.config.glob_pattern {
+            descriptions.push(format!("Glob pattern: {}", pattern));
+        }
+
         if let Some(ref extension) = self.config.file_extension {
             descriptions.push(format!("File extension: {}", extension));
         }
@@ -723,7 +772,7 @@ impl SearchFilter {
 
     /// Check if any filters are active
     pub fn has_active_filters(&self) -> bool {
-        self.config.file_extension.is_some()
+        self.config.file_extension.is_some() || self.config.glob_pattern.is_some()
     }
 }
 
@@ -825,10 +874,10 @@ mod tests {
 
     #[test]
     fn test_search_filter_from_cli_args() {
-        let filter = SearchFilter::from_cli_args(None);
+        let filter = SearchFilter::from_cli_args(None, None);
         assert!(!filter.has_active_filters());
 
-        let filter = SearchFilter::from_cli_args(Some("rs".to_string()));
+        let filter = SearchFilter::from_cli_args(Some("rs".to_string()), None);
         assert!(filter.has_active_filters());
         assert_eq!(filter.config.file_extension, Some(".rs".to_string()));
     }
@@ -842,7 +891,7 @@ mod tests {
             create_test_result("README.md", 0.6),
         ];
 
-        let filter = SearchFilter::from_cli_args(Some("rs".to_string()));
+        let filter = SearchFilter::from_cli_args(Some("rs".to_string()), None);
         let filtered = filter.apply_filters(results).unwrap();
 
         assert_eq!(filtered.len(), 1);
@@ -863,7 +912,7 @@ mod tests {
             create_test_result("src/lib.JS", 0.8),
         ];
 
-        let filter = SearchFilter::from_cli_args(Some("rs".to_string()));
+        let filter = SearchFilter::from_cli_args(Some("rs".to_string()), None);
         let filtered = filter.apply_filters(results).unwrap();
 
         assert_eq!(filtered.len(), 1);
@@ -885,7 +934,7 @@ mod tests {
             create_test_result("src/main.rs", 0.7),
         ];
 
-        let filter = SearchFilter::from_cli_args(Some("rs".to_string()));
+        let filter = SearchFilter::from_cli_args(Some("rs".to_string()), None);
         let filtered = filter.apply_filters(results).unwrap();
 
         assert_eq!(filtered.len(), 1);
@@ -913,11 +962,11 @@ mod tests {
 
     #[test]
     fn test_describe_filters() {
-        let filter = SearchFilter::from_cli_args(None);
+        let filter = SearchFilter::from_cli_args(None, None);
         let descriptions = filter.describe_filters();
         assert_eq!(descriptions, vec!["No filters active"]);
 
-        let filter = SearchFilter::from_cli_args(Some("rs".to_string()));
+        let filter = SearchFilter::from_cli_args(Some("rs".to_string()), None);
         let descriptions = filter.describe_filters();
         assert_eq!(descriptions, vec!["File extension: .rs"]);
     }
@@ -938,11 +987,201 @@ mod tests {
 
     #[test]
     fn test_has_active_filters() {
-        let filter = SearchFilter::from_cli_args(None);
+        let filter = SearchFilter::from_cli_args(None, None);
         assert!(!filter.has_active_filters());
 
-        let filter = SearchFilter::from_cli_args(Some("rs".to_string()));
+        let filter = SearchFilter::from_cli_args(Some("rs".to_string()), None);
         assert!(filter.has_active_filters());
+    }
+
+    #[test]
+    fn test_glob_filtering() {
+        let results = vec![
+            create_test_result("src/main.rs", 0.9),
+            create_test_result("src/lib.rs", 0.8),
+            create_test_result("tests/test.rs", 0.7),
+            create_test_result("src/main.js", 0.6),
+            create_test_result("README.md", 0.5),
+        ];
+
+        // Test basic pattern matching
+        let config = FilterConfig::new().with_glob_pattern("*.rs".to_string());
+        let filter = SearchFilter::new(config);
+        let filtered = filter.apply_filters(results.clone()).unwrap();
+
+        assert_eq!(filtered.len(), 3); // All .rs files should match
+        for result in &filtered {
+            assert!(result
+                .chunk
+                .chunk
+                .source_location
+                .file_path
+                .to_str()
+                .unwrap()
+                .ends_with(".rs"));
+        }
+    }
+
+    #[test]
+    fn test_directory_glob_filtering() {
+        let results = vec![
+            create_test_result("src/main.rs", 0.9),
+            create_test_result("src/lib.rs", 0.8),
+            create_test_result("tests/test.rs", 0.7),
+            create_test_result("docs/main.rs", 0.6),
+        ];
+
+        // Test directory-specific pattern
+        let config = FilterConfig::new().with_glob_pattern("src/*.rs".to_string());
+        let filter = SearchFilter::new(config);
+        let filtered = filter.apply_filters(results).unwrap();
+
+        assert_eq!(filtered.len(), 2); // Only files in src/ should match
+        for result in &filtered {
+            let path = result
+                .chunk
+                .chunk
+                .source_location
+                .file_path
+                .to_str()
+                .unwrap();
+            assert!(path.starts_with("src/") && path.ends_with(".rs"));
+        }
+    }
+
+    #[test]
+    fn test_recursive_glob_filtering() {
+        let results = vec![
+            create_test_result("main.rs", 0.9),
+            create_test_result("src/main.rs", 0.8),
+            create_test_result("src/nested/deep/file.rs", 0.7),
+            create_test_result("tests/integration/api.rs", 0.6),
+            create_test_result("main.js", 0.5),
+        ];
+
+        // Test recursive pattern
+        let config = FilterConfig::new().with_glob_pattern("**/*.rs".to_string());
+        let filter = SearchFilter::new(config);
+        let filtered = filter.apply_filters(results).unwrap();
+
+        assert_eq!(filtered.len(), 4); // All .rs files should match
+        for result in &filtered {
+            assert!(result
+                .chunk
+                .chunk
+                .source_location
+                .file_path
+                .to_str()
+                .unwrap()
+                .ends_with(".rs"));
+        }
+    }
+
+    #[test]
+    fn test_combined_filters() {
+        let results = vec![
+            create_test_result("src/main.rs", 0.9),
+            create_test_result("src/lib.rs", 0.8),
+            create_test_result("tests/test.rs", 0.7),
+            create_test_result("src/main.js", 0.6),
+        ];
+
+        // Test both glob pattern and extension filters
+        let config = FilterConfig::new()
+            .with_glob_pattern("src/*".to_string())
+            .with_file_extension("rs".to_string());
+        let filter = SearchFilter::new(config);
+        let filtered = filter.apply_filters(results).unwrap();
+
+        assert_eq!(filtered.len(), 2); // Only .rs files in src/ should match
+        for result in &filtered {
+            let path = result
+                .chunk
+                .chunk
+                .source_location
+                .file_path
+                .to_str()
+                .unwrap();
+            assert!(path.starts_with("src/") && path.ends_with(".rs"));
+        }
+    }
+
+    #[test]
+    fn test_filter_from_cli_args_with_glob() {
+        let filter = SearchFilter::from_cli_args(None, Some("*.rs".to_string()));
+        assert!(filter.has_active_filters());
+        assert_eq!(filter.config.glob_pattern, Some("*.rs".to_string()));
+        assert_eq!(filter.config.file_extension, None);
+
+        let filter = SearchFilter::from_cli_args(Some("js".to_string()), Some("src/*".to_string()));
+        assert!(filter.has_active_filters());
+        assert_eq!(filter.config.glob_pattern, Some("src/*".to_string()));
+        assert_eq!(filter.config.file_extension, Some(".js".to_string()));
+    }
+
+    #[test]
+    fn test_describe_filters_with_glob() {
+        let filter = SearchFilter::from_cli_args(None, None);
+        let descriptions = filter.describe_filters();
+        assert_eq!(descriptions, vec!["No filters active"]);
+
+        let filter = SearchFilter::from_cli_args(None, Some("*.rs".to_string()));
+        let descriptions = filter.describe_filters();
+        assert_eq!(descriptions, vec!["Glob pattern: *.rs"]);
+
+        let filter = SearchFilter::from_cli_args(Some("js".to_string()), None);
+        let descriptions = filter.describe_filters();
+        assert_eq!(descriptions, vec!["File extension: .js"]);
+
+        let filter = SearchFilter::from_cli_args(Some("js".to_string()), Some("src/*".to_string()));
+        let descriptions = filter.describe_filters();
+        assert_eq!(
+            descriptions,
+            vec!["Glob pattern: src/*", "File extension: .js"]
+        );
+    }
+
+    #[test]
+    fn test_has_active_filters_with_glob() {
+        let filter = SearchFilter::from_cli_args(None, None);
+        assert!(!filter.has_active_filters());
+
+        let filter = SearchFilter::from_cli_args(None, Some("*.rs".to_string()));
+        assert!(filter.has_active_filters());
+
+        let filter = SearchFilter::from_cli_args(Some("js".to_string()), None);
+        assert!(filter.has_active_filters());
+
+        let filter = SearchFilter::from_cli_args(Some("js".to_string()), Some("src/*".to_string()));
+        assert!(filter.has_active_filters());
+    }
+
+    #[test]
+    fn test_glob_filtering_edge_cases() {
+        let results = vec![
+            create_test_result("file", 0.9),        // No extension
+            create_test_result("file.rs.bak", 0.8), // Multiple extensions
+            create_test_result("file.RS", 0.7),     // Different case
+            create_test_result(".hidden.rs", 0.6),  // Hidden file
+        ];
+
+        // Test pattern that should match files with any extension
+        let config = FilterConfig::new().with_glob_pattern("*.rs".to_string());
+        let filter = SearchFilter::new(config);
+        let filtered = filter.apply_filters(results).unwrap();
+
+        // Should match .hidden.rs but not file.RS (case sensitive) or file.rs.bak
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(
+            filtered[0]
+                .chunk
+                .chunk
+                .source_location
+                .file_path
+                .to_str()
+                .unwrap(),
+            ".hidden.rs"
+        );
     }
 
     mod test_glob_pattern {

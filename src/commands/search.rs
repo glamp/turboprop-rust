@@ -132,7 +132,8 @@ pub async fn execute_search_command(config: SearchCommandConfig) -> Result<()> {
     }
 
     // Create search filter
-    let search_filter = SearchFilter::from_cli_args(config.filetype.clone());
+    let search_filter =
+        SearchFilter::from_cli_args(config.filetype.clone(), config.glob_pattern.clone());
 
     if search_filter.has_active_filters() {
         let filter_descriptions = search_filter.describe_filters();

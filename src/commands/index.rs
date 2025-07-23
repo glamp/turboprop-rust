@@ -8,6 +8,7 @@ use std::path::Path;
 use tracing::{info, warn};
 
 use crate::config::TurboPropConfig;
+use crate::error_classification::ErrorType;
 use crate::git::GitignoreFilter;
 use crate::incremental::{IncrementalStats, IncrementalUpdater};
 use crate::pipeline::{IndexingPipeline, PipelineConfig};
@@ -18,119 +19,6 @@ use crate::watcher::{FileWatcher, SignalHandler};
 const ERROR_ICON: &str = "❌";
 const HELP_ICON: &str = "💡";
 
-const HELP_NO_FILES_FOUND: &str =
-    "Make sure the directory contains files that match the configured file discovery settings.";
-const HELP_CHECK_GITIGNORE: &str =
-    "Check if your .gitignore is excluding too many files, or try --include-untracked.";
-
-const MSG_EMBEDDING_INIT_FAILED: &str = "Failed to initialize the embedding model";
-const HELP_MODEL_DOWNLOAD: &str =
-    "This usually means the model needs to be downloaded or there's a network issue.";
-const HELP_RETRY_CONNECTION: &str =
-    "Try running the command again with a stable internet connection.";
-const HELP_TRY_DIFFERENT_MODEL: &str =
-    "Consider using a different model with --model if the issue persists.";
-
-const MSG_PERMISSION_DENIED: &str = "Permission denied while accessing files";
-const HELP_RUN_WITH_PERMISSIONS: &str =
-    "Try running with appropriate permissions or choose a different directory.";
-
-const MSG_DISK_SPACE: &str = "Insufficient disk space for indexing";
-const HELP_DISK_SPACE: &str = "The indexing process requires space to store the generated index.";
-const HELP_FREE_SPACE: &str = "Free up disk space or try indexing a smaller directory.";
-const HELP_USE_MAX_FILESIZE: &str =
-    "Consider using --max-filesize to limit the files being processed.";
-
-const MSG_NETWORK_TIMEOUT: &str = "Network timeout or connection issue";
-const HELP_MODEL_DOWNLOAD_ISSUE: &str = "This usually occurs when downloading embedding models.";
-const HELP_CHECK_CONNECTION: &str = "Check your internet connection and try again.";
-const HELP_USE_CACHE_DIR: &str = "Consider using a local cache directory with --cache-dir.";
-
-const HELP_USE_VERBOSE: &str = "Try running with --verbose for more detailed error information.";
-const HELP_EXCLUDE_LARGE_FILES: &str =
-    "Consider using --max-filesize to exclude large files that might be causing issues.";
-const HELP_CHECK_DIRECTORY: &str =
-    "Check that the directory is accessible and contains readable files.";
-
-/// Enum for classifying different error types for structured error handling
-#[derive(Debug)]
-enum ErrorType {
-    NoFilesFound,
-    EmbeddingInit,
-    PermissionDenied,
-    DiskSpace,
-    Network,
-    Generic,
-}
-
-/// Error classification and formatting configuration
-struct ErrorInfo {
-    message: &'static str,
-    help_texts: &'static [&'static str],
-}
-
-impl ErrorType {
-    /// Get error information for formatting
-    fn get_info(&self) -> ErrorInfo {
-        match self {
-            ErrorType::NoFilesFound => ErrorInfo {
-                message: "No files found to index",
-                help_texts: &[HELP_NO_FILES_FOUND, HELP_CHECK_GITIGNORE],
-            },
-            ErrorType::EmbeddingInit => ErrorInfo {
-                message: MSG_EMBEDDING_INIT_FAILED,
-                help_texts: &[
-                    HELP_MODEL_DOWNLOAD,
-                    HELP_RETRY_CONNECTION,
-                    HELP_TRY_DIFFERENT_MODEL,
-                ],
-            },
-            ErrorType::PermissionDenied => ErrorInfo {
-                message: MSG_PERMISSION_DENIED,
-                help_texts: &[HELP_RUN_WITH_PERMISSIONS],
-            },
-            ErrorType::DiskSpace => ErrorInfo {
-                message: MSG_DISK_SPACE,
-                help_texts: &[HELP_DISK_SPACE, HELP_FREE_SPACE, HELP_USE_MAX_FILESIZE],
-            },
-            ErrorType::Network => ErrorInfo {
-                message: MSG_NETWORK_TIMEOUT,
-                help_texts: &[
-                    HELP_MODEL_DOWNLOAD_ISSUE,
-                    HELP_CHECK_CONNECTION,
-                    HELP_USE_CACHE_DIR,
-                ],
-            },
-            ErrorType::Generic => ErrorInfo {
-                message: "Indexing failed",
-                help_texts: &[
-                    HELP_USE_VERBOSE,
-                    HELP_EXCLUDE_LARGE_FILES,
-                    HELP_CHECK_DIRECTORY,
-                ],
-            },
-        }
-    }
-
-    /// Classify an error based on its message content
-    fn classify(error: &anyhow::Error) -> Self {
-        let error_str = error.to_string().to_lowercase();
-
-        if error_str.contains("no files found") {
-            ErrorType::NoFilesFound
-        } else if error_str.contains("failed to initialize embedding generator") {
-            ErrorType::EmbeddingInit
-        } else if error_str.contains("permission denied") {
-            ErrorType::PermissionDenied
-        } else if error_str.contains("disk") || error_str.contains("space") {
-            ErrorType::DiskSpace
-        } else if error_str.contains("timeout") || error_str.contains("network") {
-            ErrorType::Network
-        } else {
-            ErrorType::Generic
-        }
-    }
-}
 
 /// Execute the index command with the provided configuration
 ///

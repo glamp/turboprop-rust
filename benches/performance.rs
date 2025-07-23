@@ -7,7 +7,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
-use tp::{
+use turboprop::{
     compression::{CompressionAlgorithm, CompressionConfig, VectorCompressor},
     config::TurboPropConfig,
     parallel::{ParallelConfig, ParallelFileProcessor},
@@ -177,7 +177,11 @@ fn create_test_indexed_chunks(count: usize, embedding_dim: usize) -> Vec<Indexed
     (0..count)
         .map(|i| {
             let embedding: Vec<f32> = (0..embedding_dim)
-                .map(|_| rng.gen_range(bench_config::EMBEDDING_RANGE_MIN..bench_config::EMBEDDING_RANGE_MAX))
+                .map(|_| {
+                    rng.gen_range(
+                        bench_config::EMBEDDING_RANGE_MIN..bench_config::EMBEDDING_RANGE_MAX,
+                    )
+                })
                 .collect();
 
             IndexedChunk {
@@ -275,7 +279,15 @@ fn bench_compression(c: &mut Criterion) {
         use rand::prelude::*;
         let mut rng = thread_rng();
         let vectors: Vec<Vec<f32>> = (0..count)
-            .map(|_| (0..dimensions).map(|_| rng.gen_range(bench_config::EMBEDDING_RANGE_MIN..bench_config::EMBEDDING_RANGE_MAX)).collect())
+            .map(|_| {
+                (0..dimensions)
+                    .map(|_| {
+                        rng.gen_range(
+                            bench_config::EMBEDDING_RANGE_MIN..bench_config::EMBEDDING_RANGE_MAX,
+                        )
+                    })
+                    .collect()
+            })
             .collect();
 
         group.throughput(Throughput::Elements(count as u64));
@@ -365,7 +377,7 @@ fn bench_streaming(c: &mut Criterion) {
 
 /// Benchmark similarity search operations
 fn bench_similarity_search(c: &mut Criterion) {
-    use tp::parallel::ParallelSearchProcessor;
+    use turboprop::parallel::ParallelSearchProcessor;
     let mut group = c.benchmark_group("similarity_search");
 
     let embedding_dim = bench_config::EMBEDDING_DIMENSION;
@@ -378,7 +390,9 @@ fn bench_similarity_search(c: &mut Criterion) {
         use rand::prelude::*;
         let mut rng = thread_rng();
         let query_embedding: Vec<f32> = (0..embedding_dim)
-            .map(|_| rng.gen_range(bench_config::EMBEDDING_RANGE_MIN..bench_config::EMBEDDING_RANGE_MAX))
+            .map(|_| {
+                rng.gen_range(bench_config::EMBEDDING_RANGE_MIN..bench_config::EMBEDDING_RANGE_MAX)
+            })
             .collect();
 
         group.throughput(Throughput::Elements(size as u64));
@@ -393,7 +407,7 @@ fn bench_similarity_search(c: &mut Criterion) {
                     let results = processor.search_parallel(
                         &query_embedding,
                         chunks,
-                        bench_config::SEARCH_LIMIT,        // limit
+                        bench_config::SEARCH_LIMIT,           // limit
                         Some(bench_config::SEARCH_THRESHOLD), // threshold
                     );
 
@@ -407,7 +421,7 @@ fn bench_similarity_search(c: &mut Criterion) {
             &indexed_chunks,
             |b, chunks| {
                 b.iter(|| {
-                    use tp::types::cosine_similarity;
+                    use turboprop::types::cosine_similarity;
 
                     let mut results: Vec<(f32, &IndexedChunk)> = chunks
                         .iter()
@@ -496,7 +510,7 @@ fn bench_full_indexing_pipeline(c: &mut Criterion) {
                 b.iter(|| {
                     // Configure for optimal performance
                     let _config = TurboPropConfig {
-                        embedding: tp::embeddings::EmbeddingConfig {
+                        embedding: turboprop::embeddings::EmbeddingConfig {
                             batch_size: bench_config::OPTIMIZED_BATCH_SIZE, // Larger batch for better performance
                             ..Default::default()
                         },

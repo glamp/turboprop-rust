@@ -25,6 +25,7 @@ use crate::error::TurboPropError;
 ///     quantization_bits: 8,
 ///     enable_delta_compression: false,
 ///     clustering_threshold: 0.95,
+///     kmeans_iterations: 10,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +38,8 @@ pub struct CompressionConfig {
     pub enable_delta_compression: bool,
     /// Clustering threshold for similar vectors (0.0 to 1.0)
     pub clustering_threshold: f32,
+    /// Number of iterations for k-means clustering algorithm
+    pub kmeans_iterations: usize,
 }
 
 impl Default for CompressionConfig {
@@ -46,6 +49,7 @@ impl Default for CompressionConfig {
             quantization_bits: 8,
             enable_delta_compression: true,
             clustering_threshold: 0.9,
+            kmeans_iterations: 10, // Default to 10 iterations
         }
     }
 }
@@ -164,6 +168,7 @@ impl CompressionStats {
 ///     quantization_bits: 8,
 ///     enable_delta_compression: false,
 ///     clustering_threshold: 0.95,
+///     kmeans_iterations: 10,
 /// };
 /// let mut compressor = VectorCompressor::new(config);
 ///
@@ -202,6 +207,7 @@ impl VectorCompressor {
     ///     quantization_bits: 8,
     ///     enable_delta_compression: false,
     ///     clustering_threshold: 0.95,
+    ///     kmeans_iterations: 10,
     /// };
     /// let compressor = VectorCompressor::new(config);
     /// ```
@@ -254,35 +260,48 @@ impl VectorCompressor {
     /// }
     /// ```
     pub fn compress_batch(&mut self, vectors: &[Vec<f32>]) -> Result<Vec<CompressedVector>> {
+        self.log_compression_start(vectors);
         let start_time = std::time::Instant::now();
 
+        let compressed = self.apply_compression_algorithm(vectors)?;
+
+        let elapsed = start_time.elapsed();
+        self.update_stats(vectors, &compressed, elapsed);
+        self.log_compression_complete(elapsed);
+
+        Ok(compressed)
+    }
+
+    /// Log the start of compression operation
+    fn log_compression_start(&self, vectors: &[Vec<f32>]) {
         info!(
             "Compressing {} vectors using {:?}",
             vectors.len(),
             self.config.algorithm
         );
+    }
 
-        let compressed = match self.config.algorithm {
-            CompressionAlgorithm::None => self.compress_none(vectors)?,
+    /// Apply the configured compression algorithm to the vectors
+    fn apply_compression_algorithm(&mut self, vectors: &[Vec<f32>]) -> Result<Vec<CompressedVector>> {
+        match self.config.algorithm {
+            CompressionAlgorithm::None => self.compress_none(vectors),
             CompressionAlgorithm::ScalarQuantization => {
-                self.compress_scalar_quantization(vectors)?
+                self.compress_scalar_quantization(vectors)
             }
             CompressionAlgorithm::ProductQuantization => {
-                self.compress_product_quantization(vectors)?
+                self.compress_product_quantization(vectors)
             }
-            CompressionAlgorithm::LearnedCompression => self.compress_learned(vectors)?,
-        };
+            CompressionAlgorithm::LearnedCompression => self.compress_learned(vectors),
+        }
+    }
 
-        let elapsed = start_time.elapsed();
-        self.update_stats(vectors, &compressed, elapsed);
-
+    /// Log the completion of compression operation
+    fn log_compression_complete(&self, elapsed: std::time::Duration) {
         info!(
             "Compression completed: {:.1}% size reduction, {:.2}ms total",
             self.stats.compression_percentage(),
             elapsed.as_secs_f64() * 1000.0
         );
-
-        Ok(compressed)
     }
 
     /// Decompress a batch of vectors
@@ -484,15 +503,16 @@ impl VectorCompressor {
                 } else {
                     return Err(TurboPropError::other(format!(
                         "Invalid code {} for subvector {}: code exceeds codebook size",
-                        code,
-                        subvector_idx
-                    )).into());
+                        code, subvector_idx
+                    ))
+                    .into());
                 }
             } else {
                 return Err(TurboPropError::other(format!(
                     "Missing codebook for subvector {}: compression data is corrupted",
                     subvector_idx
-                )).into());
+                ))
+                .into());
             }
         }
 
@@ -573,7 +593,7 @@ impl VectorCompressor {
         }
 
         // Simple k-means iteration (could be improved)
-        for _iteration in 0..10 {
+        for _iteration in 0..self.config.kmeans_iterations {
             let mut new_centroids = vec![vec![0.0; dim]; k];
             let mut counts = vec![0; k];
 
@@ -603,13 +623,14 @@ impl VectorCompressor {
 
     /// Find closest centroid to a vector
     fn find_closest_centroid(&self, vector: &[f32], centroids: &[Vec<f32>]) -> u8 {
-        let mut best_distance = f32::INFINITY;
+        let mut best_distance_squared = f32::INFINITY;
         let mut best_idx = 0;
 
         for (i, centroid) in centroids.iter().enumerate() {
-            let distance = self.euclidean_distance(vector, centroid);
-            if distance < best_distance {
-                best_distance = distance;
+            // Use squared distance for comparison - avoids expensive sqrt operation
+            let distance_squared = self.euclidean_distance_squared(vector, centroid);
+            if distance_squared < best_distance_squared {
+                best_distance_squared = distance_squared;
                 best_idx = i;
             }
         }
@@ -617,13 +638,17 @@ impl VectorCompressor {
         best_idx as u8
     }
 
-    /// Calculate Euclidean distance between two vectors
-    fn euclidean_distance(&self, a: &[f32], b: &[f32]) -> f32 {
-        a.iter()
-            .zip(b.iter())
-            .map(|(x, y)| (x - y).powi(2))
-            .sum::<f32>()
-            .sqrt()
+    
+    /// Calculate squared Euclidean distance (avoiding sqrt for performance when only comparing)
+    fn euclidean_distance_squared(&self, a: &[f32], b: &[f32]) -> f32 {
+        debug_assert_eq!(a.len(), b.len(), "Vector dimensions must match");
+        
+        let mut sum = 0.0f32;
+        for (&x, &y) in a.iter().zip(b.iter()) {
+            let diff = x - y;
+            sum += diff * diff;
+        }
+        sum
     }
 
     /// Update compression statistics

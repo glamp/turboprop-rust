@@ -16,6 +16,30 @@ use crate::error_utils::ProcessingErrorContext;
 use crate::files::FileDiscovery;
 use crate::types::{ChunkingConfig, ContentChunk, FileMetadata, IndexedChunk};
 
+/// Configurable constants for parallel processing
+mod parallel_constants {
+    /// Default embedding batch size
+    pub const DEFAULT_EMBEDDING_BATCH_SIZE: usize = 64;
+    /// Default chunk buffer size
+    pub const DEFAULT_CHUNK_BUFFER_SIZE: usize = 256;
+    /// Batch size multiplier for chunk buffer
+    pub const CHUNK_BUFFER_MULTIPLIER: usize = 4;
+    /// Embedding batch size for high memory systems (16GB+)
+    pub const HIGH_MEMORY_BATCH_SIZE: usize = 128;
+    /// Embedding batch size for medium memory systems (8GB+)
+    pub const MEDIUM_MEMORY_BATCH_SIZE: usize = 64;
+    /// Embedding batch size for low memory systems (<8GB)
+    pub const LOW_MEMORY_BATCH_SIZE: usize = 32;
+    /// Concurrent files multiplier for high memory systems
+    pub const HIGH_MEMORY_CONCURRENCY_MULTIPLIER: usize = 4;
+    /// Concurrent files multiplier for medium memory systems
+    pub const MEDIUM_MEMORY_CONCURRENCY_MULTIPLIER: usize = 2;
+    /// Large codebase batch size multiplier
+    pub const LARGE_CODEBASE_BATCH_MULTIPLIER: usize = 2;
+    /// Large codebase buffer size multiplier
+    pub const LARGE_CODEBASE_BUFFER_MULTIPLIER: usize = 2;
+}
+
 /// Configuration for parallel processing operations.
 ///
 /// This structure controls how files are processed in parallel, including
@@ -35,7 +59,7 @@ use crate::types::{ChunkingConfig, ContentChunk, FileMetadata, IndexedChunk};
 ///     chunk_buffer_size: 512,
 ///     enable_work_stealing: true,
 /// };
-/// 
+///
 /// // Or use the system-optimized configuration
 /// let optimized = turboprop::parallel::config::optimize_for_system();
 /// ```
@@ -55,9 +79,9 @@ impl Default for ParallelConfig {
     fn default() -> Self {
         let num_cpus = num_cpus::get();
         Self {
-            max_concurrent_files: num_cpus * 2,
-            embedding_batch_size: 64,
-            chunk_buffer_size: 256,
+            max_concurrent_files: num_cpus * parallel_constants::MEDIUM_MEMORY_CONCURRENCY_MULTIPLIER,
+            embedding_batch_size: parallel_constants::DEFAULT_EMBEDDING_BATCH_SIZE,
+            chunk_buffer_size: parallel_constants::DEFAULT_CHUNK_BUFFER_SIZE,
             enable_work_stealing: true,
         }
     }
@@ -349,27 +373,27 @@ pub mod config {
 
         let max_concurrent_files = if total_memory_mb >= 16384 {
             // 16GB+ RAM: Use more concurrent files
-            num_cpus * 4
+            num_cpus * parallel_constants::HIGH_MEMORY_CONCURRENCY_MULTIPLIER
         } else if total_memory_mb >= 8192 {
             // 8GB+ RAM: Moderate concurrency
-            num_cpus * 2
+            num_cpus * parallel_constants::MEDIUM_MEMORY_CONCURRENCY_MULTIPLIER
         } else {
             // Less RAM: Conservative approach
             num_cpus
         };
 
         let embedding_batch_size = if total_memory_mb >= 16384 {
-            128 // Larger batches for more RAM
+            parallel_constants::HIGH_MEMORY_BATCH_SIZE // Larger batches for more RAM
         } else if total_memory_mb >= 8192 {
-            64 // Medium batches
+            parallel_constants::MEDIUM_MEMORY_BATCH_SIZE // Medium batches
         } else {
-            32 // Smaller batches for limited RAM
+            parallel_constants::LOW_MEMORY_BATCH_SIZE // Smaller batches for limited RAM
         };
 
         ParallelConfig {
             max_concurrent_files,
             embedding_batch_size,
-            chunk_buffer_size: embedding_batch_size * 4,
+            chunk_buffer_size: embedding_batch_size * parallel_constants::CHUNK_BUFFER_MULTIPLIER,
             enable_work_stealing: true,
         }
     }
@@ -378,8 +402,8 @@ pub mod config {
     pub fn for_large_codebases() -> ParallelConfig {
         let base_config = optimize_for_system();
         ParallelConfig {
-            embedding_batch_size: base_config.embedding_batch_size * 2,
-            chunk_buffer_size: base_config.chunk_buffer_size * 2,
+            embedding_batch_size: base_config.embedding_batch_size * parallel_constants::LARGE_CODEBASE_BATCH_MULTIPLIER,
+            chunk_buffer_size: base_config.chunk_buffer_size * parallel_constants::LARGE_CODEBASE_BUFFER_MULTIPLIER,
             ..base_config
         }
     }

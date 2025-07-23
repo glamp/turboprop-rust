@@ -8,6 +8,7 @@ use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use std::path::PathBuf;
 use tracing::{debug, info, warn};
 
+use crate::error::TurboPropError;
 use crate::models::ModelManager;
 
 /// Default embedding model to use if none specified
@@ -119,9 +120,9 @@ impl EmbeddingGenerator {
         // Ensure cache directory exists
         if !config.cache_dir.exists() {
             std::fs::create_dir_all(&config.cache_dir).with_context(|| {
-                format!("Failed to create cache directory: {:?}", config.cache_dir)
+                format!("Failed to create cache directory: {}", config.cache_dir.display())
             })?;
-            debug!("Created cache directory: {:?}", config.cache_dir);
+            debug!("Created cache directory: {}", config.cache_dir.display());
         }
 
         // Parse the model name to get the EmbeddingModel enum variant
@@ -143,10 +144,7 @@ impl EmbeddingGenerator {
 
         info!("Loading embedding model (this may download the model on first use)...");
         let model = TextEmbedding::try_new(init_options).with_context(|| {
-            format!(
-                "Failed to initialize embedding model: {}",
-                config.model_name
-            )
+            format!("Failed to initialize embedding model: {}", config.model_name)
         })?;
 
         info!("Embedding model loaded successfully");
@@ -175,7 +173,7 @@ impl EmbeddingGenerator {
         })?;
 
         embeddings.into_iter().next().ok_or_else(|| {
-            anyhow::anyhow!("Failed to generate embedding: no output for input text")
+            TurboPropError::other("Failed to generate embedding: no output for input text").into()
         })
     }
 

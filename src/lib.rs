@@ -113,7 +113,7 @@
 //!     let (updated_index, update_result) = update_persistent_index(path, &config).await?;
 //!     
 //!     println!("Index updated: {} files added, {} files modified, {} files removed",
-//!              update_result.added_files, 
+//!              update_result.added_files,
 //!              update_result.updated_files,
 //!              update_result.removed_files);
 //! } else {
@@ -193,6 +193,7 @@ pub mod config;
 pub mod content;
 pub mod embeddings;
 pub mod error;
+pub mod error_classification;
 pub mod error_utils;
 pub mod files;
 pub mod filters;

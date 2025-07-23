@@ -374,7 +374,10 @@ impl StreamingIndexBuilder {
     pub fn add_chunk(&mut self, chunk: ContentChunk) -> Result<()> {
         if self.processing_queue.len() >= self.config.max_chunk_buffer {
             warn!("Chunk buffer is full, applying backpressure");
-            return Err(TurboPropError::other("Chunk buffer overflow - too many chunks queued for processing").into());
+            return Err(TurboPropError::other(
+                "Chunk buffer overflow - too many chunks queued for processing",
+            )
+            .into());
         }
 
         self.processing_queue.push_back(chunk);
@@ -506,8 +509,7 @@ mod tests {
                 // Mock processor that creates indexed chunks
                 Ok(batch
                     .into_iter()
-                    .enumerate()
-                    .map(|(_i, chunk)| IndexedChunk {
+                    .map(|chunk| IndexedChunk {
                         chunk,
                         embedding: vec![0.1; 384],
                     })

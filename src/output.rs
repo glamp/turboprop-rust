@@ -62,7 +62,6 @@ pub struct JsonSearchResult {
     pub rank: usize,
 }
 
-
 /// Result formatter that handles different output formats
 pub struct ResultFormatter {
     format: OutputFormat,
@@ -81,7 +80,11 @@ impl ResultFormatter {
     }
 
     /// Create a new result formatter with custom configuration
-    pub fn with_config(format: OutputFormat, max_content_lines: usize, search_config: SearchConfig) -> Self {
+    pub fn with_config(
+        format: OutputFormat,
+        max_content_lines: usize,
+        search_config: SearchConfig,
+    ) -> Self {
         Self {
             format,
             max_content_lines,
@@ -111,7 +114,10 @@ impl ResultFormatter {
     fn create_json_result(&self, result: &SearchResult) -> JsonSearchResult {
         let content = if self.search_config.rehydrate_content {
             // Try to rehydrate the content, fallback to original if it fails
-            result.chunk.chunk.rehydrate_content()
+            result
+                .chunk
+                .chunk
+                .rehydrate_content()
                 .unwrap_or_else(|_| result.chunk.chunk.content.clone())
         } else {
             result.chunk.chunk.content.clone()
@@ -156,12 +162,15 @@ impl ResultFormatter {
             // Content preview with proper indentation
             let content = if self.search_config.rehydrate_content {
                 // Try to rehydrate the content, fallback to original if it fails
-                result.chunk.chunk.rehydrate_content()
+                result
+                    .chunk
+                    .chunk
+                    .rehydrate_content()
                     .unwrap_or_else(|_| result.chunk.chunk.content.clone())
             } else {
                 result.chunk.chunk.content.clone()
             };
-            
+
             let lines: Vec<&str> = content.lines().collect();
             let max_lines = self.max_content_lines;
 
@@ -305,14 +314,16 @@ mod tests {
 
     #[test]
     fn test_content_rehydration_enabled() {
-        // Test with rehydration enabled (default)  
-        let mut search_config = SearchConfig::default();
-        search_config.rehydrate_content = true;
-        
+        // Test with rehydration enabled (default)
+        let search_config = SearchConfig {
+            rehydrate_content: true,
+            ..Default::default()
+        };
+
         let result = create_test_search_result(0.85, "src/main.rs", "fn main() {}");
         let formatter = ResultFormatter::new(OutputFormat::Json, search_config);
         let json_result = formatter.create_json_result(&result);
-        
+
         // Since test content is real content (not placeholder), it should remain unchanged
         assert!(json_result.content.contains("fn main() {}"));
     }
@@ -320,13 +331,15 @@ mod tests {
     #[test]
     fn test_content_rehydration_disabled() {
         // Test with rehydration disabled
-        let mut search_config = SearchConfig::default();
-        search_config.rehydrate_content = false;
-        
+        let search_config = SearchConfig {
+            rehydrate_content: false,
+            ..Default::default()
+        };
+
         let result = create_test_search_result(0.85, "src/main.rs", "fn main() {}");
         let formatter = ResultFormatter::new(OutputFormat::Json, search_config);
         let json_result = formatter.create_json_result(&result);
-        
+
         // Content should be unchanged since we're not rehydrating
         assert!(json_result.content.contains("fn main() {}"));
     }

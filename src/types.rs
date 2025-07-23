@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 /// A strongly-typed wrapper for chunk identifiers to prevent mixing up different ID types
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -623,7 +623,7 @@ mod tests {
 
         assert!(real_chunk.has_real_content());
         assert!(!placeholder_chunk.has_real_content());
-        
+
         assert_eq!(real_chunk.real_content(), Some("fn main() {}"));
         assert_eq!(placeholder_chunk.real_content(), None);
     }
@@ -670,7 +670,10 @@ mod tests {
         // Should return an error for non-existent file
         let result = chunk.rehydrate_content();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Failed to rehydrate content"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to rehydrate content"));
     }
 }
 
@@ -725,8 +728,12 @@ impl ContentChunk {
                 // Extract the specific chunk content using character positions
                 let chars: Vec<char> = file_content.chars().collect();
                 let start_char = self.source_location.start_char.min(chars.len());
-                let end_char = self.source_location.end_char.min(chars.len()).max(start_char);
-                
+                let end_char = self
+                    .source_location
+                    .end_char
+                    .min(chars.len())
+                    .max(start_char);
+
                 let chunk_content: String = chars[start_char..end_char].iter().collect();
                 Ok(chunk_content)
             }
@@ -736,7 +743,8 @@ impl ContentChunk {
                     "Failed to rehydrate content from {}: {}",
                     self.source_location.file_path.display(),
                     err
-                ).into())
+                )
+                .into())
             }
         }
     }

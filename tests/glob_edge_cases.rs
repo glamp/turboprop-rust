@@ -374,8 +374,16 @@ fn test_symlink_handling() -> Result<()> {
 
                     // Test pattern matching on symlinks
                     let pattern = GlobPattern::new("*.rs")?;
-                    assert!(pattern.matches(target), "Pattern '*.rs' should match target file {:?}", target);
-                    assert!(pattern.matches(symlink_path), "Pattern '*.rs' should match symlink {:?}", symlink_path);
+                    assert!(
+                        pattern.matches(target),
+                        "Pattern '*.rs' should match target file {:?}",
+                        target
+                    );
+                    assert!(
+                        pattern.matches(symlink_path),
+                        "Pattern '*.rs' should match symlink {:?}",
+                        symlink_path
+                    );
 
                     // Test with specific link patterns
                     let link_pattern = GlobPattern::new("link_*.rs")?;
@@ -386,7 +394,11 @@ fn test_symlink_handling() -> Result<()> {
                         println!("Warning: Symlink pattern matching may not be fully supported in glob implementation");
                         continue;
                     }
-                    assert!(!link_pattern.matches(target), "Pattern 'link_*.rs' should not match target file {:?}", target);
+                    assert!(
+                        !link_pattern.matches(target),
+                        "Pattern 'link_*.rs' should not match target file {:?}",
+                        target
+                    );
                 }
                 Err(_) => {
                     // Some symlinks might fail to create, continue with others

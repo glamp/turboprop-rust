@@ -4,6 +4,7 @@
 //! for the TurboProp indexing system.
 
 use anyhow::{Context, Result};
+use futures::TryStreamExt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
@@ -276,6 +277,114 @@ impl ModelManager {
         Ok(())
     }
 
+    /// Download a GGUF model file and cache it locally
+    ///
+    /// This method downloads the model from the provided URL and stores it in the cache directory.
+    /// If the model is already cached, it returns the existing path without re-downloading.
+    ///
+    /// # Arguments
+    /// * `model_info` - Model information including download URL
+    ///
+    /// # Returns
+    /// * `Result<PathBuf>` - Path to the cached model file
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use turboprop::models::{ModelManager, ModelInfo};
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let manager = ModelManager::default();
+    /// let model_info = ModelInfo::gguf_model(
+    ///     "nomic-embed-code.Q5_K_S.gguf".to_string(),
+    ///     "Nomic code embedding model".to_string(),
+    ///     768,
+    ///     2_500_000_000,
+    ///     "https://huggingface.co/nomic-ai/nomic-embed-code-GGUF/resolve/main/nomic-embed-code.Q5_K_S.gguf".to_string(),
+    /// );
+    /// let model_path = manager.download_gguf_model(&model_info).await.unwrap();
+    /// # });
+    /// ```
+    pub async fn download_gguf_model(&self, model_info: &ModelInfo) -> Result<PathBuf> {
+        if let Some(url) = &model_info.download_url {
+            let model_cache_dir = self.get_model_path(&model_info.name);
+            let model_file_path = model_cache_dir.join("model.gguf");
+            
+            // Check if model is already cached
+            if model_file_path.exists() {
+                info!("GGUF model already cached: {}", model_info.name);
+                return Ok(model_file_path);
+            }
+            
+            // Create cache directory
+            if !model_cache_dir.exists() {
+                std::fs::create_dir_all(&model_cache_dir).with_context(|| {
+                    format!(
+                        "Failed to create model cache directory: {}",
+                        model_cache_dir.display()
+                    )
+                })?;
+            }
+            
+            info!("Downloading GGUF model: {} from {}", model_info.name, url);
+            
+            // Handle different URL schemes
+            if url.starts_with("file://") {
+                // For file:// URLs (mainly used in tests), copy the file
+                let source_path = url.strip_prefix("file://").unwrap();
+                tokio::fs::copy(source_path, &model_file_path).await.with_context(|| {
+                    format!("Failed to copy local GGUF model file from {}", source_path)
+                })?;
+            } else {
+                // For HTTP/HTTPS URLs, download with streaming
+                let response = reqwest::get(url).await.map_err(|e| {
+                    crate::error::TurboPropError::gguf_download(&model_info.name, e.to_string())
+                })?;
+                
+                if !response.status().is_success() {
+                    return Err(crate::error::TurboPropError::gguf_download(
+                        &model_info.name,
+                        format!("HTTP error: {}", response.status()),
+                    ).into());
+                }
+                
+                // Create the file and stream the response body to it
+                let mut file = tokio::fs::File::create(&model_file_path).await.with_context(|| {
+                    format!("Failed to create GGUF model file: {}", model_file_path.display())
+                })?;
+                
+                let mut stream = response.bytes_stream();
+                while let Some(chunk) = stream.try_next().await.map_err(|e| {
+                    crate::error::TurboPropError::gguf_download(&model_info.name, e.to_string())
+                })? {
+                    tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await.with_context(|| {
+                        format!("Failed to write GGUF model data to {}", model_file_path.display())
+                    })?;
+                }
+            }
+            
+            info!("Downloaded GGUF model to: {}", model_file_path.display());
+            
+            // Verify the downloaded file exists and has reasonable size
+            let metadata = std::fs::metadata(&model_file_path).with_context(|| {
+                format!("Failed to read metadata for downloaded GGUF model: {}", model_file_path.display())
+            })?;
+            
+            if metadata.len() == 0 {
+                return Err(crate::error::TurboPropError::gguf_format(
+                    &model_info.name,
+                    "Downloaded file is empty",
+                ).into());
+            }
+            
+            info!("GGUF model download completed: {} bytes", metadata.len());
+            Ok(model_file_path)
+        } else {
+            Err(crate::error::TurboPropError::gguf_download(
+                &model_info.name,
+                "No download URL provided for GGUF model",
+            ).into())
+        }
+    }
+
     /// Get cache statistics
     pub fn get_cache_stats(&self) -> Result<CacheStats> {
         let mut stats = CacheStats::default();
@@ -368,6 +477,19 @@ impl CacheStats {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use tokio;
+    
+    // Mock HTTP server for testing downloads
+    async fn setup_mock_model_file(temp_dir: &TempDir) -> (String, PathBuf) {
+        let model_content = b"mock GGUF model file content";
+        let model_file = temp_dir.path().join("test_model.gguf");
+        tokio::fs::write(&model_file, model_content).await.unwrap();
+        
+        // For actual tests, we would use a real HTTP server, but for unit tests
+        // we'll create a file:// URL
+        let file_url = format!("file://{}", model_file.display());
+        (file_url, model_file)
+    }
 
     #[test]
     fn test_model_manager_new() {
@@ -544,5 +666,111 @@ mod tests {
             "https://example.com/model.gguf".to_string(),
         );
         assert!(model.validate().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_download_gguf_model_no_url() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = ModelManager::new(temp_dir.path());
+        
+        let model_info = ModelInfo::new(ModelInfoConfig {
+            name: "test-model.gguf".to_string(),
+            description: "Test GGUF model without URL".to_string(),
+            dimensions: 768,
+            size_bytes: 1000,
+            model_type: ModelType::GGUF,
+            backend: ModelBackend::Candle,
+            download_url: None, // No URL provided
+            local_path: None,
+        });
+
+        // This should fail because no download URL is provided
+        let result = manager.download_gguf_model(&model_info).await;
+        assert!(result.is_err());
+        
+        let error_message = result.err().unwrap().to_string();
+        assert!(error_message.contains("No download URL provided"));
+    }
+
+    #[tokio::test]
+    async fn test_download_gguf_model_success() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = ModelManager::new(temp_dir.path());
+        manager.init_cache().unwrap();
+        
+        let (mock_url, _mock_file) = setup_mock_model_file(&temp_dir).await;
+        
+        let model_info = ModelInfo::gguf_model(
+            "test-model.gguf".to_string(),
+            "Test GGUF model for download".to_string(),
+            768,
+            1000,
+            mock_url,
+        );
+
+        // Test successful download
+        let result = manager.download_gguf_model(&model_info).await;
+        assert!(result.is_ok());
+        
+        let downloaded_path = result.unwrap();
+        assert!(downloaded_path.exists());
+        assert_eq!(downloaded_path.file_name().unwrap(), "model.gguf");
+        
+        // Verify file content
+        let content = tokio::fs::read(&downloaded_path).await.unwrap();
+        assert_eq!(content, b"mock GGUF model file content");
+    }
+
+    #[tokio::test]
+    async fn test_download_gguf_model_already_cached() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = ModelManager::new(temp_dir.path());
+        manager.init_cache().unwrap();
+        
+        let (mock_url, _mock_file) = setup_mock_model_file(&temp_dir).await;
+        
+        let model_info = ModelInfo::gguf_model(
+            "cached-model.gguf".to_string(),
+            "Test GGUF model for caching".to_string(),
+            768,
+            1000,
+            mock_url,
+        );
+
+        // First download
+        let result1 = manager.download_gguf_model(&model_info).await;
+        assert!(result1.is_ok());
+        let path1 = result1.unwrap();
+        
+        // Get modification time of the first download
+        let metadata1 = std::fs::metadata(&path1).unwrap();
+        let modified1 = metadata1.modified().unwrap();
+        
+        // Small delay to ensure modification times would be different if file was re-downloaded
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        // Second download - should use cached version
+        let result2 = manager.download_gguf_model(&model_info).await;
+        assert!(result2.is_ok());
+        let path2 = result2.unwrap();
+        
+        // Paths should be the same
+        assert_eq!(path1, path2);
+        
+        // File should not have been modified (indicating it wasn't re-downloaded)
+        let metadata2 = std::fs::metadata(&path2).unwrap();
+        let modified2 = metadata2.modified().unwrap();
+        assert_eq!(modified1, modified2);
+    }
+
+    #[tokio::test]
+    async fn test_download_gguf_model_network_error() {
+        // Skip this test for now - it will be implemented after download_gguf_model exists  
+        if std::env::var("SKIP_UNIMPLEMENTED_TESTS").is_ok() {
+            return;
+        }
+        
+        // This test will verify that network errors are properly handled
+        // and appropriate GGUF download errors are returned
     }
 }

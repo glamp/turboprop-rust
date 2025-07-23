@@ -90,6 +90,22 @@ pub enum TurboPropError {
     #[error("No index found at '{path}'. Run 'tp index' to create an index first.")]
     IndexNotFound { path: PathBuf },
 
+    /// GGUF model loading errors
+    #[error("Failed to load GGUF model '{model_name}': {reason}. Verify the model file exists and is valid.")]
+    GGUFModelLoadError { model_name: String, reason: String },
+
+    /// GGUF model inference errors
+    #[error("GGUF model inference failed for '{model_name}': {reason}. Check input data and model compatibility.")]
+    GGUFInferenceError { model_name: String, reason: String },
+
+    /// GGUF model download errors
+    #[error("Failed to download GGUF model '{model_name}': {reason}. Check your internet connection and model URL.")]
+    GGUFDownloadError { model_name: String, reason: String },
+
+    /// GGUF model format errors
+    #[error("Invalid GGUF model format for '{model_name}': {reason}. The model file may be corrupted or incompatible.")]
+    GGUFFormatError { model_name: String, reason: String },
+
     /// Generic errors for compatibility
     #[error("{message}")]
     Other { message: String },
@@ -189,6 +205,38 @@ impl TurboPropError {
         Self::IndexNotFound { path }
     }
 
+    /// Create a GGUF model loading error.
+    pub fn gguf_model_load(model_name: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::GGUFModelLoadError {
+            model_name: model_name.into(),
+            reason: reason.into(),
+        }
+    }
+
+    /// Create a GGUF model inference error.
+    pub fn gguf_inference(model_name: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::GGUFInferenceError {
+            model_name: model_name.into(),
+            reason: reason.into(),
+        }
+    }
+
+    /// Create a GGUF model download error.
+    pub fn gguf_download(model_name: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::GGUFDownloadError {
+            model_name: model_name.into(),
+            reason: reason.into(),
+        }
+    }
+
+    /// Create a GGUF model format error.
+    pub fn gguf_format(model_name: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::GGUFFormatError {
+            model_name: model_name.into(),
+            reason: reason.into(),
+        }
+    }
+
     /// Create a generic error.
     pub fn other(message: impl Into<String>) -> Self {
         Self::Other {
@@ -273,6 +321,45 @@ mod tests {
                 assert_eq!(url, Some("https://example.com".to_string()));
             }
             _ => panic!("Expected NetworkError"),
+        }
+    }
+
+    #[test]
+    fn test_gguf_error_constructors() {
+        let model_load_error = TurboPropError::gguf_model_load("test-model", "File not found");
+        match model_load_error {
+            TurboPropError::GGUFModelLoadError { model_name, reason } => {
+                assert_eq!(model_name, "test-model");
+                assert_eq!(reason, "File not found");
+            }
+            _ => panic!("Expected GGUFModelLoadError"),
+        }
+
+        let inference_error = TurboPropError::gguf_inference("test-model", "Invalid input");
+        match inference_error {
+            TurboPropError::GGUFInferenceError { model_name, reason } => {
+                assert_eq!(model_name, "test-model");
+                assert_eq!(reason, "Invalid input");
+            }
+            _ => panic!("Expected GGUFInferenceError"),
+        }
+
+        let download_error = TurboPropError::gguf_download("test-model", "Network timeout");
+        match download_error {
+            TurboPropError::GGUFDownloadError { model_name, reason } => {
+                assert_eq!(model_name, "test-model");
+                assert_eq!(reason, "Network timeout");
+            }
+            _ => panic!("Expected GGUFDownloadError"),
+        }
+
+        let format_error = TurboPropError::gguf_format("test-model", "Invalid header");
+        match format_error {
+            TurboPropError::GGUFFormatError { model_name, reason } => {
+                assert_eq!(model_name, "test-model");
+                assert_eq!(reason, "Invalid header");
+            }
+            _ => panic!("Expected GGUFFormatError"),
         }
     }
 }

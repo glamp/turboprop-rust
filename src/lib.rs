@@ -185,6 +185,7 @@
 //! - [`search`]: Search algorithms and result processing
 //! - [`types`]: Common data structures and utilities
 
+pub mod backends;
 pub mod chunking;
 pub mod cli;
 pub mod commands;

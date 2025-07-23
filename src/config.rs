@@ -58,6 +58,9 @@ pub struct SearchConfig {
     pub default_limit: usize,
     /// Minimum similarity threshold for results
     pub min_similarity: f32,
+    /// Whether to rehydrate actual content from source files in search results
+    /// If false, shows placeholder content for better performance
+    pub rehydrate_content: bool,
 }
 
 /// Filter limits configuration for glob patterns and file extensions
@@ -76,6 +79,7 @@ impl Default for SearchConfig {
         Self {
             default_limit: 10,
             min_similarity: 0.1,
+            rehydrate_content: true,
         }
     }
 }
@@ -163,6 +167,8 @@ pub struct YamlSearchConfig {
     pub default_limit: Option<usize>,
     /// Minimum similarity threshold for search results (0.0-1.0, default: 0.3)
     pub min_similarity: Option<f32>,
+    /// Whether to rehydrate actual content from source files in search results (default: true)
+    pub rehydrate_content: Option<bool>,
 }
 
 /// Configuration for directory paths in YAML format
@@ -309,6 +315,9 @@ impl YamlConfig {
             }
             if let Some(min_similarity) = search.min_similarity {
                 config.search.min_similarity = min_similarity;
+            }
+            if let Some(rehydrate_content) = search.rehydrate_content {
+                config.search.rehydrate_content = rehydrate_content;
             }
         }
     }

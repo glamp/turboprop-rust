@@ -6,6 +6,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+use crate::config::SearchConfig;
 use crate::types::SearchResult;
 
 /// Default number of content lines to show in text output
@@ -61,45 +62,30 @@ pub struct JsonSearchResult {
     pub rank: usize,
 }
 
-impl From<&SearchResult> for JsonSearchResult {
-    fn from(result: &SearchResult) -> Self {
-        Self {
-            file: result
-                .chunk
-                .chunk
-                .source_location
-                .file_path
-                .to_string_lossy()
-                .into_owned(),
-            line_start: result.chunk.chunk.source_location.start_line,
-            line_end: result.chunk.chunk.source_location.end_line,
-            score: result.similarity,
-            content: result.chunk.chunk.content.clone(),
-            rank: result.rank,
-        }
-    }
-}
 
 /// Result formatter that handles different output formats
 pub struct ResultFormatter {
     format: OutputFormat,
     max_content_lines: usize,
+    search_config: SearchConfig,
 }
 
 impl ResultFormatter {
-    /// Create a new result formatter with the specified format and default settings
-    pub fn new(format: OutputFormat) -> Self {
+    /// Create a new result formatter with the specified format and search config
+    pub fn new(format: OutputFormat, search_config: SearchConfig) -> Self {
         Self {
             format,
             max_content_lines: DEFAULT_MAX_CONTENT_LINES,
+            search_config,
         }
     }
 
     /// Create a new result formatter with custom configuration
-    pub fn with_config(format: OutputFormat, max_content_lines: usize) -> Self {
+    pub fn with_config(format: OutputFormat, max_content_lines: usize, search_config: SearchConfig) -> Self {
         Self {
             format,
             max_content_lines,
+            search_config,
         }
     }
 
@@ -114,11 +100,37 @@ impl ResultFormatter {
     /// Print results in line-delimited JSON format
     fn print_json_results(&self, results: &[SearchResult]) -> Result<()> {
         for result in results {
-            let json_result = JsonSearchResult::from(result);
+            let json_result = self.create_json_result(result);
             let json_line = serde_json::to_string(&json_result)?;
             println!("{}", json_line);
         }
         Ok(())
+    }
+
+    /// Create a JsonSearchResult with optional content rehydration
+    fn create_json_result(&self, result: &SearchResult) -> JsonSearchResult {
+        let content = if self.search_config.rehydrate_content {
+            // Try to rehydrate the content, fallback to original if it fails
+            result.chunk.chunk.rehydrate_content()
+                .unwrap_or_else(|_| result.chunk.chunk.content.clone())
+        } else {
+            result.chunk.chunk.content.clone()
+        };
+
+        JsonSearchResult {
+            file: result
+                .chunk
+                .chunk
+                .source_location
+                .file_path
+                .to_string_lossy()
+                .into_owned(),
+            line_start: result.chunk.chunk.source_location.start_line,
+            line_end: result.chunk.chunk.source_location.end_line,
+            score: result.similarity,
+            content,
+            rank: result.rank,
+        }
     }
 
     /// Print results in human-readable text format
@@ -142,7 +154,15 @@ impl ResultFormatter {
             );
 
             // Content preview with proper indentation
-            let lines: Vec<&str> = result.chunk.chunk.content.lines().collect();
+            let content = if self.search_config.rehydrate_content {
+                // Try to rehydrate the content, fallback to original if it fails
+                result.chunk.chunk.rehydrate_content()
+                    .unwrap_or_else(|_| result.chunk.chunk.content.clone())
+            } else {
+                result.chunk.chunk.content.clone()
+            };
+            
+            let lines: Vec<&str> = content.lines().collect();
             let max_lines = self.max_content_lines;
 
             for (line_idx, line) in lines.iter().take(max_lines).enumerate() {
@@ -240,7 +260,9 @@ mod tests {
             "src/main.rs",
             "fn main() {\n    println!(\"Hello\");\n}",
         );
-        let json_result = JsonSearchResult::from(&result);
+        let search_config = SearchConfig::default();
+        let formatter = ResultFormatter::new(OutputFormat::Json, search_config);
+        let json_result = formatter.create_json_result(&result);
 
         assert_eq!(json_result.file, "src/main.rs");
         assert_eq!(json_result.line_start, 42);
@@ -256,7 +278,9 @@ mod tests {
     #[test]
     fn test_json_serialization() {
         let result = create_test_search_result(0.75, "test.rs", "test content");
-        let json_result = JsonSearchResult::from(&result);
+        let search_config = SearchConfig::default();
+        let formatter = ResultFormatter::new(OutputFormat::Json, search_config);
+        let json_result = formatter.create_json_result(&result);
 
         let serialized = serde_json::to_string(&json_result).unwrap();
         assert!(serialized.contains("\"file\":\"test.rs\""));
@@ -271,10 +295,39 @@ mod tests {
 
     #[test]
     fn test_result_formatter_creation() {
-        let formatter = ResultFormatter::new(OutputFormat::Json);
+        let search_config = SearchConfig::default();
+        let formatter = ResultFormatter::new(OutputFormat::Json, search_config.clone());
         assert_eq!(formatter.format, OutputFormat::Json);
 
-        let formatter = ResultFormatter::new(OutputFormat::Text);
+        let formatter = ResultFormatter::new(OutputFormat::Text, search_config);
         assert_eq!(formatter.format, OutputFormat::Text);
+    }
+
+    #[test]
+    fn test_content_rehydration_enabled() {
+        // Test with rehydration enabled (default)  
+        let mut search_config = SearchConfig::default();
+        search_config.rehydrate_content = true;
+        
+        let result = create_test_search_result(0.85, "src/main.rs", "fn main() {}");
+        let formatter = ResultFormatter::new(OutputFormat::Json, search_config);
+        let json_result = formatter.create_json_result(&result);
+        
+        // Since test content is real content (not placeholder), it should remain unchanged
+        assert!(json_result.content.contains("fn main() {}"));
+    }
+
+    #[test]
+    fn test_content_rehydration_disabled() {
+        // Test with rehydration disabled
+        let mut search_config = SearchConfig::default();
+        search_config.rehydrate_content = false;
+        
+        let result = create_test_search_result(0.85, "src/main.rs", "fn main() {}");
+        let formatter = ResultFormatter::new(OutputFormat::Json, search_config);
+        let json_result = formatter.create_json_result(&result);
+        
+        // Content should be unchanged since we're not rehydrating
+        assert!(json_result.content.contains("fn main() {}"));
     }
 }

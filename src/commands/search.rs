@@ -169,7 +169,7 @@ pub async fn execute_search_command(
     info!("Found {} results after filtering", filtered_results.len());
 
     // Format and output results
-    let formatter = ResultFormatter::new(config.output_format);
+    let formatter = ResultFormatter::new(config.output_format, turboprop_config.search.clone());
 
     if filtered_results.is_empty() {
         formatter.print_no_results(&config.query, config.threshold)?;

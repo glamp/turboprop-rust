@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::fs;
 
 /// A strongly-typed wrapper for chunk identifiers to prevent mixing up different ID types
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -587,6 +588,90 @@ mod tests {
         assert_eq!(stats.average_chunk_size, 0.0);
         assert_eq!(stats.embedding_dimensions, 0);
     }
+
+    #[test]
+    fn test_content_chunk_has_real_content() {
+        let real_chunk = ContentChunk {
+            id: "test".into(),
+            content: "fn main() {}".to_string(),
+            token_count: 3.into(),
+            source_location: SourceLocation {
+                file_path: PathBuf::from("test.rs"),
+                start_line: 1,
+                end_line: 1,
+                start_char: 0,
+                end_char: 12,
+            },
+            chunk_index: 0.into(),
+            total_chunks: 1,
+        };
+
+        let placeholder_chunk = ContentChunk {
+            id: "test".into(),
+            content: "[PLACEHOLDER_CONTENT_FROM:/path/to/file.rs:1]".to_string(),
+            token_count: 3.into(),
+            source_location: SourceLocation {
+                file_path: PathBuf::from("test.rs"),
+                start_line: 1,
+                end_line: 1,
+                start_char: 0,
+                end_char: 12,
+            },
+            chunk_index: 0.into(),
+            total_chunks: 1,
+        };
+
+        assert!(real_chunk.has_real_content());
+        assert!(!placeholder_chunk.has_real_content());
+        
+        assert_eq!(real_chunk.real_content(), Some("fn main() {}"));
+        assert_eq!(placeholder_chunk.real_content(), None);
+    }
+
+    #[test]
+    fn test_content_chunk_rehydrate_with_real_content() {
+        let chunk = ContentChunk {
+            id: "test".into(),
+            content: "fn main() {}".to_string(),
+            token_count: 3.into(),
+            source_location: SourceLocation {
+                file_path: PathBuf::from("test.rs"),
+                start_line: 1,
+                end_line: 1,
+                start_char: 0,
+                end_char: 12,
+            },
+            chunk_index: 0.into(),
+            total_chunks: 1,
+        };
+
+        // Should return the original content since it's already real
+        let result = chunk.rehydrate_content().unwrap();
+        assert_eq!(result, "fn main() {}");
+    }
+
+    #[test]
+    fn test_content_chunk_rehydrate_missing_file() {
+        let chunk = ContentChunk {
+            id: "test".into(),
+            content: "[PLACEHOLDER_CONTENT_FROM:/nonexistent/file.rs:1]".to_string(),
+            token_count: 3.into(),
+            source_location: SourceLocation {
+                file_path: PathBuf::from("/nonexistent/file.rs"),
+                start_line: 1,
+                end_line: 1,
+                start_char: 0,
+                end_char: 12,
+            },
+            chunk_index: 0.into(),
+            total_chunks: 1,
+        };
+
+        // Should return an error for non-existent file
+        let result = chunk.rehydrate_content();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Failed to rehydrate content"));
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -623,6 +708,36 @@ impl ContentChunk {
             Some(&self.content)
         } else {
             None
+        }
+    }
+
+    /// Rehydrate the actual content from the source file if this is a placeholder
+    /// Returns the original content if already real, or attempts to read from source file
+    pub fn rehydrate_content(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        // If we already have real content, return it
+        if self.has_real_content() {
+            return Ok(self.content.clone());
+        }
+
+        // Try to read the content from the source file
+        match fs::read_to_string(&self.source_location.file_path) {
+            Ok(file_content) => {
+                // Extract the specific chunk content using character positions
+                let chars: Vec<char> = file_content.chars().collect();
+                let start_char = self.source_location.start_char.min(chars.len());
+                let end_char = self.source_location.end_char.min(chars.len()).max(start_char);
+                
+                let chunk_content: String = chars[start_char..end_char].iter().collect();
+                Ok(chunk_content)
+            }
+            Err(err) => {
+                // If we can't read the file, return the placeholder with error info
+                Err(format!(
+                    "Failed to rehydrate content from {}: {}",
+                    self.source_location.file_path.display(),
+                    err
+                ).into())
+            }
         }
     }
 }

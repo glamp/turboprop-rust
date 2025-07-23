@@ -253,6 +253,7 @@ async fn test_search_command_with_json_output() -> Result<()> {
         None,
         "json".to_string(),
         None,
+        None,
     ).await;
 
     // The command might fail due to missing models in CI, but should not panic
@@ -297,6 +298,7 @@ async fn test_search_command_with_text_output() -> Result<()> {
         Some(0.1),
         "text".to_string(),
         None,
+        None,
     ).await;
 
     // The command might fail due to missing models in CI
@@ -338,6 +340,7 @@ async fn test_search_command_with_filetype_filter() -> Result<()> {
         None,
         "json".to_string(),
         Some("rs".to_string()),
+        None,
     ).await;
 
     match result {
@@ -378,6 +381,7 @@ async fn test_search_command_with_threshold() -> Result<()> {
         Some(0.8), // High threshold
         "json".to_string(),
         None,
+        None,
     ).await;
 
     match result {
@@ -412,6 +416,7 @@ async fn test_search_command_invalid_output_format() -> Result<()> {
         None,
         "xml".to_string(), // Invalid format
         None,
+        None,
     ).await;
 
     assert!(result.is_err());
@@ -434,6 +439,7 @@ async fn test_search_command_invalid_filetype() -> Result<()> {
         None,
         "json".to_string(),
         Some("".to_string()), // Invalid empty filetype
+        None,
     ).await;
 
     assert!(result.is_err());
@@ -455,6 +461,7 @@ async fn test_search_command_nonexistent_directory() -> Result<()> {
         10,
         None,
         "json".to_string(),
+        None,
         None,
     ).await;
 
@@ -487,6 +494,7 @@ async fn test_search_command_multiple_filetypes() -> Result<()> {
         None,
         "json".to_string(),
         Some("js".to_string()),
+        None,
     ).await;
 
     match result {
@@ -513,6 +521,7 @@ async fn test_search_command_multiple_filetypes() -> Result<()> {
         None,
         "text".to_string(),
         Some("py".to_string()),
+        None,
     ).await;
 
     match result {
@@ -559,6 +568,7 @@ async fn test_search_poker_codebase() -> Result<()> {
         Some(0.3),
         "json".to_string(),
         Some("tsx".to_string()),
+        None,
     ).await;
 
     match result {

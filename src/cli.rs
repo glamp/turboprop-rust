@@ -61,5 +61,8 @@ pub enum Commands {
         /// Filter results by file extension (e.g., '.rs', '.js', '.py')
         #[arg(long)]
         filetype: Option<String>,
+        /// Filter results by file glob pattern (e.g., "src/*.js", "**/*.rs")
+        #[arg(long)]
+        filter: Option<String>,
     },
 }

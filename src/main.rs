@@ -70,9 +70,11 @@ async fn main() -> anyhow::Result<()> {
             threshold,
             output,
             filetype,
+            filter,
         } => {
             // Execute the search command using the new implementation
-            execute_search_command_cli(query, repo, limit, threshold, output, filetype).await?;
+            execute_search_command_cli(query, repo, limit, threshold, output, filetype, filter)
+                .await?;
         }
     }
 

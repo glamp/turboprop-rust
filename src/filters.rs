@@ -68,7 +68,8 @@ use crate::types::SearchResult;
 const PROBLEMATIC_PATH_CHARS: &[char] = &[
     '\0', // Null terminator
     '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07', // Control chars
-    '\x08', /* \x09 = tab (allowed) */ '\x0A', '\x0B', '\x0C', '\x0D', '\x0E', '\x0F', // More control chars (excluding tab)
+    '\x08', /* \x09 = tab (allowed) */ '\x0A', '\x0B', '\x0C', '\x0D', '\x0E',
+    '\x0F', // More control chars (excluding tab)
     '\x10', '\x11', '\x12', '\x13', '\x14', '\x15', '\x16', '\x17', '\x18', '\x19', '\x1A', '\x1B',
     '\x1C', '\x1D', '\x1E', '\x1F', '\x7F', // DEL character
 ];
@@ -1331,7 +1332,7 @@ mod tests {
                 let matches_digit = caret_negated_pattern.matches(Path::new("log1.txt"));
                 let matches_upper = caret_negated_pattern.matches(Path::new("logA.txt"));
                 let matches_lower = caret_negated_pattern.matches(Path::new("loga.txt"));
-                
+
                 // The behavior might vary depending on glob crate implementation
                 // Just ensure it doesn't panic and produces some consistent behavior
                 assert!(matches_digit || !matches_digit); // Should not panic

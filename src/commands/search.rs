@@ -29,6 +29,8 @@ pub struct SearchCommandConfig {
     pub output_format: OutputFormat,
     /// Optional file extension filter
     pub filetype: Option<String>,
+    /// Optional glob pattern filter
+    pub glob_pattern: Option<String>,
 }
 
 impl SearchCommandConfig {
@@ -40,6 +42,7 @@ impl SearchCommandConfig {
         threshold: Option<f32>,
         output_format: OutputFormat,
         filetype: Option<String>,
+        glob_pattern: Option<String>,
     ) -> Self {
         Self {
             query,
@@ -48,6 +51,7 @@ impl SearchCommandConfig {
             threshold,
             output_format,
             filetype,
+            glob_pattern,
         }
     }
 
@@ -87,6 +91,13 @@ impl SearchCommandConfig {
                 .with_context(|| format!("File extension validation failed for '{}'", filetype))?;
         }
 
+        // Validate glob pattern if provided
+        if let Some(ref glob_pattern) = self.glob_pattern {
+            crate::filters::validate_glob_pattern(glob_pattern).with_context(|| {
+                format!("Glob pattern validation failed for '{}'", glob_pattern)
+            })?;
+        }
+
         Ok(())
     }
 }
@@ -109,6 +120,10 @@ pub async fn execute_search_command(config: SearchCommandConfig) -> Result<()> {
 
     if let Some(threshold) = config.threshold {
         info!("Similarity threshold: {:.1}%", threshold * 100.0);
+    }
+
+    if let Some(ref glob_pattern) = config.glob_pattern {
+        info!("Glob pattern filter: {}", glob_pattern);
     }
 
     // Create search filter
@@ -162,6 +177,7 @@ pub async fn execute_search_command_cli(
     threshold: Option<f32>,
     output: String,
     filetype: Option<String>,
+    filter: Option<String>,
 ) -> Result<()> {
     // Parse output format
     let output_format: OutputFormat = output
@@ -176,6 +192,7 @@ pub async fn execute_search_command_cli(
         threshold,
         output_format,
         filetype,
+        filter,
     );
 
     // Execute the command
@@ -197,6 +214,7 @@ mod tests {
             Some(0.5),
             OutputFormat::Json,
             Some("rs".to_string()),
+            Some("*.rs".to_string()),
         );
         assert!(config.validate().is_ok());
 
@@ -207,6 +225,7 @@ mod tests {
             10,
             None,
             OutputFormat::Json,
+            None,
             None,
         );
         assert!(config.validate().is_err());
@@ -219,6 +238,7 @@ mod tests {
             Some(1.5),
             OutputFormat::Json,
             None,
+            None,
         );
         assert!(config.validate().is_err());
 
@@ -229,6 +249,7 @@ mod tests {
             0,
             None,
             OutputFormat::Json,
+            None,
             None,
         );
         assert!(config.validate().is_err());
@@ -243,6 +264,7 @@ mod tests {
             None,
             OutputFormat::Json,
             None,
+            None,
         );
         assert!(config.validate().is_err());
     }
@@ -256,6 +278,7 @@ mod tests {
             None,
             OutputFormat::Json,
             Some("".to_string()), // Empty filetype should be invalid
+            None,
         );
         assert!(config.validate().is_err());
     }
@@ -272,6 +295,7 @@ mod tests {
             None,
             OutputFormat::Json,
             None,
+            None,
         );
 
         // This will fail because there's no index, but configuration should be valid
@@ -280,5 +304,81 @@ mod tests {
         // The actual search execution will fail due to missing index, which is expected
         let result = execute_search_command(config).await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_search_command_config_with_valid_glob_pattern() {
+        // Valid glob patterns should pass validation
+        let valid_patterns = vec!["*.rs", "src/*.js", "**/*.py", "test_*.txt"];
+
+        for pattern in valid_patterns {
+            let config = SearchCommandConfig::new(
+                "test query".to_string(),
+                ".".to_string(),
+                10,
+                None,
+                OutputFormat::Json,
+                None,
+                Some(pattern.to_string()),
+            );
+            assert!(
+                config.validate().is_ok(),
+                "Pattern '{}' should be valid",
+                pattern
+            );
+        }
+    }
+
+    #[test]
+    fn test_search_command_config_with_invalid_glob_pattern() {
+        // Invalid glob patterns should fail validation
+        let invalid_patterns = vec!["", "   ", "[invalid"];
+
+        for pattern in invalid_patterns {
+            let config = SearchCommandConfig::new(
+                "test query".to_string(),
+                ".".to_string(),
+                10,
+                None,
+                OutputFormat::Json,
+                None,
+                Some(pattern.to_string()),
+            );
+            assert!(
+                config.validate().is_err(),
+                "Pattern '{}' should be invalid",
+                pattern
+            );
+        }
+    }
+
+    #[test]
+    fn test_search_command_config_with_no_glob_pattern() {
+        // No glob pattern should be valid
+        let config = SearchCommandConfig::new(
+            "test query".to_string(),
+            ".".to_string(),
+            10,
+            None,
+            OutputFormat::Json,
+            None,
+            None,
+        );
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_search_command_config_with_both_filetype_and_glob() {
+        // Should be able to have both filetype and glob pattern
+        let config = SearchCommandConfig::new(
+            "test query".to_string(),
+            ".".to_string(),
+            10,
+            None,
+            OutputFormat::Json,
+            Some("rs".to_string()),
+            Some("src/*.rs".to_string()),
+        );
+        assert!(config.validate().is_ok());
     }
 }

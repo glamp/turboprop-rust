@@ -1,7 +1,7 @@
-//! Complete workflow integration tests validating all specification requirements.
+//! Binary integration tests for the `tp` CLI command.
 //!
-//! These tests verify end-to-end functionality according to the project specification,
-//! covering all CLI commands and their various options as documented in the API.
+//! These tests verify end-to-end functionality by spawning actual `tp` binary processes
+//! and testing the complete command-line interface as users would experience it.
 //!
 //! ## Offline Test Mode
 //!

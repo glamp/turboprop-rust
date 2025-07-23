@@ -1,7 +1,7 @@
-//! Integration tests for the complete indexing pipeline.
+//! Library integration tests for the indexing pipeline.
 //!
-//! These tests verify the end-to-end functionality of the indexing command,
-//! including progress tracking, error handling, and index completeness.
+//! These tests verify the end-to-end functionality by calling library functions directly,
+//! including embedding generation, progress tracking, error handling, and index completeness.
 
 use std::fs;
 use std::path::{Path, PathBuf};

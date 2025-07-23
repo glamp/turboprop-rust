@@ -15,6 +15,12 @@ exclude = ["test_dir/", "sample-codebases/", "issues/", "benches/"]
 name = "tp"
 path = "src/main.rs"
 
+# Integration tests (slow tests that spawn processes or do ML work)
+[[test]]
+name = "integration"
+path = "tests/integration/mod.rs"
+harness = true
+
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
 tokio = { version = "1.0", features = ["full"] }

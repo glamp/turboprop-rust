@@ -108,7 +108,10 @@ impl SearchCommandConfig {
 }
 
 /// Execute the search command with comprehensive error handling and logging
-pub async fn execute_search_command(config: SearchCommandConfig, turboprop_config: &crate::config::TurboPropConfig) -> Result<()> {
+pub async fn execute_search_command(
+    config: SearchCommandConfig,
+    turboprop_config: &crate::config::TurboPropConfig,
+) -> Result<()> {
     info!("Starting search command execution");
     debug!("Search config: {:?}", config);
 
@@ -132,8 +135,11 @@ pub async fn execute_search_command(config: SearchCommandConfig, turboprop_confi
     }
 
     // Create search filter with configuration
-    let search_filter =
-        SearchFilter::from_cli_args_with_config(config.filetype.clone(), config.glob_pattern.clone(), turboprop_config);
+    let search_filter = SearchFilter::from_cli_args_with_config(
+        config.filetype.clone(),
+        config.glob_pattern.clone(),
+        turboprop_config,
+    );
 
     if search_filter.has_active_filters() {
         let filter_descriptions = search_filter.describe_filters();
@@ -175,31 +181,61 @@ pub async fn execute_search_command(config: SearchCommandConfig, turboprop_confi
     Ok(())
 }
 
+/// CLI arguments for the search command
+#[derive(Debug, Clone)]
+pub struct SearchCliArgs {
+    pub query: String,
+    pub repo: std::path::PathBuf,
+    pub limit: usize,
+    pub threshold: Option<f32>,
+    pub output: String,
+    pub filetype: Option<String>,
+    pub filter: Option<String>,
+}
+
+impl SearchCliArgs {
+    /// Create a new SearchCliArgs instance
+    pub fn new(
+        query: String,
+        repo: std::path::PathBuf,
+        limit: usize,
+        threshold: Option<f32>,
+        output: String,
+        filetype: Option<String>,
+        filter: Option<String>,
+    ) -> Self {
+        Self {
+            query,
+            repo,
+            limit,
+            threshold,
+            output,
+            filetype,
+            filter,
+        }
+    }
+}
+
 /// Execute search command from CLI arguments
 pub async fn execute_search_command_cli(
-    query: String,
-    repo: std::path::PathBuf,
-    limit: usize,
-    threshold: Option<f32>,
-    output: String,
-    filetype: Option<String>,
-    filter: Option<String>,
+    args: SearchCliArgs,
     turboprop_config: &crate::config::TurboPropConfig,
 ) -> Result<()> {
     // Parse output format
-    let output_format: OutputFormat = output
+    let output_format: OutputFormat = args
+        .output
         .parse()
         .map_err(|e| anyhow::anyhow!("Invalid output format: {}", e))?;
 
     // Create configuration
     let config = SearchCommandConfig::new(
-        query,
-        repo.to_string_lossy().to_string(),
-        limit,
-        threshold,
+        args.query,
+        args.repo.to_string_lossy().to_string(),
+        args.limit,
+        args.threshold,
         output_format,
-        filetype,
-        filter,
+        args.filetype,
+        args.filter,
     );
 
     // Execute the command

@@ -1,6 +1,6 @@
 use clap::Parser;
 use turboprop::cli::{Cli, Commands};
-use turboprop::commands::{execute_index_command_cli, execute_search_command_cli};
+use turboprop::commands::{execute_index_command_cli, execute_search_command_cli, SearchCliArgs};
 use turboprop::config::{CliConfigOverrides, TurboPropConfig};
 use turboprop::types::parse_filesize;
 
@@ -74,10 +74,12 @@ async fn main() -> anyhow::Result<()> {
         } => {
             // Load base configuration for search command
             let config = TurboPropConfig::load()?;
-            
+
+            // Create CLI args struct
+            let args = SearchCliArgs::new(query, repo, limit, threshold, output, filetype, filter);
+
             // Execute the search command using the new implementation
-            execute_search_command_cli(query, repo, limit, threshold, output, filetype, filter, &config)
-                .await?;
+            execute_search_command_cli(args, &config).await?;
         }
     }
 

@@ -7,4 +7,4 @@ pub mod index;
 pub mod search;
 
 pub use index::{execute_index_command, execute_index_command_cli};
-pub use search::{execute_search_command, execute_search_command_cli};
+pub use search::{execute_search_command, execute_search_command_cli, SearchCliArgs};

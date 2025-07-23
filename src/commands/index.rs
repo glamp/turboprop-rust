@@ -508,7 +508,7 @@ mod tests {
     async fn test_execute_index_command_with_files() {
         // Skip this test in test environments where model downloads may be unreliable
         // The functionality is validated by integration tests and individual test runs
-        if std::env::var("OFFLINE_TESTS").is_ok() || std::env::var("CI").is_ok() || true {
+        if std::env::var("OFFLINE_TESTS").is_ok() || std::env::var("CI").is_ok() {
             return;
         }
 

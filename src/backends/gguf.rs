@@ -824,7 +824,7 @@ mod tests {
         let config = GGUFConfig::default();
         assert_eq!(config.device, GGUFDevice::Cpu);
         assert_eq!(config.context_length, 512);
-        assert_eq!(config.enable_batching, true);
+        assert!(config.enable_batching);
         assert_eq!(config.gpu_layers, 0);
         assert!(config.memory_limit_bytes.is_none());
         assert!(config.cpu_threads.is_none());
@@ -843,7 +843,7 @@ mod tests {
         assert_eq!(config.device, GGUFDevice::Cuda);
         assert_eq!(config.memory_limit_bytes, Some(2048 * 1024 * 1024));
         assert_eq!(config.context_length, 1024);
-        assert_eq!(config.enable_batching, false);
+        assert!(!config.enable_batching);
         assert_eq!(config.gpu_layers, 32);
         assert_eq!(config.cpu_threads, Some(8));
     }
@@ -903,6 +903,6 @@ mod tests {
                 .unwrap();
 
         assert_eq!(model.max_sequence_length(), 1024); // Should use config context_length
-        assert_eq!(model.config.enable_batching, false);
+        assert!(!model.config.enable_batching);
     }
 }

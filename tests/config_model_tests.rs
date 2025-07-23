@@ -16,9 +16,11 @@ fn test_model_config_default() {
 
 #[test]
 fn test_model_config_serialization() {
-    let mut model_config = ModelConfig::default();
-    model_config.instruction = Some("test instruction".to_string());
-    model_config.download_url = Some("https://example.com/model.bin".to_string());
+    let model_config = ModelConfig {
+        instruction: Some("test instruction".to_string()),
+        download_url: Some("https://example.com/model.bin".to_string()),
+        ..Default::default()
+    };
 
     let serialized = serde_json::to_string_pretty(&model_config).unwrap();
     let deserialized: ModelConfig = serde_json::from_str(&serialized).unwrap();
@@ -40,8 +42,10 @@ fn test_turboprop_config_with_models() {
 
     // Add model-specific configurations
     let mut models = HashMap::new();
-    let mut qwen_config = ModelConfig::default();
-    qwen_config.instruction = Some("Represent this code for search".to_string());
+    let qwen_config = ModelConfig {
+        instruction: Some("Represent this code for search".to_string()),
+        ..Default::default()
+    };
     models.insert("Qwen/Qwen3-Embedding-0.6B".to_string(), qwen_config);
 
     config.models = Some(models);
@@ -116,8 +120,10 @@ fn test_merge_cli_args_instruction_only() {
 
 #[test]
 fn test_configuration_precedence_with_instruction() {
-    let mut config = TurboPropConfig::default();
-    config.current_instruction = Some("default instruction".to_string());
+    let config = TurboPropConfig {
+        current_instruction: Some("default instruction".to_string()),
+        ..Default::default()
+    };
 
     let overrides = CliConfigOverrides::new().with_instruction("override instruction");
 
@@ -137,12 +143,16 @@ fn test_model_specific_config_lookup() {
     // Set up model-specific configurations
     let mut models = HashMap::new();
 
-    let mut qwen_config = ModelConfig::default();
-    qwen_config.instruction = Some("Qwen specific instruction".to_string());
+    let qwen_config = ModelConfig {
+        instruction: Some("Qwen specific instruction".to_string()),
+        ..Default::default()
+    };
     models.insert("Qwen/Qwen3-Embedding-0.6B".to_string(), qwen_config);
 
-    let mut minilm_config = ModelConfig::default();
-    minilm_config.instruction = Some("MiniLM specific instruction".to_string());
+    let minilm_config = ModelConfig {
+        instruction: Some("MiniLM specific instruction".to_string()),
+        ..Default::default()
+    };
     models.insert(
         "sentence-transformers/all-MiniLM-L6-v2".to_string(),
         minilm_config,

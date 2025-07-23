@@ -172,9 +172,13 @@ pub async fn execute_search_command(
     let formatter = ResultFormatter::new(config.output_format, turboprop_config.search.clone());
 
     if filtered_results.is_empty() {
-        formatter.print_no_results(&config.query, config.threshold)?;
+        formatter
+            .print_no_results(&config.query, config.threshold)
+            .with_context(|| format!("Failed to format no-results output for query '{}'", config.query))?;
     } else {
-        formatter.print_results(&filtered_results, &config.query)?;
+        formatter
+            .print_results(&filtered_results, &config.query)
+            .with_context(|| format!("Failed to format {} search results for query '{}'", filtered_results.len(), config.query))?;
     }
 
     info!("Search command completed successfully");
@@ -225,7 +229,8 @@ pub async fn execute_search_command_cli(
     let output_format: OutputFormat = args
         .output
         .parse()
-        .map_err(|e| anyhow::anyhow!("Invalid output format: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("{}", e))
+        .with_context(|| format!("Invalid output format: '{}'", args.output))?;
 
     // Create configuration
     let config = SearchCommandConfig::new(

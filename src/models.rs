@@ -9,6 +9,25 @@ use tracing::{debug, info, warn};
 
 use crate::types::{ModelType, ModelBackend};
 
+// Model dimension and size constants
+pub const NOMIC_EMBED_DIMENSIONS: usize = 768;
+pub const NOMIC_EMBED_SIZE_BYTES: u64 = 2_500_000_000; // ~2.5GB
+pub const QWEN_EMBED_DIMENSIONS: usize = 1024;
+pub const QWEN_EMBED_SIZE_BYTES: u64 = 600_000_000; // ~600MB
+
+/// Configuration for creating ModelInfo instances
+#[derive(Debug, Clone)]
+pub struct ModelInfoConfig {
+    pub name: String,
+    pub description: String,
+    pub dimensions: usize,
+    pub size_bytes: u64,
+    pub model_type: ModelType,
+    pub backend: ModelBackend,
+    pub download_url: Option<String>,
+    pub local_path: Option<PathBuf>,
+}
+
 /// Information about an available embedding model
 #[derive(Debug, Clone)]
 pub struct ModelInfo {
@@ -31,27 +50,98 @@ pub struct ModelInfo {
 }
 
 impl ModelInfo {
-    /// Create a new ModelInfo
-    pub fn new(
-        name: String,
-        description: String,
-        dimensions: usize,
-        size_bytes: u64,
-        model_type: ModelType,
-        backend: ModelBackend,
-        download_url: Option<String>,
-        local_path: Option<PathBuf>,
-    ) -> Self {
+    /// Create a new ModelInfo using a configuration struct
+    pub fn new(config: ModelInfoConfig) -> Self {
         Self {
+            name: config.name,
+            description: config.description,
+            dimensions: config.dimensions,
+            size_bytes: config.size_bytes,
+            model_type: config.model_type,
+            backend: config.backend,
+            download_url: config.download_url,
+            local_path: config.local_path,
+        }
+    }
+
+    /// Create a simple ModelInfo with default values for common cases
+    pub fn simple(name: String, description: String, dimensions: usize, size_bytes: u64) -> Self {
+        Self::new(ModelInfoConfig {
             name,
             description,
             dimensions,
             size_bytes,
-            model_type,
-            backend,
-            download_url,
-            local_path,
+            model_type: ModelType::SentenceTransformer,
+            backend: ModelBackend::FastEmbed,
+            download_url: None,
+            local_path: None,
+        })
+    }
+
+    /// Create a GGUF model with Candle backend
+    pub fn gguf_model(name: String, description: String, dimensions: usize, size_bytes: u64, download_url: String) -> Self {
+        Self::new(ModelInfoConfig {
+            name,
+            description,
+            dimensions,
+            size_bytes,
+            model_type: ModelType::GGUF,
+            backend: ModelBackend::Candle,
+            download_url: Some(download_url),
+            local_path: None,
+        })
+    }
+
+    /// Create a HuggingFace model with Custom backend
+    pub fn huggingface_model(name: String, description: String, dimensions: usize, size_bytes: u64) -> Self {
+        Self::new(ModelInfoConfig {
+            name,
+            description,
+            dimensions,
+            size_bytes,
+            model_type: ModelType::HuggingFace,
+            backend: ModelBackend::Custom,
+            download_url: None,
+            local_path: None,
+        })
+    }
+
+    /// Validate that this ModelInfo has consistent and valid configuration
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() {
+            return Err("Model name cannot be empty".to_string());
         }
+        
+        if self.description.is_empty() {
+            return Err("Model description cannot be empty".to_string());
+        }
+        
+        if self.dimensions == 0 {
+            return Err("Model dimensions must be greater than 0".to_string());
+        }
+        
+        if self.size_bytes == 0 {
+            return Err("Model size must be greater than 0".to_string());
+        }
+        
+        // Validate that download_url is a valid URL if present
+        if let Some(ref url) = self.download_url {
+            if url.is_empty() {
+                return Err("Download URL cannot be empty if specified".to_string());
+            }
+            if !url.starts_with("http://") && !url.starts_with("https://") {
+                return Err("Download URL must be a valid HTTP/HTTPS URL".to_string());
+            }
+        }
+        
+        // Validate that local_path exists if specified
+        if let Some(ref path) = self.local_path {
+            if !path.exists() {
+                return Err(format!("Local path does not exist: {}", path.display()));
+            }
+        }
+        
+        Ok(())
     }
 }
 
@@ -105,47 +195,32 @@ impl ModelManager {
     pub fn get_available_models() -> Vec<ModelInfo> {
         vec![
             // Existing sentence-transformer models
-            ModelInfo::new(
+            ModelInfo::simple(
                 "sentence-transformers/all-MiniLM-L6-v2".to_string(),
                 "Fast and lightweight model, good for general use".to_string(),
                 384,
                 23_000_000, // ~23MB
-                ModelType::SentenceTransformer,
-                ModelBackend::FastEmbed,
-                None,
-                None,
             ),
-            ModelInfo::new(
+            ModelInfo::simple(
                 "sentence-transformers/all-MiniLM-L12-v2".to_string(),
                 "Larger model with better accuracy".to_string(),
                 384,
                 44_000_000, // ~44MB
-                ModelType::SentenceTransformer,
-                ModelBackend::FastEmbed,
-                None,
-                None,
             ),
             // New GGUF model
-            ModelInfo::new(
+            ModelInfo::gguf_model(
                 "nomic-embed-code.Q5_K_S.gguf".to_string(),
                 "Nomic code embedding model optimized for code search".to_string(),
-                768, 
-                2_500_000_000, // ~2.5GB estimated
-                ModelType::GGUF,
-                ModelBackend::Candle,
-                Some("https://huggingface.co/nomic-ai/nomic-embed-code-GGUF/resolve/main/nomic-embed-code.Q5_K_S.gguf".to_string()),
-                None,
+                NOMIC_EMBED_DIMENSIONS,
+                NOMIC_EMBED_SIZE_BYTES,
+                "https://huggingface.co/nomic-ai/nomic-embed-code-GGUF/resolve/main/nomic-embed-code.Q5_K_S.gguf".to_string(),
             ),
             // New Qwen model
-            ModelInfo::new(
+            ModelInfo::huggingface_model(
                 "Qwen/Qwen3-Embedding-0.6B".to_string(),
                 "Qwen3 embedding model for multilingual and code retrieval".to_string(),
-                1024, 
-                600_000_000, // ~600MB
-                ModelType::HuggingFace,
-                ModelBackend::Custom,
-                None,
-                None,
+                QWEN_EMBED_DIMENSIONS,
+                QWEN_EMBED_SIZE_BYTES,
             ),
         ]
     }
@@ -380,5 +455,94 @@ mod tests {
         let stats = manager.get_cache_stats().unwrap();
         assert_eq!(stats.model_count, 0);
         assert_eq!(stats.total_size_bytes, 0);
+    }
+
+    #[test]
+    fn test_model_info_validation_valid() {
+        let model = ModelInfo::simple(
+            "test-model".to_string(),
+            "Test description".to_string(),
+            384,
+            1000,
+        );
+        assert!(model.validate().is_ok());
+    }
+
+    #[test]
+    fn test_model_info_validation_empty_name() {
+        let model = ModelInfo::simple(
+            "".to_string(),
+            "Test description".to_string(),
+            384,
+            1000,
+        );
+        let result = model.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Model name cannot be empty"));
+    }
+
+    #[test]
+    fn test_model_info_validation_empty_description() {
+        let model = ModelInfo::simple(
+            "test-model".to_string(),
+            "".to_string(),
+            384,
+            1000,
+        );
+        let result = model.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Model description cannot be empty"));
+    }
+
+    #[test]
+    fn test_model_info_validation_zero_dimensions() {
+        let model = ModelInfo::simple(
+            "test-model".to_string(),
+            "Test description".to_string(),
+            0,
+            1000,
+        );
+        let result = model.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Model dimensions must be greater than 0"));
+    }
+
+    #[test]
+    fn test_model_info_validation_zero_size() {
+        let model = ModelInfo::simple(
+            "test-model".to_string(),
+            "Test description".to_string(),
+            384,
+            0,
+        );
+        let result = model.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Model size must be greater than 0"));
+    }
+
+    #[test]
+    fn test_model_info_validation_invalid_url() {
+        let model = ModelInfo::gguf_model(
+            "test-model".to_string(),
+            "Test description".to_string(),
+            384,
+            1000,
+            "invalid-url".to_string(),
+        );
+        let result = model.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Download URL must be a valid HTTP/HTTPS URL"));
+    }
+
+    #[test]
+    fn test_model_info_validation_valid_url() {
+        let model = ModelInfo::gguf_model(
+            "test-model".to_string(),
+            "Test description".to_string(),
+            384,
+            1000,
+            "https://example.com/model.gguf".to_string(),
+        );
+        assert!(model.validate().is_ok());
     }
 }

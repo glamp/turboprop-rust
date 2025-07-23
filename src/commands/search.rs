@@ -108,7 +108,7 @@ impl SearchCommandConfig {
 }
 
 /// Execute the search command with comprehensive error handling and logging
-pub async fn execute_search_command(config: SearchCommandConfig) -> Result<()> {
+pub async fn execute_search_command(config: SearchCommandConfig, turboprop_config: &crate::config::TurboPropConfig) -> Result<()> {
     info!("Starting search command execution");
     debug!("Search config: {:?}", config);
 
@@ -131,9 +131,9 @@ pub async fn execute_search_command(config: SearchCommandConfig) -> Result<()> {
         info!("Glob pattern filter: {}", glob_pattern);
     }
 
-    // Create search filter
+    // Create search filter with configuration
     let search_filter =
-        SearchFilter::from_cli_args(config.filetype.clone(), config.glob_pattern.clone());
+        SearchFilter::from_cli_args_with_config(config.filetype.clone(), config.glob_pattern.clone(), turboprop_config);
 
     if search_filter.has_active_filters() {
         let filter_descriptions = search_filter.describe_filters();
@@ -184,6 +184,7 @@ pub async fn execute_search_command_cli(
     output: String,
     filetype: Option<String>,
     filter: Option<String>,
+    turboprop_config: &crate::config::TurboPropConfig,
 ) -> Result<()> {
     // Parse output format
     let output_format: OutputFormat = output
@@ -202,7 +203,7 @@ pub async fn execute_search_command_cli(
     );
 
     // Execute the command
-    execute_search_command(config).await
+    execute_search_command(config, turboprop_config).await
 }
 
 #[cfg(test)]
@@ -308,7 +309,8 @@ mod tests {
         assert!(config.validate().is_ok());
 
         // The actual search execution will fail due to missing index, which is expected
-        let result = execute_search_command(config).await;
+        let turboprop_config = crate::config::TurboPropConfig::default();
+        let result = execute_search_command(config, &turboprop_config).await;
         assert!(result.is_err());
     }
 

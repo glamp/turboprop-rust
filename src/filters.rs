@@ -369,15 +369,93 @@ pub fn normalize_glob_pattern(pattern: &str) -> String {
 /// assert!(Arc::ptr_eq(&pattern1, &pattern2));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct GlobPatternCache {
-    cache: Mutex<HashMap<String, Arc<GlobPattern>>>,
+    cache: Mutex<LruCacheInner>,
+    max_size: usize,
+}
+
+#[derive(Debug)]
+struct LruCacheInner {
+    map: HashMap<String, Arc<GlobPattern>>,
+    access_order: Vec<String>,
+}
+
+impl Default for GlobPatternCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LruCacheInner {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            access_order: Vec::new(),
+        }
+    }
+
+    fn get(&mut self, key: &str) -> Option<Arc<GlobPattern>> {
+        if let Some(pattern) = self.map.get(key) {
+            // Move to end (most recently used)
+            if let Some(pos) = self.access_order.iter().position(|k| k == key) {
+                let key_owned = self.access_order.remove(pos);
+                self.access_order.push(key_owned);
+            }
+            Some(Arc::clone(pattern))
+        } else {
+            None
+        }
+    }
+
+    fn insert(&mut self, key: String, value: Arc<GlobPattern>, max_size: usize) {
+        // If already exists, update and move to end
+        if self.map.contains_key(&key) {
+            self.map.insert(key.clone(), value);
+            if let Some(pos) = self.access_order.iter().position(|k| k == &key) {
+                let key_owned = self.access_order.remove(pos);
+                self.access_order.push(key_owned);
+            }
+            return;
+        }
+
+        // Evict least recently used items if at capacity
+        while max_size > 0 && self.map.len() >= max_size {
+            if let Some(lru_key) = self.access_order.first().cloned() {
+                self.access_order.remove(0);
+                self.map.remove(&lru_key);
+            } else {
+                break;
+            }
+        }
+
+        // Insert new item
+        self.map.insert(key.clone(), value);
+        self.access_order.push(key);
+    }
+
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    fn clear(&mut self) {
+        self.map.clear();
+        self.access_order.clear();
+    }
 }
 
 impl GlobPatternCache {
-    /// Create a new empty pattern cache.
+    /// Create a new empty pattern cache with default size limit.
     pub fn new() -> Self {
-        Self::default()
+        Self::with_max_size(1000) // Default size
+    }
+
+    /// Create a new empty pattern cache with specified maximum size.
+    pub fn with_max_size(max_size: usize) -> Self {
+        Self {
+            cache: Mutex::new(LruCacheInner::new()),
+            max_size,
+        }
     }
 
     /// Get a pattern from the cache or create and cache it if not found.
@@ -402,15 +480,18 @@ impl GlobPatternCache {
     pub fn get_or_create(&self, pattern: &str, config: &FilterConfig) -> Result<Arc<GlobPattern>> {
         let normalized = normalize_glob_pattern(pattern);
 
-        // First, try to get from cache without holding the lock for long
+        // First, try to get from cache
         {
-            let cache = self
+            let mut cache = self
                 .cache
                 .lock()
-                .map_err(|_| anyhow::anyhow!("Pattern cache lock poisoned"))?;
+                .map_err(|_| anyhow::anyhow!(
+                    "Pattern cache lock poisoned while getting pattern '{}'. This indicates a thread panicked while holding the cache lock.", 
+                    normalized
+                ))?;
 
             if let Some(cached_pattern) = cache.get(&normalized) {
-                return Ok(Arc::clone(cached_pattern));
+                return Ok(cached_pattern);
             }
         }
 
@@ -423,14 +504,17 @@ impl GlobPatternCache {
             let mut cache = self
                 .cache
                 .lock()
-                .map_err(|_| anyhow::anyhow!("Pattern cache lock poisoned"))?;
+                .map_err(|_| anyhow::anyhow!(
+                    "Pattern cache lock poisoned while inserting pattern '{}' (cache size: {}). This indicates a thread panicked while holding the cache lock.", 
+                    normalized, self.max_size
+                ))?;
 
             // Check again in case another thread inserted it while we were creating
             if let Some(existing_pattern) = cache.get(&normalized) {
-                return Ok(Arc::clone(existing_pattern));
+                return Ok(existing_pattern);
             }
 
-            cache.insert(normalized, Arc::clone(&arc_pattern));
+            cache.insert(normalized, Arc::clone(&arc_pattern), self.max_size);
         }
 
         Ok(arc_pattern)
@@ -439,8 +523,12 @@ impl GlobPatternCache {
     /// Get cache statistics for monitoring and debugging.
     ///
     /// Returns the number of patterns currently cached.
+    /// Returns 0 if the cache lock is poisoned.
     pub fn len(&self) -> usize {
-        self.cache.lock().map(|cache| cache.len()).unwrap_or(0)
+        self.cache.lock().map(|cache| cache.len()).unwrap_or_else(|_| {
+            tracing::warn!("Pattern cache lock poisoned while getting cache length");
+            0
+        })
     }
 
     /// Check if the cache is empty.
@@ -451,10 +539,17 @@ impl GlobPatternCache {
     /// Clear all cached patterns.
     ///
     /// This can be useful for memory management in long-running applications.
+    /// Silently fails if the cache lock is poisoned.
     pub fn clear(&self) {
-        if let Ok(mut cache) = self.cache.lock() {
-            cache.clear();
+        match self.cache.lock() {
+            Ok(mut cache) => cache.clear(),
+            Err(_) => tracing::warn!("Pattern cache lock poisoned while clearing cache, unable to clear patterns"),
         }
+    }
+
+    /// Get the maximum cache size.
+    pub fn max_size(&self) -> usize {
+        self.max_size
     }
 }
 
@@ -493,12 +588,8 @@ pub fn validate_glob_pattern_with_config(pattern: &str, config: &FilterConfig) -
     Ok(())
 }
 
-/// Validate that a pattern doesn't contain problematic characters.
-///
-/// This function checks for characters that are problematic across platforms
-/// as well as platform-specific restrictions.
-fn validate_pattern_characters(pattern: &str) -> Result<()> {
-    // Check for universally problematic control characters
+/// Validate that a pattern doesn't contain problematic control characters.
+fn validate_control_characters(pattern: &str) -> Result<()> {
     if let Some(invalid_char) = pattern.chars().find(|c| PROBLEMATIC_PATH_CHARS.contains(c)) {
         let char_name = match invalid_char {
             '\0' => "null terminator".to_string(),
@@ -515,16 +606,35 @@ fn validate_pattern_characters(pattern: &str) -> Result<()> {
             pattern
         );
     }
+    Ok(())
+}
 
-    // Platform-specific validations
+/// Validate platform-specific path restrictions.
+fn validate_platform_restrictions(
+    #[cfg_attr(not(target_os = "windows"), allow(unused_variables))]
+    pattern: &str
+) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
         validate_windows_path_restrictions(pattern)?;
     }
+    Ok(())
+}
 
-    // Check for other problematic patterns
+/// Validate security-related patterns.
+fn validate_security_patterns(pattern: &str) -> Result<()> {
     validate_problematic_patterns(pattern)?;
+    Ok(())
+}
 
+/// Validate that a pattern doesn't contain problematic characters.
+///
+/// This function checks for characters that are problematic across platforms
+/// as well as platform-specific restrictions.
+fn validate_pattern_characters(pattern: &str) -> Result<()> {
+    validate_control_characters(pattern)?;
+    validate_platform_restrictions(pattern)?;
+    validate_security_patterns(pattern)?;
     Ok(())
 }
 
@@ -609,6 +719,8 @@ pub struct FilterConfig {
     pub max_glob_pattern_length: usize,
     /// Maximum allowed length for file extensions (including the dot)
     pub max_extension_length: usize,
+    /// Maximum number of patterns to cache (0 = unlimited)
+    pub max_cache_size: usize,
 }
 
 impl Default for FilterConfig {
@@ -618,6 +730,7 @@ impl Default for FilterConfig {
             glob_pattern: None,
             max_glob_pattern_length: DEFAULT_MAX_GLOB_PATTERN_LENGTH,
             max_extension_length: DEFAULT_MAX_EXTENSION_LENGTH,
+            max_cache_size: 1000,
         }
     }
 }
@@ -628,15 +741,28 @@ impl FilterConfig {
         Self::default()
     }
 
-    /// Create a new filter configuration with custom limits
+    /// Create a new filter configuration with specified limits
     pub fn with_limits(max_glob_pattern_length: usize, max_extension_length: usize) -> Self {
         Self {
             file_extension: None,
             glob_pattern: None,
             max_glob_pattern_length,
             max_extension_length,
+            max_cache_size: 1000, // Use default cache size
         }
     }
+
+    /// Create a new filter configuration from TurboPropConfig
+    pub fn from_config(config: &crate::config::TurboPropConfig) -> Self {
+        Self {
+            file_extension: None,
+            glob_pattern: None,
+            max_glob_pattern_length: config.filtering.max_glob_pattern_length,
+            max_extension_length: config.filtering.max_extension_length,
+            max_cache_size: config.filtering.max_cache_size,
+        }
+    }
+
 
     /// Set the file extension filter
     pub fn with_file_extension(mut self, extension: String) -> Self {
@@ -666,15 +792,36 @@ pub struct SearchFilter {
 impl SearchFilter {
     /// Create a new search filter with the given configuration
     pub fn new(config: FilterConfig) -> Self {
+        let cache_size = config.max_cache_size;
+        
         Self {
             config,
-            glob_cache: Arc::new(GlobPatternCache::new()),
+            glob_cache: Arc::new(GlobPatternCache::with_max_size(cache_size)),
         }
     }
 
     /// Create a search filter from optional command line arguments
     pub fn from_cli_args(filetype: Option<String>, glob_pattern: Option<String>) -> Self {
         let mut config = FilterConfig::new();
+
+        if let Some(extension) = filetype {
+            config = config.with_file_extension(extension);
+        }
+
+        if let Some(pattern) = glob_pattern {
+            config = config.with_glob_pattern(pattern);
+        }
+
+        Self::new(config)
+    }
+
+    /// Create a search filter from optional command line arguments with custom configuration
+    pub fn from_cli_args_with_config(
+        filetype: Option<String>, 
+        glob_pattern: Option<String>,
+        turboprop_config: &crate::config::TurboPropConfig
+    ) -> Self {
+        let mut config = FilterConfig::from_config(turboprop_config);
 
         if let Some(extension) = filetype {
             config = config.with_file_extension(extension);
@@ -1462,6 +1609,62 @@ mod tests {
             cache.clear();
             assert_eq!(cache.len(), 0);
             assert!(cache.is_empty());
+        }
+
+        #[test]
+        fn test_lru_cache_eviction() {
+            // Create a cache with small capacity
+            let cache = GlobPatternCache::with_max_size(3);
+            let config = FilterConfig::default();
+
+            // Add 3 items to fill the cache
+            let _pattern1 = cache.get_or_create("pattern1.rs", &config).unwrap();
+            let _pattern2 = cache.get_or_create("pattern2.rs", &config).unwrap();
+            let _pattern3 = cache.get_or_create("pattern3.rs", &config).unwrap();
+            
+            assert_eq!(cache.len(), 3);
+
+            // Access pattern1 to make it most recently used
+            let _pattern1_again = cache.get_or_create("pattern1.rs", &config).unwrap();
+
+            // Add a new pattern, should evict pattern2 (least recently used)
+            let _pattern4 = cache.get_or_create("pattern4.rs", &config).unwrap();
+            
+            assert_eq!(cache.len(), 3);
+
+            // pattern1 and pattern3 should still be in cache, pattern2 should be evicted
+            let pattern1_cached = cache.get_or_create("pattern1.rs", &config).unwrap();
+            let pattern3_cached = cache.get_or_create("pattern3.rs", &config).unwrap();
+            let pattern4_cached = cache.get_or_create("pattern4.rs", &config).unwrap();
+
+            // These should be from cache (same Arc instances)
+            assert!(Arc::ptr_eq(&_pattern1, &pattern1_cached));
+            assert!(Arc::ptr_eq(&_pattern3, &pattern3_cached));
+            assert!(Arc::ptr_eq(&_pattern4, &pattern4_cached));
+        }
+
+        #[test]
+        fn test_lru_cache_unlimited_size() {
+            // Test with unlimited cache (size 0)
+            let cache = GlobPatternCache::with_max_size(0);
+            let config = FilterConfig::default();
+
+            // Add many items - should not evict any
+            for i in 0..100 {
+                let pattern = format!("pattern{}.rs", i);
+                let _result = cache.get_or_create(&pattern, &config).unwrap();
+            }
+            
+            assert_eq!(cache.len(), 100);
+        }
+
+        #[test]
+        fn test_cache_max_size_method() {
+            let cache = GlobPatternCache::with_max_size(500);
+            assert_eq!(cache.max_size(), 500);
+            
+            let default_cache = GlobPatternCache::new();
+            assert_eq!(default_cache.max_size(), 1000);
         }
 
         #[test]

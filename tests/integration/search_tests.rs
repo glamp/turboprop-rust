@@ -11,9 +11,6 @@ use turboprop::config::TurboPropConfig;
 use turboprop::output::OutputFormat;
 use turboprop::{build_persistent_index, index_exists};
 
-// Import shared test utilities
-mod common;
-use common::create_test_codebase;
 
 /// Helper function to create a test directory with sample files
 fn create_test_codebase() -> Result<TempDir> {
@@ -182,6 +179,11 @@ async fn build_test_index_if_needed(path: &Path) -> Result<bool> {
     }
 }
 
+/// Helper function to get test configuration
+fn get_test_config() -> TurboPropConfig {
+    TurboPropConfig::default()
+}
+
 #[tokio::test]
 async fn test_search_command_config_validation() -> Result<()> {
     let temp_dir = create_test_codebase()?;
@@ -258,6 +260,8 @@ async fn test_search_command_with_json_output() -> Result<()> {
         "json".to_string(),
         None,
         None,
+        &get_test_config(),
+        &get_test_config(),
     ).await;
 
     // The command might fail due to missing models in CI, but should not panic
@@ -303,6 +307,7 @@ async fn test_search_command_with_text_output() -> Result<()> {
         "text".to_string(),
         None,
         None,
+        &get_test_config(),
     ).await;
 
     // The command might fail due to missing models in CI
@@ -345,6 +350,7 @@ async fn test_search_command_with_filetype_filter() -> Result<()> {
         "json".to_string(),
         Some("rs".to_string()),
         None,
+        &get_test_config(),
     ).await;
 
     match result {
@@ -386,6 +392,7 @@ async fn test_search_command_with_threshold() -> Result<()> {
         "json".to_string(),
         None,
         None,
+        &get_test_config(),
     ).await;
 
     match result {
@@ -421,6 +428,7 @@ async fn test_search_command_invalid_output_format() -> Result<()> {
         "xml".to_string(), // Invalid format
         None,
         None,
+        &get_test_config(),
     ).await;
 
     assert!(result.is_err());
@@ -444,6 +452,7 @@ async fn test_search_command_invalid_filetype() -> Result<()> {
         "json".to_string(),
         Some("".to_string()), // Invalid empty filetype
         None,
+        &get_test_config(),
     ).await;
 
     assert!(result.is_err());
@@ -467,6 +476,7 @@ async fn test_search_command_nonexistent_directory() -> Result<()> {
         "json".to_string(),
         None,
         None,
+        &get_test_config(),
     ).await;
 
     assert!(result.is_err());
@@ -499,6 +509,7 @@ async fn test_search_command_multiple_filetypes() -> Result<()> {
         "json".to_string(),
         Some("js".to_string()),
         None,
+        &get_test_config(),
     ).await;
 
     match result {
@@ -526,6 +537,7 @@ async fn test_search_command_multiple_filetypes() -> Result<()> {
         "text".to_string(),
         Some("py".to_string()),
         None,
+        &get_test_config(),
     ).await;
 
     match result {
@@ -573,6 +585,7 @@ async fn test_search_poker_codebase() -> Result<()> {
         "json".to_string(),
         Some("tsx".to_string()),
         None,
+        &get_test_config(),
     ).await;
 
     match result {
@@ -608,6 +621,7 @@ async fn test_search_command_with_valid_glob_patterns() -> Result<()> {
         "json".to_string(),
         None,
         Some("*.rs".to_string()),
+        &get_test_config(),
     ).await;
 
     match result {
@@ -635,6 +649,7 @@ async fn test_search_command_with_valid_glob_patterns() -> Result<()> {
         "json".to_string(),
         None,
         Some("**/*.js".to_string()),
+        &get_test_config(),
     ).await;
 
     match result {
@@ -670,6 +685,7 @@ async fn test_search_command_with_invalid_glob_patterns() -> Result<()> {
         "json".to_string(),
         None,
         Some("../malicious/*".to_string()),
+        &get_test_config(),
     ).await;
 
     assert!(result.is_err());
@@ -690,6 +706,7 @@ async fn test_search_command_with_invalid_glob_patterns() -> Result<()> {
         "json".to_string(),
         None,
         Some(long_pattern),
+        &get_test_config(),
     ).await;
 
     assert!(result.is_err());
@@ -723,6 +740,7 @@ async fn test_search_command_filetype_and_glob_integration() -> Result<()> {
         "json".to_string(),
         Some("js".to_string()), // filetype filter
         Some("**/*.js".to_string()), // glob pattern filter
+        &get_test_config(),
     ).await;
 
     match result {
@@ -802,6 +820,7 @@ async fn test_search_command_glob_pattern_error_messages() -> Result<()> {
         "json".to_string(),
         None,
         Some("".to_string()),
+        &get_test_config(),
     ).await;
 
     assert!(result.is_err());
@@ -820,6 +839,7 @@ async fn test_search_command_glob_pattern_error_messages() -> Result<()> {
         "json".to_string(),
         None,
         Some("invalid\0pattern".to_string()),
+        &get_test_config(),
     ).await;
 
     assert!(result.is_err());

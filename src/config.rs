@@ -60,11 +60,32 @@ pub struct SearchConfig {
     pub min_similarity: f32,
 }
 
+/// Filter limits configuration for glob patterns and file extensions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterLimitsConfig {
+    /// Maximum allowed length for file extensions (including the dot)
+    pub max_extension_length: usize,
+    /// Maximum allowed length for glob patterns
+    pub max_glob_pattern_length: usize,
+    /// Maximum number of patterns to cache (0 = unlimited, default: 1000)
+    pub max_cache_size: usize,
+}
+
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
             default_limit: 10,
             min_similarity: 0.1,
+        }
+    }
+}
+
+impl Default for FilterLimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_extension_length: 10,
+            max_glob_pattern_length: 1000,
+            max_cache_size: 1000,
         }
     }
 }
@@ -80,6 +101,8 @@ pub struct YamlConfig {
     pub search: Option<YamlSearchConfig>,
     /// Directory configuration
     pub directories: Option<YamlDirectoriesConfig>,
+    /// Filtering configuration
+    pub filtering: Option<YamlFilterConfig>,
 }
 
 /// Configuration for embedding generation settings in YAML format
@@ -161,6 +184,28 @@ pub struct YamlDirectoriesConfig {
     pub models_dir: Option<PathBuf>,
 }
 
+/// Configuration for filtering limits in YAML format
+///
+/// This struct maps to the `filtering` section in .turboprop.yml files.
+/// Controls size limits for glob patterns and file extensions.
+///
+/// # Example
+/// ```yaml
+/// filtering:
+///   max_extension_length: 15
+///   max_glob_pattern_length: 2000
+///   max_cache_size: 500
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlFilterConfig {
+    /// Maximum allowed length for file extensions including the dot (default: 10)
+    pub max_extension_length: Option<usize>,
+    /// Maximum allowed length for glob patterns (default: 1000)
+    pub max_glob_pattern_length: Option<usize>,
+    /// Maximum number of patterns to cache, 0 = unlimited (default: 1000)
+    pub max_cache_size: Option<usize>,
+}
+
 /// Main configuration structure for TurboProp
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TurboPropConfig {
@@ -172,6 +217,8 @@ pub struct TurboPropConfig {
     pub chunking: ChunkingConfig,
     /// Search configuration
     pub search: SearchConfig,
+    /// Filtering limits configuration
+    pub filtering: FilterLimitsConfig,
     /// General application settings
     pub general: GeneralConfig,
 }
@@ -216,6 +263,7 @@ impl YamlConfig {
         self.apply_indexing_config(&mut config)?;
         self.apply_search_config(&mut config);
         self.apply_directories_config(&mut config);
+        self.apply_filtering_config(&mut config);
 
         // Validate the final configuration
         validation::validate_config(&config).context("Final configuration validation failed")?;
@@ -274,6 +322,21 @@ impl YamlConfig {
             if let Some(models_dir) = &directories.models_dir {
                 config.general.cache_dir = models_dir.clone();
                 config.embedding.cache_dir = models_dir.clone();
+            }
+        }
+    }
+
+    /// Apply filtering configuration to the base config
+    fn apply_filtering_config(&self, config: &mut TurboPropConfig) {
+        if let Some(filtering) = &self.filtering {
+            if let Some(max_extension_length) = filtering.max_extension_length {
+                config.filtering.max_extension_length = max_extension_length;
+            }
+            if let Some(max_glob_pattern_length) = filtering.max_glob_pattern_length {
+                config.filtering.max_glob_pattern_length = max_glob_pattern_length;
+            }
+            if let Some(max_cache_size) = filtering.max_cache_size {
+                config.filtering.max_cache_size = max_cache_size;
             }
         }
     }

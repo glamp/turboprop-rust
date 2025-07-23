@@ -72,8 +72,11 @@ async fn main() -> anyhow::Result<()> {
             filetype,
             filter,
         } => {
+            // Load base configuration for search command
+            let config = TurboPropConfig::load()?;
+            
             // Execute the search command using the new implementation
-            execute_search_command_cli(query, repo, limit, threshold, output, filetype, filter)
+            execute_search_command_cli(query, repo, limit, threshold, output, filetype, filter, &config)
                 .await?;
         }
     }

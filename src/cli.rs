@@ -115,7 +115,7 @@ Examples:
         filter: Option<String>,
     },
 
-    /// Model management commands
+    /// model management commands
     Model {
         #[command(subcommand)]
         action: ModelCommands,
@@ -124,14 +124,14 @@ Examples:
 
 #[derive(Debug, Subcommand)]
 pub enum ModelCommands {
-    /// List available models
+    /// List all available embedding models
     List,
     /// Download a specific model
     Download {
         /// Model name to download
         model: String,
     },
-    /// Show model information
+    /// Show detailed information about a specific model
     Info {
         /// Model name
         model: String,

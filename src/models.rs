@@ -274,8 +274,160 @@ impl ModelManager {
     pub fn clear_cache(&self) -> Result<()> {
         if self.cache_dir.exists() {
             info!("Clearing model cache: {:?}", self.cache_dir);
-            std::fs::remove_dir_all(&self.cache_dir)
-                .with_context(|| format!("Failed to clear model cache: {:?}", self.cache_dir))?;
+            
+            // First try the standard approach
+            match std::fs::remove_dir_all(&self.cache_dir) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    warn!("Standard removal failed, trying forced removal: {}", e);
+                    // If standard removal fails, try a more aggressive approach
+                    self.force_clear_cache()?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Force clear the cache directory when standard removal fails
+    /// This handles cases where files have extended attributes or permission issues
+    fn force_clear_cache(&self) -> Result<()> {
+        if !self.cache_dir.exists() {
+            return Ok(());
+        }
+
+        // First, try to remove any lock files that might be blocking removal
+        self.remove_lock_files()?;
+
+        // Try to remove contents recursively, ignoring individual file errors
+        for entry in std::fs::read_dir(&self.cache_dir)
+            .with_context(|| format!("Failed to read cache directory: {:?}", self.cache_dir))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.is_dir() {
+                // For FastEmbed model directories, try extra cleanup steps
+                if path.file_name().map_or(false, |name| name.to_string_lossy().contains("models--")) {
+                    self.force_remove_fastembed_cache(&path)?;
+                } else if let Err(e) = std::fs::remove_dir_all(&path) {
+                    warn!("Failed to remove directory {:?}: {}, trying alternative method", path, e);
+                    self.force_remove_directory(&path)?;
+                }
+            } else {
+                if let Err(e) = std::fs::remove_file(&path) {
+                    warn!("Failed to remove file {:?}: {}", path, e);
+                    self.force_remove_file(&path)?;
+                }
+            }
+        }
+
+        // Finally try to remove the cache directory itself
+        if let Err(e) = std::fs::remove_dir(&self.cache_dir) {
+            // If we can't remove the empty directory, recreate it empty
+            warn!("Could not remove cache directory {:?}: {}, recreating empty", self.cache_dir, e);
+        }
+
+        Ok(())
+    }
+
+    /// Remove all lock files in the cache directory recursively
+    fn remove_lock_files(&self) -> Result<()> {
+        fn remove_locks_recursive(dir: &std::path::Path) -> Result<()> {
+            if !dir.exists() {
+                return Ok(());
+            }
+
+            for entry in std::fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                
+                if path.is_dir() {
+                    remove_locks_recursive(&path)?;
+                } else if path.extension().map_or(false, |ext| ext == "lock") {
+                    if let Err(e) = std::fs::remove_file(&path) {
+                        warn!("Failed to remove lock file {:?}: {}", path, e);
+                    } else {
+                        debug!("Removed lock file: {:?}", path);
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        remove_locks_recursive(&self.cache_dir)?;
+        Ok(())
+    }
+
+    /// Force remove a FastEmbed cache directory with special handling
+    fn force_remove_fastembed_cache(&self, path: &std::path::Path) -> Result<()> {
+        debug!("Force removing FastEmbed cache directory: {:?}", path);
+        
+        // First try standard removal
+        if std::fs::remove_dir_all(path).is_ok() {
+            return Ok(());
+        }
+
+        // If that fails, try command line removal with force
+        #[cfg(target_os = "macos")]
+        {
+            let output = std::process::Command::new("rm")
+                .args(["-rf", &path.to_string_lossy()])
+                .output();
+                
+            if let Ok(output) = output {
+                if output.status.success() {
+                    debug!("Successfully removed FastEmbed cache with rm -rf");
+                    return Ok(());
+                }
+            }
+        }
+
+        // If command line also fails, try to clean up what we can
+        warn!("Could not fully remove FastEmbed cache {:?}, attempting partial cleanup", path);
+        let _ = self.partial_cleanup_directory(path);
+        
+        Ok(())
+    }
+
+    /// Force remove a regular directory
+    fn force_remove_directory(&self, path: &std::path::Path) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            if let Err(cmd_err) = std::process::Command::new("rm")
+                .args(["-rf", &path.to_string_lossy()])
+                .output()
+            {
+                warn!("Command line removal also failed for {:?}: {}", path, cmd_err);
+            }
+        }
+        Ok(())
+    }
+
+    /// Force remove a file with extended attributes handling
+    fn force_remove_file(&self, path: &std::path::Path) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("xattr")
+                .args(["-c", &path.to_string_lossy()])
+                .output();
+            // Try removing the file again after clearing attributes
+            let _ = std::fs::remove_file(path);
+        }
+        Ok(())
+    }
+
+    /// Partial cleanup of a directory when full removal fails
+    fn partial_cleanup_directory(&self, dir: &std::path::Path) -> Result<()> {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let _ = std::fs::remove_file(&path);
+                } else if path.is_dir() {
+                    let _ = self.partial_cleanup_directory(&path);
+                    let _ = std::fs::remove_dir(&path);
+                }
+            }
         }
         Ok(())
     }

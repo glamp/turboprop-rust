@@ -186,13 +186,41 @@ impl IndexingPipeline {
     async fn initialize_processing_components(
         &self,
     ) -> Result<(EmbeddingGenerator, ChunkingStrategy)> {
-        let embedding_generator = EmbeddingGenerator::new(self.config.embedding.clone())
+        let embedding_generator = self
+            .create_embedding_generator()
             .await
             .context("Failed to initialize embedding generator")?;
 
         let chunking_strategy = ChunkingStrategy::new(self.config.chunking.clone());
 
         Ok((embedding_generator, chunking_strategy))
+    }
+
+    /// Create an embedding generator using the appropriate backend for the configured model
+    async fn create_embedding_generator(&self) -> Result<EmbeddingGenerator> {
+        use crate::models::ModelManager;
+
+        // Look up the model info to determine the correct backend
+        let available_models = ModelManager::get_available_models();
+        let model_info = available_models
+            .iter()
+            .find(|m| m.name == self.config.embedding.model_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Unknown embedding model: {}",
+                    self.config.embedding.model_name
+                )
+            })?;
+
+        info!(
+            "Using embedding model: {} (backend: {:?})",
+            model_info.name, model_info.backend
+        );
+
+        // Use the new_with_model method which selects the appropriate backend
+        EmbeddingGenerator::new_with_model(model_info, &self.config.embedding.cache_dir)
+            .await
+            .with_context(|| format!("Failed to load model: {}", model_info.name))
     }
 
     /// Process files and build in-memory chunk index
@@ -309,7 +337,8 @@ impl IndexingPipeline {
         &self,
         path: &Path,
     ) -> Result<(EmbeddingGenerator, ChunkingStrategy, PersistentChunkIndex)> {
-        let embedding_generator = EmbeddingGenerator::new(self.config.embedding.clone())
+        let embedding_generator = self
+            .create_embedding_generator()
             .await
             .context("Failed to initialize embedding generator")?;
 

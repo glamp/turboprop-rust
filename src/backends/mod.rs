@@ -4,5 +4,7 @@
 //! embedding models. Each backend is optimized for specific model formats.
 
 pub mod gguf;
+pub mod huggingface;
 
 pub use gguf::{GGUFBackend, GGUFEmbeddingModel};
+pub use huggingface::{HuggingFaceBackend, Qwen3EmbeddingModel};

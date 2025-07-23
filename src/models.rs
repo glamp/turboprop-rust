@@ -8,7 +8,7 @@ use futures::TryStreamExt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
-use crate::types::{ModelType, ModelBackend};
+use crate::types::{ModelBackend, ModelType};
 
 // Model dimension and size constants
 pub const NOMIC_EMBED_DIMENSIONS: usize = 768;
@@ -80,7 +80,13 @@ impl ModelInfo {
     }
 
     /// Create a GGUF model with Candle backend
-    pub fn gguf_model(name: String, description: String, dimensions: usize, size_bytes: u64, download_url: String) -> Self {
+    pub fn gguf_model(
+        name: String,
+        description: String,
+        dimensions: usize,
+        size_bytes: u64,
+        download_url: String,
+    ) -> Self {
         Self::new(ModelInfoConfig {
             name,
             description,
@@ -94,7 +100,12 @@ impl ModelInfo {
     }
 
     /// Create a HuggingFace model with Custom backend
-    pub fn huggingface_model(name: String, description: String, dimensions: usize, size_bytes: u64) -> Self {
+    pub fn huggingface_model(
+        name: String,
+        description: String,
+        dimensions: usize,
+        size_bytes: u64,
+    ) -> Self {
         Self::new(ModelInfoConfig {
             name,
             description,
@@ -112,19 +123,19 @@ impl ModelInfo {
         if self.name.is_empty() {
             return Err("Model name cannot be empty".to_string());
         }
-        
+
         if self.description.is_empty() {
             return Err("Model description cannot be empty".to_string());
         }
-        
+
         if self.dimensions == 0 {
             return Err("Model dimensions must be greater than 0".to_string());
         }
-        
+
         if self.size_bytes == 0 {
             return Err("Model size must be greater than 0".to_string());
         }
-        
+
         // Validate that download_url is a valid URL if present
         if let Some(ref url) = self.download_url {
             if url.is_empty() {
@@ -134,14 +145,14 @@ impl ModelInfo {
                 return Err("Download URL must be a valid HTTP/HTTPS URL".to_string());
             }
         }
-        
+
         // Validate that local_path exists if specified
         if let Some(ref path) = self.local_path {
             if !path.exists() {
                 return Err(format!("Local path does not exist: {}", path.display()));
             }
         }
-        
+
         Ok(())
     }
 }
@@ -307,13 +318,13 @@ impl ModelManager {
         if let Some(url) = &model_info.download_url {
             let model_cache_dir = self.get_model_path(&model_info.name);
             let model_file_path = model_cache_dir.join("model.gguf");
-            
+
             // Check if model is already cached
             if model_file_path.exists() {
                 info!("GGUF model already cached: {}", model_info.name);
                 return Ok(model_file_path);
             }
-            
+
             // Create cache directory
             if !model_cache_dir.exists() {
                 std::fs::create_dir_all(&model_cache_dir).with_context(|| {
@@ -323,68 +334,89 @@ impl ModelManager {
                     )
                 })?;
             }
-            
+
             info!("Downloading GGUF model: {} from {}", model_info.name, url);
-            
+
             // Handle different URL schemes
             if url.starts_with("file://") {
                 // For file:// URLs (mainly used in tests), copy the file
                 let source_path = url.strip_prefix("file://").unwrap();
-                tokio::fs::copy(source_path, &model_file_path).await.with_context(|| {
-                    format!("Failed to copy local GGUF model file from {}", source_path)
-                })?;
+                tokio::fs::copy(source_path, &model_file_path)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to copy local GGUF model file from {}", source_path)
+                    })?;
             } else {
                 // For HTTP/HTTPS URLs, download with streaming
                 let response = reqwest::get(url).await.map_err(|e| {
                     crate::error::TurboPropError::gguf_download(&model_info.name, e.to_string())
                 })?;
-                
+
                 if !response.status().is_success() {
                     return Err(crate::error::TurboPropError::gguf_download(
                         &model_info.name,
                         format!("HTTP error: {}", response.status()),
-                    ).into());
+                    )
+                    .into());
                 }
-                
+
                 // Create the file and stream the response body to it
-                let mut file = tokio::fs::File::create(&model_file_path).await.with_context(|| {
-                    format!("Failed to create GGUF model file: {}", model_file_path.display())
-                })?;
-                
+                let mut file = tokio::fs::File::create(&model_file_path)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to create GGUF model file: {}",
+                            model_file_path.display()
+                        )
+                    })?;
+
                 let mut stream = response.bytes_stream();
                 while let Some(chunk) = stream.try_next().await.map_err(|e| {
                     crate::error::TurboPropError::gguf_download(&model_info.name, e.to_string())
                 })? {
-                    tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await.with_context(|| {
-                        format!("Failed to write GGUF model data to {}", model_file_path.display())
-                    })?;
+                    tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "Failed to write GGUF model data to {}",
+                                model_file_path.display()
+                            )
+                        })?;
                 }
             }
-            
+
             info!("Downloaded GGUF model to: {}", model_file_path.display());
-            
+
             // Verify the downloaded file exists and has reasonable size
             let metadata = std::fs::metadata(&model_file_path).with_context(|| {
-                format!("Failed to read metadata for downloaded GGUF model: {}", model_file_path.display())
+                format!(
+                    "Failed to read metadata for downloaded GGUF model: {}",
+                    model_file_path.display()
+                )
             })?;
-            
+
             if metadata.len() == 0 {
                 return Err(crate::error::TurboPropError::gguf_format(
                     &model_info.name,
                     "Downloaded file is empty",
-                ).into());
+                )
+                .into());
             }
-            
+
             // Validate the GGUF file format
             crate::backends::gguf::validate_gguf_file(&model_file_path)?;
-            
-            info!("GGUF model download completed and validated: {} bytes", metadata.len());
+
+            info!(
+                "GGUF model download completed and validated: {} bytes",
+                metadata.len()
+            );
             Ok(model_file_path)
         } else {
             Err(crate::error::TurboPropError::gguf_download(
                 &model_info.name,
                 "No download URL provided for GGUF model",
-            ).into())
+            )
+            .into())
         }
     }
 
@@ -443,7 +475,7 @@ pub struct CacheStats {
 pub trait EmbeddingBackend: Send + Sync {
     /// Load a model using this backend
     fn load_model(&self, model_info: &ModelInfo) -> Result<Box<dyn EmbeddingModel>>;
-    
+
     /// Check if this backend supports the given model type
     fn supports_model(&self, model_type: &ModelType) -> bool;
 }
@@ -452,10 +484,10 @@ pub trait EmbeddingBackend: Send + Sync {
 pub trait EmbeddingModel: Send + Sync {
     /// Generate embeddings for a batch of texts
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
-    
+
     /// Get the embedding dimensions produced by this model
     fn dimensions(&self) -> usize;
-    
+
     /// Get the maximum sequence length supported by this model
     fn max_sequence_length(&self) -> usize;
 }
@@ -481,19 +513,19 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use tokio;
-    
+
     // Mock HTTP server for testing downloads
     async fn setup_mock_model_file(temp_dir: &TempDir) -> (String, PathBuf) {
         let model_file = temp_dir.path().join("test_model.gguf");
-        
+
         // Create a valid GGUF file with proper header
         let mut model_content = Vec::new();
-        model_content.extend_from_slice(b"GGUF");       // Magic bytes
+        model_content.extend_from_slice(b"GGUF"); // Magic bytes
         model_content.extend_from_slice(&[2, 0, 0, 0]); // Version 2 (little-endian)
         model_content.extend_from_slice(&[0, 0, 0, 0]); // Additional bytes to meet minimum size
-        
+
         tokio::fs::write(&model_file, &model_content).await.unwrap();
-        
+
         // For actual tests, we would use a real HTTP server, but for unit tests
         // we'll create a file:// URL
         let file_url = format!("file://{}", model_file.display());
@@ -601,12 +633,7 @@ mod tests {
 
     #[test]
     fn test_model_info_validation_empty_name() {
-        let model = ModelInfo::simple(
-            "".to_string(),
-            "Test description".to_string(),
-            384,
-            1000,
-        );
+        let model = ModelInfo::simple("".to_string(), "Test description".to_string(), 384, 1000);
         let result = model.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Model name cannot be empty"));
@@ -614,15 +641,12 @@ mod tests {
 
     #[test]
     fn test_model_info_validation_empty_description() {
-        let model = ModelInfo::simple(
-            "test-model".to_string(),
-            "".to_string(),
-            384,
-            1000,
-        );
+        let model = ModelInfo::simple("test-model".to_string(), "".to_string(), 384, 1000);
         let result = model.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Model description cannot be empty"));
+        assert!(result
+            .unwrap_err()
+            .contains("Model description cannot be empty"));
     }
 
     #[test]
@@ -635,7 +659,9 @@ mod tests {
         );
         let result = model.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Model dimensions must be greater than 0"));
+        assert!(result
+            .unwrap_err()
+            .contains("Model dimensions must be greater than 0"));
     }
 
     #[test]
@@ -648,7 +674,9 @@ mod tests {
         );
         let result = model.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Model size must be greater than 0"));
+        assert!(result
+            .unwrap_err()
+            .contains("Model size must be greater than 0"));
     }
 
     #[test]
@@ -662,7 +690,9 @@ mod tests {
         );
         let result = model.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Download URL must be a valid HTTP/HTTPS URL"));
+        assert!(result
+            .unwrap_err()
+            .contains("Download URL must be a valid HTTP/HTTPS URL"));
     }
 
     #[test]
@@ -681,7 +711,7 @@ mod tests {
     async fn test_download_gguf_model_no_url() {
         let temp_dir = TempDir::new().unwrap();
         let manager = ModelManager::new(temp_dir.path());
-        
+
         let model_info = ModelInfo::new(ModelInfoConfig {
             name: "test-model.gguf".to_string(),
             description: "Test GGUF model without URL".to_string(),
@@ -696,7 +726,7 @@ mod tests {
         // This should fail because no download URL is provided
         let result = manager.download_gguf_model(&model_info).await;
         assert!(result.is_err());
-        
+
         let error_message = result.err().unwrap().to_string();
         assert!(error_message.contains("No download URL provided"));
     }
@@ -706,9 +736,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let manager = ModelManager::new(temp_dir.path());
         manager.init_cache().unwrap();
-        
+
         let (mock_url, _mock_file) = setup_mock_model_file(&temp_dir).await;
-        
+
         let model_info = ModelInfo::gguf_model(
             "test-model.gguf".to_string(),
             "Test GGUF model for download".to_string(),
@@ -720,16 +750,16 @@ mod tests {
         // Test successful download
         let result = manager.download_gguf_model(&model_info).await;
         assert!(result.is_ok());
-        
+
         let downloaded_path = result.unwrap();
         assert!(downloaded_path.exists());
         assert_eq!(downloaded_path.file_name().unwrap(), "model.gguf");
-        
+
         // Verify file content - should be a valid GGUF file with proper header
         let content = tokio::fs::read(&downloaded_path).await.unwrap();
         let expected_content = {
             let mut expected = Vec::new();
-            expected.extend_from_slice(b"GGUF");       // Magic bytes
+            expected.extend_from_slice(b"GGUF"); // Magic bytes
             expected.extend_from_slice(&[2, 0, 0, 0]); // Version 2 (little-endian)
             expected.extend_from_slice(&[0, 0, 0, 0]); // Additional bytes
             expected
@@ -742,9 +772,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let manager = ModelManager::new(temp_dir.path());
         manager.init_cache().unwrap();
-        
+
         let (mock_url, _mock_file) = setup_mock_model_file(&temp_dir).await;
-        
+
         let model_info = ModelInfo::gguf_model(
             "cached-model.gguf".to_string(),
             "Test GGUF model for caching".to_string(),
@@ -757,22 +787,22 @@ mod tests {
         let result1 = manager.download_gguf_model(&model_info).await;
         assert!(result1.is_ok());
         let path1 = result1.unwrap();
-        
+
         // Get modification time of the first download
         let metadata1 = std::fs::metadata(&path1).unwrap();
         let modified1 = metadata1.modified().unwrap();
-        
+
         // Small delay to ensure modification times would be different if file was re-downloaded
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        
+
         // Second download - should use cached version
         let result2 = manager.download_gguf_model(&model_info).await;
         assert!(result2.is_ok());
         let path2 = result2.unwrap();
-        
+
         // Paths should be the same
         assert_eq!(path1, path2);
-        
+
         // File should not have been modified (indicating it wasn't re-downloaded)
         let metadata2 = std::fs::metadata(&path2).unwrap();
         let modified2 = metadata2.modified().unwrap();
@@ -781,11 +811,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_gguf_model_network_error() {
-        // Skip this test for now - it will be implemented after download_gguf_model exists  
+        // Skip this test for now - it will be implemented after download_gguf_model exists
         if std::env::var("SKIP_UNIMPLEMENTED_TESTS").is_ok() {
             return;
         }
-        
+
         // This test will verify that network errors are properly handled
         // and appropriate GGUF download errors are returned
     }

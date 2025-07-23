@@ -107,37 +107,41 @@ impl GGUFConfig {
     /// Parse memory limit string (e.g., "2GB", "1024MB") to bytes
     pub fn parse_memory_limit(limit_str: &str) -> Result<u64> {
         let limit_str = limit_str.trim().to_uppercase();
-        
+
         if let Some(stripped) = limit_str.strip_suffix("GB") {
-            let gigabytes: f64 = stripped.parse()
-                .map_err(|_| TurboPropError::config_validation(
+            let gigabytes: f64 = stripped.parse().map_err(|_| {
+                TurboPropError::config_validation(
                     "memory_limit",
                     &limit_str,
                     "Valid format like '2GB', '1.5GB'",
-                ))?;
+                )
+            })?;
             Ok((gigabytes * 1024.0 * 1024.0 * 1024.0) as u64)
         } else if let Some(stripped) = limit_str.strip_suffix("MB") {
-            let megabytes: f64 = stripped.parse()
-                .map_err(|_| TurboPropError::config_validation(
+            let megabytes: f64 = stripped.parse().map_err(|_| {
+                TurboPropError::config_validation(
                     "memory_limit",
                     &limit_str,
                     "Valid format like '512MB', '1024MB'",
-                ))?;
+                )
+            })?;
             Ok((megabytes * 1024.0 * 1024.0) as u64)
         } else if let Some(stripped) = limit_str.strip_suffix("B") {
-            let bytes: u64 = stripped.parse()
-                .map_err(|_| TurboPropError::config_validation(
+            let bytes: u64 = stripped.parse().map_err(|_| {
+                TurboPropError::config_validation(
                     "memory_limit",
                     &limit_str,
                     "Valid format like '1024B'",
-                ))?;
+                )
+            })?;
             Ok(bytes)
         } else {
             Err(TurboPropError::config_validation(
                 "memory_limit",
                 &limit_str,
                 "Valid format like '2GB', '512MB', '1024B'",
-            ).into())
+            )
+            .into())
         }
     }
 
@@ -152,7 +156,8 @@ impl GGUFConfig {
                 "device",
                 device_str,
                 "One of: 'cpu', 'gpu', 'cuda', 'metal'",
-            ).into()),
+            )
+            .into()),
         }
     }
 }
@@ -165,28 +170,19 @@ pub fn validate_gguf_file(path: &Path) -> Result<()> {
         .unwrap_or("unknown");
 
     if !path.exists() {
-        return Err(TurboPropError::gguf_format(
-            model_name,
-            "File does not exist",
-        )
-        .into());
+        return Err(TurboPropError::gguf_format(model_name, "File does not exist").into());
     }
 
     // Check file extension
     if path.extension().is_none_or(|ext| ext != "gguf") {
-        return Err(TurboPropError::gguf_format(
-            model_name,
-            "File does not have .gguf extension",
-        )
-        .into());
+        return Err(
+            TurboPropError::gguf_format(model_name, "File does not have .gguf extension").into(),
+        );
     }
 
     // Check file size
     let metadata = std::fs::metadata(path).map_err(|e| {
-        TurboPropError::gguf_format(
-            model_name,
-            format!("Cannot read file metadata: {}", e),
-        )
+        TurboPropError::gguf_format(model_name, format!("Cannot read file metadata: {}", e))
     })?;
 
     if metadata.len() < 12 {
@@ -200,20 +196,14 @@ pub fn validate_gguf_file(path: &Path) -> Result<()> {
 
     // Check GGUF magic header
     let file = File::open(path).map_err(|e| {
-        TurboPropError::gguf_format(
-            model_name,
-            format!("Cannot open file for reading: {}", e),
-        )
+        TurboPropError::gguf_format(model_name, format!("Cannot open file for reading: {}", e))
     })?;
 
     let mut reader = BufReader::new(file);
     let mut magic_buf = [0u8; 4];
-    
+
     reader.read_exact(&mut magic_buf).map_err(|e| {
-        TurboPropError::gguf_format(
-            model_name,
-            format!("Cannot read GGUF magic header: {}", e),
-        )
+        TurboPropError::gguf_format(model_name, format!("Cannot read GGUF magic header: {}", e))
     })?;
 
     if magic_buf != GGUF_MAGIC {
@@ -230,24 +220,28 @@ pub fn validate_gguf_file(path: &Path) -> Result<()> {
     // Read version (4 bytes, little-endian)
     let mut version_buf = [0u8; 4];
     reader.read_exact(&mut version_buf).map_err(|e| {
-        TurboPropError::gguf_format(
-            model_name,
-            format!("Cannot read GGUF version: {}", e),
-        )
+        TurboPropError::gguf_format(model_name, format!("Cannot read GGUF version: {}", e))
     })?;
 
     let version = u32::from_le_bytes(version_buf);
-    
+
     // Check for supported GGUF versions (currently support v1, v2, v3)
     if !(1..=3).contains(&version) {
         return Err(TurboPropError::gguf_format(
             model_name,
-            format!("Unsupported GGUF version: {}. Supported versions: 1-3", version),
+            format!(
+                "Unsupported GGUF version: {}. Supported versions: 1-3",
+                version
+            ),
         )
         .into());
     }
 
-    info!("GGUF file validation passed: {} (version {})", path.display(), version);
+    info!(
+        "GGUF file validation passed: {} (version {})",
+        path.display(),
+        version
+    );
     Ok(())
 }
 
@@ -273,13 +267,16 @@ impl GGUFBackend {
                 Device::Cpu
             }
             GGUFDevice::Metal => {
-                // TODO: Implement Metal device detection and initialization  
+                // TODO: Implement Metal device detection and initialization
                 warn!("Metal device requested but not yet implemented, falling back to CPU");
                 Device::Cpu
             }
         };
-        
-        debug!("Initialized GGUF backend with device: {:?}, config: {:?}", device, config);
+
+        debug!(
+            "Initialized GGUF backend with device: {:?}, config: {:?}",
+            device, config
+        );
         Ok(Self { device, config })
     }
 
@@ -305,7 +302,10 @@ impl EmbeddingBackend for GGUFBackend {
         if !self.supports_model(&model_info.model_type) {
             return Err(TurboPropError::gguf_model_load(
                 &model_info.name,
-                format!("GGUF backend does not support model type: {:?}", model_info.model_type),
+                format!(
+                    "GGUF backend does not support model type: {:?}",
+                    model_info.model_type
+                ),
             )
             .into());
         }
@@ -315,8 +315,15 @@ impl EmbeddingBackend for GGUFBackend {
         // Check if we have a local path to load from
         let model = if let Some(local_path) = &model_info.local_path {
             // Load from local file path
-            info!("Loading GGUF model from local path: {}", local_path.display());
-            GGUFEmbeddingModel::load_from_path_with_config(local_path, model_info, self.config.clone())?
+            info!(
+                "Loading GGUF model from local path: {}",
+                local_path.display()
+            );
+            GGUFEmbeddingModel::load_from_path_with_config(
+                local_path,
+                model_info,
+                self.config.clone(),
+            )?
         } else {
             // Create a model instance that will need to be loaded later
             // This handles cases where the model will be downloaded first
@@ -355,9 +362,17 @@ impl GGUFEmbeddingModel {
     }
 
     /// Create a new GGUF embedding model with custom configuration
-    pub fn new_with_config(model_name: String, dimensions: usize, device: Device, config: GGUFConfig) -> Result<Self> {
-        info!("Creating GGUF embedding model: {} with config: {:?}", model_name, config);
-        
+    pub fn new_with_config(
+        model_name: String,
+        dimensions: usize,
+        device: Device,
+        config: GGUFConfig,
+    ) -> Result<Self> {
+        info!(
+            "Creating GGUF embedding model: {} with config: {:?}",
+            model_name, config
+        );
+
         Ok(Self {
             model_name,
             dimensions,
@@ -375,10 +390,18 @@ impl GGUFEmbeddingModel {
     }
 
     /// Load the model from a GGUF file path with custom configuration
-    pub fn load_from_path_with_config(model_path: &Path, model_info: &ModelInfo, config: GGUFConfig) -> Result<Self> {
+    pub fn load_from_path_with_config(
+        model_path: &Path,
+        model_info: &ModelInfo,
+        config: GGUFConfig,
+    ) -> Result<Self> {
         let model_name = model_info.name.clone();
 
-        info!("Loading GGUF model from path: {} with config: {:?}", model_path.display(), config);
+        info!(
+            "Loading GGUF model from path: {} with config: {:?}",
+            model_path.display(),
+            config
+        );
 
         // Validate the GGUF file format
         validate_gguf_file(model_path)?;
@@ -386,13 +409,13 @@ impl GGUFEmbeddingModel {
         // TODO: Implement actual GGUF model loading using candle
         // For now, create a model instance without loading the actual model
         let model = Self::new_with_config(model_name, model_info.dimensions, Device::Cpu, config)?;
-        
+
         // TODO: Load tokenizer from model directory or config
         // model.tokenizer = Some(load_tokenizer(model_path)?);
-        
+
         // TODO: Load the actual GGUF model using candle
         // model.model = Some(load_gguf_model(model_path, &model.device)?);
-        
+
         info!("GGUF model structure created (actual loading not yet implemented)");
         Ok(model)
     }
@@ -407,11 +430,11 @@ impl GGUFEmbeddingModel {
 
         // Use default dimensions for legacy loading
         let default_dimensions = 768; // Default for nomic-embed models
-        
+
         // Create a minimal ModelInfo for compatibility
         use crate::models::ModelInfoConfig;
         use crate::types::ModelBackend;
-        
+
         let model_info = ModelInfo::new(ModelInfoConfig {
             name: model_name,
             description: "Legacy loaded GGUF model".to_string(),
@@ -429,20 +452,24 @@ impl GGUFEmbeddingModel {
     /// Initialize tokenizer for text processing
     pub fn load_tokenizer(&mut self, tokenizer_path: &Path) -> Result<()> {
         info!("Loading tokenizer from: {}", tokenizer_path.display());
-        
+
         if !tokenizer_path.exists() {
             return Err(TurboPropError::gguf_model_load(
                 &self.model_name,
-                format!("Tokenizer file not found at path: {}", tokenizer_path.display()),
+                format!(
+                    "Tokenizer file not found at path: {}",
+                    tokenizer_path.display()
+                ),
             )
             .into());
         }
 
-        let tokenizer = Tokenizer::from_file(tokenizer_path)
-            .map_err(|e| TurboPropError::gguf_model_load(
+        let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| {
+            TurboPropError::gguf_model_load(
                 &self.model_name,
                 format!("Failed to load tokenizer: {}", e),
-            ))?;
+            )
+        })?;
 
         self.tokenizer = Some(tokenizer);
         info!("Tokenizer loaded successfully");
@@ -457,8 +484,11 @@ impl GGUFEmbeddingModel {
 
 impl EmbeddingModel for GGUFEmbeddingModel {
     fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        debug!("Generating embeddings for {} texts using GGUF model", texts.len());
-        
+        debug!(
+            "Generating embeddings for {} texts using GGUF model",
+            texts.len()
+        );
+
         // Input validation
         if texts.is_empty() {
             return Ok(Vec::new());
@@ -475,7 +505,8 @@ impl EmbeddingModel for GGUFEmbeddingModel {
             }
 
             // Check text length against max sequence length
-            if text.len() > self.max_sequence_length * 4 { // Rough estimate: 4 chars per token
+            if text.len() > self.max_sequence_length * 4 {
+                // Rough estimate: 4 chars per token
                 return Err(TurboPropError::gguf_inference(
                     &self.model_name,
                     format!(
@@ -497,24 +528,31 @@ impl EmbeddingModel for GGUFEmbeddingModel {
 
         // For now, return placeholder embeddings to make tests pass
         let mut embeddings = Vec::new();
-        
+
         for text in texts {
-            debug!("Processing text: {}", text.chars().take(50).collect::<String>());
-            
+            debug!(
+                "Processing text: {}",
+                text.chars().take(50).collect::<String>()
+            );
+
             // TODO: Implement actual tokenization and model inference
             // 1. Tokenize text using self.tokenizer
             // 2. Convert tokens to tensor
             // 3. Run model inference
             // 4. Extract embeddings from model output
-            
+
             // Create placeholder embedding vector with some variation based on text
             let text_hash = text.len() % 100;
             let base_value = 0.1 + (text_hash as f32) * 0.001;
             let embedding = vec![base_value; self.dimensions];
             embeddings.push(embedding);
         }
-        
-        info!("Generated {} embeddings with {} dimensions", embeddings.len(), self.dimensions);
+
+        info!(
+            "Generated {} embeddings with {} dimensions",
+            embeddings.len(),
+            self.dimensions
+        );
         Ok(embeddings)
     }
 
@@ -553,7 +591,7 @@ mod tests {
     fn test_gguf_backend_creation() {
         let backend = GGUFBackend::new();
         assert!(backend.is_ok());
-        
+
         let backend = backend.unwrap();
         assert!(matches!(backend.device(), Device::Cpu));
     }
@@ -561,7 +599,7 @@ mod tests {
     #[test]
     fn test_gguf_backend_supports_model() {
         let backend = GGUFBackend::new().unwrap();
-        
+
         assert!(backend.supports_model(&ModelType::GGUF));
         assert!(!backend.supports_model(&ModelType::SentenceTransformer));
         assert!(!backend.supports_model(&ModelType::HuggingFace));
@@ -570,7 +608,7 @@ mod tests {
     #[test]
     fn test_gguf_backend_load_model_success() {
         let backend = GGUFBackend::new().unwrap();
-        
+
         let model_info = ModelInfo::new(ModelInfoConfig {
             name: "nomic-embed-code.Q5_K_S.gguf".to_string(),
             description: "Test GGUF model".to_string(),
@@ -584,7 +622,7 @@ mod tests {
 
         let result = backend.load_model(&model_info);
         assert!(result.is_ok());
-        
+
         let model = result.unwrap();
         assert_eq!(model.dimensions(), 768);
         assert_eq!(model.max_sequence_length(), 512);
@@ -593,7 +631,7 @@ mod tests {
     #[test]
     fn test_gguf_backend_load_model_unsupported() {
         let backend = GGUFBackend::new().unwrap();
-        
+
         let model_info = ModelInfo::new(ModelInfoConfig {
             name: "sentence-transformer".to_string(),
             description: "Test model".to_string(),
@@ -607,19 +645,15 @@ mod tests {
 
         let result = backend.load_model(&model_info);
         assert!(result.is_err());
-        
+
         let error_message = result.err().unwrap().to_string();
         assert!(error_message.contains("does not support model type"));
     }
 
     #[test]
     fn test_gguf_embedding_model_creation() {
-        let model = GGUFEmbeddingModel::new(
-            "test-model".to_string(),
-            768,
-            Device::Cpu,
-        );
-        
+        let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, Device::Cpu);
+
         assert!(model.is_ok());
         let model = model.unwrap();
         assert_eq!(model.dimensions(), 768);
@@ -628,15 +662,11 @@ mod tests {
 
     #[test]
     fn test_gguf_embedding_model_embed_single() {
-        let model = GGUFEmbeddingModel::new(
-            "test-model".to_string(),
-            768,
-            Device::Cpu,
-        ).unwrap();
+        let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, Device::Cpu).unwrap();
 
         let texts = vec!["Hello, world!".to_string()];
         let result = model.embed(&texts);
-        
+
         assert!(result.is_ok());
         let embeddings = result.unwrap();
         assert_eq!(embeddings.len(), 1);
@@ -645,11 +675,7 @@ mod tests {
 
     #[test]
     fn test_gguf_embedding_model_embed_batch() {
-        let model = GGUFEmbeddingModel::new(
-            "test-model".to_string(),
-            768,
-            Device::Cpu,
-        ).unwrap();
+        let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, Device::Cpu).unwrap();
 
         let texts = vec![
             "First text".to_string(),
@@ -657,7 +683,7 @@ mod tests {
             "Third text".to_string(),
         ];
         let result = model.embed(&texts);
-        
+
         assert!(result.is_ok());
         let embeddings = result.unwrap();
         assert_eq!(embeddings.len(), 3);
@@ -668,15 +694,11 @@ mod tests {
 
     #[test]
     fn test_gguf_embedding_model_embed_empty() {
-        let model = GGUFEmbeddingModel::new(
-            "test-model".to_string(),
-            768,
-            Device::Cpu,
-        ).unwrap();
+        let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, Device::Cpu).unwrap();
 
         let texts: Vec<String> = vec![];
         let result = model.embed(&texts);
-        
+
         assert!(result.is_ok());
         let embeddings = result.unwrap();
         assert_eq!(embeddings.len(), 0);
@@ -686,10 +708,10 @@ mod tests {
     fn test_validate_gguf_file_nonexistent() {
         let temp_dir = TempDir::new().unwrap();
         let fake_path = temp_dir.path().join("nonexistent.gguf");
-        
+
         let result = validate_gguf_file(&fake_path);
         assert!(result.is_err());
-        
+
         let error_msg = result.err().unwrap().to_string();
         assert!(error_msg.contains("File does not exist"));
     }
@@ -698,13 +720,13 @@ mod tests {
     fn test_validate_gguf_file_wrong_extension() {
         let temp_dir = TempDir::new().unwrap();
         let wrong_ext_path = temp_dir.path().join("model.bin");
-        
+
         // Create a file with wrong extension
         File::create(&wrong_ext_path).unwrap();
-        
+
         let result = validate_gguf_file(&wrong_ext_path);
         assert!(result.is_err());
-        
+
         let error_msg = result.err().unwrap().to_string();
         assert!(error_msg.contains("does not have .gguf extension"));
     }
@@ -713,14 +735,14 @@ mod tests {
     fn test_validate_gguf_file_too_small() {
         let temp_dir = TempDir::new().unwrap();
         let small_file_path = temp_dir.path().join("small.gguf");
-        
+
         // Create a file that's too small
         let mut file = File::create(&small_file_path).unwrap();
         file.write_all(b"GGUF").unwrap(); // Only 4 bytes, need at least 12
-        
+
         let result = validate_gguf_file(&small_file_path);
         assert!(result.is_err());
-        
+
         let error_msg = result.err().unwrap().to_string();
         assert!(error_msg.contains("too small to be a valid GGUF model"));
     }
@@ -729,16 +751,16 @@ mod tests {
     fn test_validate_gguf_file_invalid_magic() {
         let temp_dir = TempDir::new().unwrap();
         let invalid_magic_path = temp_dir.path().join("invalid.gguf");
-        
+
         // Create a file with invalid magic header
         let mut file = File::create(&invalid_magic_path).unwrap();
         file.write_all(b"FAKE").unwrap(); // Wrong magic
         file.write_all(&[1, 0, 0, 0]).unwrap(); // Version 1
         file.write_all(&[0, 0, 0, 0]).unwrap(); // Extra bytes to meet minimum size
-        
+
         let result = validate_gguf_file(&invalid_magic_path);
         assert!(result.is_err());
-        
+
         let error_msg = result.err().unwrap().to_string();
         assert!(error_msg.contains("Invalid GGUF magic header"));
     }
@@ -747,16 +769,16 @@ mod tests {
     fn test_validate_gguf_file_unsupported_version() {
         let temp_dir = TempDir::new().unwrap();
         let unsupported_version_path = temp_dir.path().join("unsupported.gguf");
-        
+
         // Create a file with unsupported version
         let mut file = File::create(&unsupported_version_path).unwrap();
         file.write_all(b"GGUF").unwrap(); // Correct magic
         file.write_all(&[99, 0, 0, 0]).unwrap(); // Version 99 (unsupported)
         file.write_all(&[0, 0, 0, 0]).unwrap(); // Extra bytes
-        
+
         let result = validate_gguf_file(&unsupported_version_path);
         assert!(result.is_err());
-        
+
         let error_msg = result.err().unwrap().to_string();
         assert!(error_msg.contains("Unsupported GGUF version: 99"));
     }
@@ -765,13 +787,13 @@ mod tests {
     fn test_validate_gguf_file_valid() {
         let temp_dir = TempDir::new().unwrap();
         let valid_gguf_path = temp_dir.path().join("valid.gguf");
-        
+
         // Create a valid GGUF file header
         let mut file = File::create(&valid_gguf_path).unwrap();
         file.write_all(b"GGUF").unwrap(); // Correct magic
         file.write_all(&[2, 0, 0, 0]).unwrap(); // Version 2 (supported)
         file.write_all(&[0, 0, 0, 0]).unwrap(); // Extra bytes to meet minimum size
-        
+
         let result = validate_gguf_file(&valid_gguf_path);
         assert!(result.is_ok());
     }
@@ -807,11 +829,20 @@ mod tests {
 
     #[test]
     fn test_gguf_config_parse_memory_limit() {
-        assert_eq!(GGUFConfig::parse_memory_limit("2GB").unwrap(), 2 * 1024 * 1024 * 1024);
-        assert_eq!(GGUFConfig::parse_memory_limit("512MB").unwrap(), 512 * 1024 * 1024);
+        assert_eq!(
+            GGUFConfig::parse_memory_limit("2GB").unwrap(),
+            2 * 1024 * 1024 * 1024
+        );
+        assert_eq!(
+            GGUFConfig::parse_memory_limit("512MB").unwrap(),
+            512 * 1024 * 1024
+        );
         assert_eq!(GGUFConfig::parse_memory_limit("1024B").unwrap(), 1024);
-        assert_eq!(GGUFConfig::parse_memory_limit("1.5GB").unwrap(), (1.5 * 1024.0 * 1024.0 * 1024.0) as u64);
-        
+        assert_eq!(
+            GGUFConfig::parse_memory_limit("1.5GB").unwrap(),
+            (1.5 * 1024.0 * 1024.0 * 1024.0) as u64
+        );
+
         assert!(GGUFConfig::parse_memory_limit("invalid").is_err());
         assert!(GGUFConfig::parse_memory_limit("2TB").is_err()); // Unsupported unit
     }
@@ -821,8 +852,11 @@ mod tests {
         assert_eq!(GGUFConfig::parse_device("cpu").unwrap(), GGUFDevice::Cpu);
         assert_eq!(GGUFConfig::parse_device("GPU").unwrap(), GGUFDevice::Gpu);
         assert_eq!(GGUFConfig::parse_device("cuda").unwrap(), GGUFDevice::Cuda);
-        assert_eq!(GGUFConfig::parse_device("METAL").unwrap(), GGUFDevice::Metal);
-        
+        assert_eq!(
+            GGUFConfig::parse_device("METAL").unwrap(),
+            GGUFDevice::Metal
+        );
+
         assert!(GGUFConfig::parse_device("invalid").is_err());
     }
 
@@ -843,13 +877,10 @@ mod tests {
             .with_context_length(1024)
             .with_batching(false);
 
-        let model = GGUFEmbeddingModel::new_with_config(
-            "test-model".to_string(),
-            768,
-            Device::Cpu,
-            config,
-        ).unwrap();
-        
+        let model =
+            GGUFEmbeddingModel::new_with_config("test-model".to_string(), 768, Device::Cpu, config)
+                .unwrap();
+
         assert_eq!(model.max_sequence_length(), 1024); // Should use config context_length
         assert_eq!(model.config.enable_batching, false);
     }

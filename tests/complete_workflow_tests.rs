@@ -20,7 +20,6 @@ use std::env;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use tempfile::TempDir;
 
 /// Check if tests should run in offline mode
 fn is_offline_mode() -> bool {
@@ -74,294 +73,9 @@ max_concurrent_files = 4
     Ok(())
 }
 
-/// Helper function to create a comprehensive test codebase matching the specification examples
-fn create_poker_sample_codebase() -> Result<TempDir> {
-    let temp_dir = TempDir::new()?;
-    let temp_path = temp_dir.path();
-
-    // Create a realistic poker application structure
-    let poker_js_content = r#"
-// Poker game logic with authentication
-const jwt = require('jsonwebtoken');
-
-class PokerAuthentication {
-    constructor(secretKey) {
-        this.secretKey = secretKey;
-    }
-
-    authenticateUser(token) {
-        try {
-            const decoded = jwt.verify(token, this.secretKey);
-            return { success: true, user: decoded };
-        } catch (error) {
-            return { success: false, error: 'Invalid token' };
-        }
-    }
-
-    generateToken(user) {
-        return jwt.sign(
-            { userId: user.id, username: user.username },
-            this.secretKey,
-            { expiresIn: '24h' }
-        );
-    }
-}
-
-class PokerGame {
-    constructor() {
-        this.players = [];
-        this.deck = this.shuffleDeck();
-    }
-
-    addPlayer(player) {
-        if (this.players.length >= 8) {
-            throw new Error('Maximum 8 players allowed');
-        }
-        this.players.push(player);
-    }
-
-    shuffleDeck() {
-        const suits = ['hearts', 'diamonds', 'clubs', 'spades'];
-        const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-        const deck = [];
-        
-        for (const suit of suits) {
-            for (const rank of ranks) {
-                deck.push({ suit, rank });
-            }
-        }
-        
-        return this.shuffle(deck);
-    }
-
-    shuffle(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
-        }
-        return array;
-    }
-}
-
-module.exports = { PokerAuthentication, PokerGame };
-"#;
-
-    let poker_ts_content = r#"
-// TypeScript poker game with React components
-import React, { useState, useEffect } from 'react';
-import { PokerGame, Player } from './poker-logic';
-
-interface GameState {
-    game: PokerGame;
-    currentPlayer: Player | null;
-    isAuthenticated: boolean;
-}
-
-export const PokerTable: React.FC = () => {
-    const [gameState, setGameState] = useState<GameState>({
-        game: new PokerGame(),
-        currentPlayer: null,
-        isAuthenticated: false
-    });
-
-    const authenticateWithJWT = async (token: string): Promise<boolean> => {
-        try {
-            const response = await fetch('/api/auth/verify', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            
-            if (response.ok) {
-                const user = await response.json();
-                setGameState(prev => ({ 
-                    ...prev, 
-                    currentPlayer: user,
-                    isAuthenticated: true 
-                }));
-                return true;
-            }
-            return false;
-        } catch (error) {
-            console.error('Authentication failed:', error);
-            return false;
-        }
-    };
-
-    const handlePlayerAction = (action: 'fold' | 'call' | 'raise', amount?: number) => {
-        if (!gameState.isAuthenticated || !gameState.currentPlayer) {
-            throw new Error('Player must be authenticated');
-        }
-
-        // Handle player action in game
-        gameState.game.processPlayerAction(gameState.currentPlayer, action, amount);
-    };
-
-    useEffect(() => {
-        // Initialize game when component mounts
-        const token = localStorage.getItem('jwt_token');
-        if (token) {
-            authenticateWithJWT(token);
-        }
-    }, []);
-
-    return (
-        <div className="poker-table">
-            <h1>Poker Game</h1>
-            {gameState.isAuthenticated ? (
-                <GameBoard 
-                    game={gameState.game}
-                    player={gameState.currentPlayer}
-                    onAction={handlePlayerAction}
-                />
-            ) : (
-                <LoginForm onAuth={authenticateWithJWT} />
-            )}
-        </div>
-    );
-};
-"#;
-
-    let python_content = r#"
-# Python poker server with JWT authentication
-import jwt
-import hashlib
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-
-class PokerAuthentication:
-    def __init__(self, secret_key: str):
-        self.secret_key = secret_key
-        self.users: Dict[str, dict] = {}
-
-    def authenticate_user(self, username: str, password: str) -> Optional[dict]:
-        """Authenticate user with username and password"""
-        if username not in self.users:
-            return None
-        
-        user = self.users[username]
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        
-        if user['password_hash'] == password_hash:
-            # Generate JWT token for authenticated user
-            token = self.generate_jwt_token(user)
-            return {
-                'user': user,
-                'token': token,
-                'expires': datetime.utcnow() + timedelta(hours=24)
-            }
-        return None
-
-    def generate_jwt_token(self, user: dict) -> str:
-        """Generate JWT authentication token"""
-        payload = {
-            'user_id': user['id'],
-            'username': user['username'],
-            'exp': datetime.utcnow() + timedelta(hours=24),
-            'iat': datetime.utcnow()
-        }
-        return jwt.encode(payload, self.secret_key, algorithm='HS256')
-
-    def verify_jwt_token(self, token: str) -> Optional[dict]:
-        """Verify JWT token and return user data"""
-        try:
-            payload = jwt.decode(token, self.secret_key, algorithms=['HS256'])
-            return payload
-        except jwt.ExpiredSignatureError:
-            return None
-        except jwt.InvalidTokenError:
-            return None
-
-class PokerGameEngine:
-    def __init__(self):
-        self.players: List[dict] = []
-        self.deck = self.create_shuffled_deck()
-        self.community_cards = []
-        self.pot = 0
-
-    def create_shuffled_deck(self) -> List[dict]:
-        """Create and shuffle a standard 52-card deck"""
-        suits = ['hearts', 'diamonds', 'clubs', 'spades']
-        ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-        
-        deck = []
-        for suit in suits:
-            for rank in ranks:
-                deck.append({'suit': suit, 'rank': rank})
-        
-        import random
-        random.shuffle(deck)
-        return deck
-
-    def add_player(self, user_data: dict) -> bool:
-        """Add authenticated player to the game"""
-        if len(self.players) >= 8:
-            return False
-        
-        player = {
-            'id': user_data['user_id'],
-            'username': user_data['username'],
-            'chips': 1000,
-            'hand': [],
-            'status': 'active'
-        }
-        self.players.append(player)
-        return True
-
-if __name__ == '__main__':
-    # Example usage of JWT authentication in poker game
-    auth = PokerAuthentication('your-secret-key')
-    game = PokerGameEngine()
-    
-    # This would be called from web API endpoints
-    auth_result = auth.authenticate_user('player1', 'password123')
-    if auth_result:
-        game.add_player(auth_result['user'])
-        print(f"Player authenticated and added to game: {auth_result['user']['username']}")
-"#;
-
-    // Write test files
-    std::fs::create_dir_all(temp_path.join("frontend"))?;
-    std::fs::create_dir_all(temp_path.join("backend"))?;
-    std::fs::create_dir_all(temp_path.join("api"))?;
-
-    std::fs::write(temp_path.join("frontend/poker-game.js"), poker_js_content)?;
-    std::fs::write(temp_path.join("frontend/poker-table.tsx"), poker_ts_content)?;
-    std::fs::write(temp_path.join("backend/poker_server.py"), python_content)?;
-
-    // Create some additional files for thorough testing
-    let config_content = r#"
-# Game configuration
-max_players: 8
-blind_structure:
-  small_blind: 10
-  big_blind: 20
-jwt_expiry: 24h
-"#;
-    std::fs::write(temp_path.join("config.yml"), config_content)?;
-
-    let readme_content = r#"
-# Poker Game
-
-A multiplayer poker game with JWT authentication.
-
-## Features
-
-- JWT token-based authentication
-- Real-time multiplayer gameplay  
-- React frontend with TypeScript
-- Python backend with REST API
-- WebSocket support for live updates
-
-## Authentication
-
-The game uses JWT tokens for user authentication. Players must authenticate before joining a game.
-"#;
-    std::fs::write(temp_path.join("README.md"), readme_content)?;
-
-    Ok(temp_dir)
+/// Get the path to the poker test fixture
+fn get_poker_fixture_path() -> &'static Path {
+    Path::new("tests/fixtures/poker")
 }
 
 /// Run a CLI command and return the output
@@ -415,8 +129,7 @@ fn run_tp_command_with_timeout(
 /// Test the complete indexing workflow as specified in the API
 #[tokio::test]
 async fn test_index_command_specification_api() -> Result<()> {
-    let temp_dir = create_poker_sample_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = get_poker_fixture_path();
     let offline_mode = is_offline_mode();
 
     // Create appropriate configuration for test environment
@@ -486,8 +199,7 @@ async fn test_index_command_specification_api() -> Result<()> {
 /// Test the search workflow as specified in the API
 #[tokio::test]
 async fn test_search_command_specification_api() -> Result<()> {
-    let temp_dir = create_poker_sample_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = get_poker_fixture_path();
 
     // First create an index (if possible)
     let _ = run_tp_command(
@@ -538,8 +250,7 @@ async fn test_search_command_specification_api() -> Result<()> {
 /// Test search with filetype filter as specified in API
 #[tokio::test]
 async fn test_search_with_filetype_filter() -> Result<()> {
-    let temp_dir = create_poker_sample_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = get_poker_fixture_path();
 
     // Create index first
     let _ = run_tp_command(
@@ -588,8 +299,7 @@ async fn test_search_with_filetype_filter() -> Result<()> {
 /// Test search with text output format as specified in API  
 #[tokio::test]
 async fn test_search_with_text_output() -> Result<()> {
-    let temp_dir = create_poker_sample_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = get_poker_fixture_path();
 
     // Create index first
     let _ = run_tp_command(
@@ -650,8 +360,7 @@ async fn test_search_with_text_output() -> Result<()> {
 /// Test watch mode indexing as specified in API
 #[tokio::test]
 async fn test_index_watch_mode() -> Result<()> {
-    let temp_dir = create_poker_sample_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = get_poker_fixture_path();
 
     // Test: tp index --watch --repo .
     // This is the exact command from the specification
@@ -683,8 +392,7 @@ async fn test_index_watch_mode() -> Result<()> {
 /// Test configuration file loading
 #[tokio::test]
 async fn test_configuration_file_usage() -> Result<()> {
-    let temp_dir = create_poker_sample_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = get_poker_fixture_path();
 
     // Create .turboprop.yml configuration file
     let config_content = r#"
@@ -815,10 +523,10 @@ fn test_error_handling() -> Result<()> {
     }
 
     // Test invalid file size format
-    let temp_dir = create_poker_sample_codebase()?;
+    let temp_path = get_poker_fixture_path();
     let output = run_tp_command(
         &["index", "--repo", ".", "--max-filesize", "invalid-size"],
-        temp_dir.path(),
+        temp_path,
     );
 
     match output {
@@ -846,8 +554,7 @@ fn test_error_handling() -> Result<()> {
 /// Comprehensive specification validation test
 #[tokio::test]
 async fn test_specification_requirements_validation() -> Result<()> {
-    let temp_dir = create_poker_sample_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = get_poker_fixture_path();
 
     // Validate all specification requirements can be tested:
 

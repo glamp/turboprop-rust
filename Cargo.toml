@@ -59,3 +59,7 @@ clap_mangen = "0.2"
 [[bench]]
 name = "performance"
 harness = false
+
+[[bench]]
+name = "glob_performance"
+harness = false

@@ -1,0 +1,15 @@
+
+[indexing]
+max_file_size = "2mb"
+include_gitignore = false
+
+[embedding]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+batch_size = 16
+cache_dir = ".turboprop/cache"
+
+[storage]
+index_dir = ".turboprop"
+
+[parallel]
+max_concurrent_files = 4

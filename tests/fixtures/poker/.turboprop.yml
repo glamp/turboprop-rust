@@ -1,0 +1,5 @@
+
+max_filesize: "1mb"
+model: "sentence-transformers/all-MiniLM-L6-v2"
+worker_threads: 2
+batch_size: 16

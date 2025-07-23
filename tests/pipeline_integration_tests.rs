@@ -17,7 +17,12 @@ fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
     file_path
 }
 
-/// Create a comprehensive test codebase with multiple file types
+/// Get the path to the poker test fixture
+fn get_poker_fixture_path() -> &'static Path {
+    Path::new("tests/fixtures/poker")
+}
+
+/// Create a comprehensive test codebase with multiple file types (legacy - use poker fixture instead)
 fn create_test_codebase(dir: &Path) {
     // Rust files
     create_test_file(
@@ -221,23 +226,22 @@ async fn test_index_command_with_small_codebase() {
         return;
     }
 
-    let temp_dir = TempDir::new().unwrap();
-    create_test_codebase(temp_dir.path());
+    let temp_path = get_poker_fixture_path();
 
     let config = TurboPropConfig::default();
 
     // Test the index command (disable progress bars for testing)
-    let result = execute_index_command(temp_dir.path(), &config, false).await;
+    let result = execute_index_command(temp_path, &config, false).await;
 
     // This might fail in test environment due to embedding model requirements
     match result {
         Ok(()) => {
             // Verify that index was created
-            let index_dir = temp_dir.path().join(".turboprop");
+            let index_dir = temp_path.join(".turboprop");
             assert!(index_dir.exists(), "Index directory should be created");
 
             // Try to load the created index
-            let load_result = PersistentChunkIndex::load(temp_dir.path());
+            let load_result = PersistentChunkIndex::load(temp_path);
             match load_result {
                 Ok(index) => {
                     println!(

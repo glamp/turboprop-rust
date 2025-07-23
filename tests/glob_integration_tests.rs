@@ -780,16 +780,22 @@ async fn test_invalid_glob_pattern() -> Result<()> {
     // Test with invalid glob pattern (unclosed bracket) - this should fail validation
     let options = TestSearchOptions::new().with_filter("[invalid".to_string()); // Invalid glob pattern
     let result = execute_test_search("anything", temp_path, options).await;
-    
+
     // Expect the search to fail due to invalid glob pattern validation
-    assert!(result.is_err(), "Expected validation error for invalid glob pattern");
+    assert!(
+        result.is_err(),
+        "Expected validation error for invalid glob pattern"
+    );
     let error = result.unwrap_err();
     let error_msg = error.to_string();
-    
+
     // Verify it's the expected validation error
-    assert!(error_msg.contains("Search configuration validation failed"), 
-            "Expected search configuration validation error, got: {}", error_msg);
-    
+    assert!(
+        error_msg.contains("Search configuration validation failed"),
+        "Expected search configuration validation error, got: {}",
+        error_msg
+    );
+
     Ok(())
 }
 
@@ -808,16 +814,19 @@ async fn test_empty_query_with_glob() -> Result<()> {
     // Test with empty query string - this should fail validation
     let options = TestSearchOptions::new().with_filter("*.rs".to_string());
     let result = execute_test_search("", temp_path, options).await;
-    
+
     // Expect the search to fail due to empty query validation
     assert!(result.is_err(), "Expected validation error for empty query");
     let error = result.unwrap_err();
     let error_msg = error.to_string();
-    
+
     // Verify it's the expected validation error
-    assert!(error_msg.contains("Search configuration validation failed"), 
-            "Expected search configuration validation error, got: {}", error_msg);
-    
+    assert!(
+        error_msg.contains("Search configuration validation failed"),
+        "Expected search configuration validation error, got: {}",
+        error_msg
+    );
+
     Ok(())
 }
 

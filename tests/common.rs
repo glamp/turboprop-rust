@@ -8,6 +8,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
+/// Get the path to the poker test fixture
+#[allow(dead_code)]
+pub fn get_poker_fixture_path() -> &'static Path {
+    Path::new("tests/fixtures/poker")
+}
+
 /// Create a temporary directory with sample Rust codebase for testing
 pub fn create_test_codebase() -> Result<TempDir> {
     let temp_dir = TempDir::new()?;

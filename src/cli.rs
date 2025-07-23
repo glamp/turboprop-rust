@@ -64,7 +64,7 @@ pub enum Commands {
         /// Filter results by file glob pattern.
         ///
         /// Glob patterns use Unix shell-style wildcards to match file paths.
-        /// 
+        ///
         /// Basic wildcards: * (any chars in dir), ? (single char), ** (recursive),
         /// [abc] (char set), [!abc] (not in set).
         ///

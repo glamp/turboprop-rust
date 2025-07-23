@@ -12,20 +12,23 @@ cargo build
 # Build for production (optimized)
 cargo build --release
 
-# Run all tests (unit + integration)
+# FAST UNIT TESTS (recommended for daily development - ~8-10 seconds)
 cargo test
 
 # Run tests with detailed timing and better output (recommended)
 cargo nextest run
 
-# Run specific test suites
-cargo test --test integration_tests    # Integration tests
-cargo test --test complete_workflow    # End-to-end workflow tests
+# SLOW INTEGRATION TESTS (run when needed - ~30+ seconds)
+cargo test --test integration
+
+# Run specific fast test suites
+cargo test --test glob_edge_cases      # Glob pattern edge cases
+cargo test --test embedding_tests      # ML embedding unit tests  
 cargo test chunking_tests             # Unit tests for chunking module
 
 # Run specific test suites with nextest (shows timing)
 cargo nextest run --test embedding_tests
-cargo nextest run --test integration_tests
+cargo nextest run --test index_tests
 
 # Run benchmarks
 cargo bench
@@ -122,16 +125,66 @@ The codebase is organized into focused modules:
 
 ### Testing Structure
 
-**Unit Tests** - Located in each module file (`#[cfg(test)]`)
+TurboProp uses a **two-tier testing methodology** designed for optimal developer experience:
 
-**Integration Tests** (`tests/` directory)
-- `integration_tests.rs` - Basic integration scenarios
-- `complete_workflow_tests.rs` - End-to-end workflow validation
-- `search_tests.rs` - Search functionality testing
-- `index_tests.rs` - Index building and persistence
-- `embedding_tests.rs` - ML embedding generation
-- `error_handling_tests.rs` - Error scenarios
-- `common.rs` - Shared test utilities and fixtures
+#### **Tier 1: Fast Unit Tests** (`cargo test` - ~8-10 seconds)
+These tests provide immediate feedback during development and are run on every code change:
+
+**In-Module Unit Tests** - Located in each module file (`#[cfg(test)]`)
+- Core functionality testing with mocked dependencies
+- 177 tests covering all major components
+
+**Fast Integration Tests** (`tests/` directory) 
+- `chunking_tests.rs` - Text chunking with real poker fixture data
+- `embedding_tests.rs` - ML embedding unit tests (mocked/fast operations)
+- `error_handling_tests.rs` - Error scenarios and edge cases
+- `glob_edge_cases.rs` - Glob pattern matching edge cases
+- `glob_integration_tests.rs` - Glob filtering integration
+- `index_tests.rs` - Index building and persistence (unit-level)
+- `search_tests.rs` - Search functionality (mocked)
+- `common.rs` - Shared test utilities and poker fixture helpers
+
+**Key Characteristics:**
+- No binary process spawning
+- No ML model downloading/initialization
+- No network operations
+- Uses `tests/fixtures/poker/` for realistic test data
+- All tests complete in <10 seconds total
+
+#### **Tier 2: Slow Integration Tests** (`cargo test --test integration` - ~30+ seconds)
+These tests validate end-to-end functionality and are run when comprehensive testing is needed:
+
+**Binary Integration Tests** (`tests/integration/binary_tests.rs`)
+- Spawns actual `tp` CLI binary processes
+- Tests complete command-line interface
+- Validates specification compliance
+- Tests offline/online modes
+
+**Library Integration Tests** (`tests/integration/library_tests.rs`)
+- Calls library functions directly with real ML operations
+- Tests actual embedding generation and model loading
+- Validates indexing pipeline with real files
+- Tests error handling with actual failures
+
+**Key Characteristics:**
+- Spawns external processes
+- Downloads and initializes ML models
+- Performs actual file I/O and network operations
+- Comprehensive end-to-end validation
+
+#### **When to Use Each Tier:**
+
+**Fast Unit Tests** (`cargo test`):
+- ✅ Daily development workflow
+- ✅ Pre-commit hooks
+- ✅ Continuous Integration (PR builds)
+- ✅ Quick feedback loop (TDD)
+
+**Slow Integration Tests** (`cargo test --test integration`):
+- ✅ Pre-release validation  
+- ✅ Nightly CI builds
+- ✅ Manual testing before major changes
+- ✅ Specification compliance verification
 
 **Benchmarks** (`benches/performance.rs`)
 - Performance benchmarks for indexing and search operations

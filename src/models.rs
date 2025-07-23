@@ -7,6 +7,8 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
+use crate::types::{ModelType, ModelBackend};
+
 /// Information about an available embedding model
 #[derive(Debug, Clone)]
 pub struct ModelInfo {
@@ -18,16 +20,37 @@ pub struct ModelInfo {
     pub dimensions: usize,
     /// Approximate model size in bytes
     pub size_bytes: u64,
+    /// Type of embedding model
+    pub model_type: ModelType,
+    /// Backend used to load and run the model
+    pub backend: ModelBackend,
+    /// Optional direct download URL for the model
+    pub download_url: Option<String>,
+    /// Optional local path for models stored locally
+    pub local_path: Option<PathBuf>,
 }
 
 impl ModelInfo {
     /// Create a new ModelInfo
-    pub fn new(name: String, description: String, dimensions: usize, size_bytes: u64) -> Self {
+    pub fn new(
+        name: String,
+        description: String,
+        dimensions: usize,
+        size_bytes: u64,
+        model_type: ModelType,
+        backend: ModelBackend,
+        download_url: Option<String>,
+        local_path: Option<PathBuf>,
+    ) -> Self {
         Self {
             name,
             description,
             dimensions,
             size_bytes,
+            model_type,
+            backend,
+            download_url,
+            local_path,
         }
     }
 }
@@ -81,17 +104,48 @@ impl ModelManager {
     /// Get information about available models
     pub fn get_available_models() -> Vec<ModelInfo> {
         vec![
+            // Existing sentence-transformer models
             ModelInfo::new(
                 "sentence-transformers/all-MiniLM-L6-v2".to_string(),
                 "Fast and lightweight model, good for general use".to_string(),
                 384,
                 23_000_000, // ~23MB
+                ModelType::SentenceTransformer,
+                ModelBackend::FastEmbed,
+                None,
+                None,
             ),
             ModelInfo::new(
                 "sentence-transformers/all-MiniLM-L12-v2".to_string(),
                 "Larger model with better accuracy".to_string(),
                 384,
                 44_000_000, // ~44MB
+                ModelType::SentenceTransformer,
+                ModelBackend::FastEmbed,
+                None,
+                None,
+            ),
+            // New GGUF model
+            ModelInfo::new(
+                "nomic-embed-code.Q5_K_S.gguf".to_string(),
+                "Nomic code embedding model optimized for code search".to_string(),
+                768, 
+                2_500_000_000, // ~2.5GB estimated
+                ModelType::GGUF,
+                ModelBackend::Candle,
+                Some("https://huggingface.co/nomic-ai/nomic-embed-code-GGUF/resolve/main/nomic-embed-code.Q5_K_S.gguf".to_string()),
+                None,
+            ),
+            // New Qwen model
+            ModelInfo::new(
+                "Qwen/Qwen3-Embedding-0.6B".to_string(),
+                "Qwen3 embedding model for multilingual and code retrieval".to_string(),
+                1024, 
+                600_000_000, // ~600MB
+                ModelType::HuggingFace,
+                ModelBackend::Custom,
+                None,
+                None,
             ),
         ]
     }
@@ -196,6 +250,27 @@ pub struct CacheStats {
     pub model_count: usize,
     /// Total size of cached models in bytes
     pub total_size_bytes: u64,
+}
+
+/// Trait for different embedding backend implementations
+pub trait EmbeddingBackend: Send + Sync {
+    /// Load a model using this backend
+    fn load_model(&self, model_info: &ModelInfo) -> Result<Box<dyn EmbeddingModel>>;
+    
+    /// Check if this backend supports the given model type
+    fn supports_model(&self, model_type: &ModelType) -> bool;
+}
+
+/// Trait for embedding model implementations
+pub trait EmbeddingModel: Send + Sync {
+    /// Generate embeddings for a batch of texts
+    fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
+    
+    /// Get the embedding dimensions produced by this model
+    fn dimensions(&self) -> usize;
+    
+    /// Get the maximum sequence length supported by this model
+    fn max_sequence_length(&self) -> usize;
 }
 
 impl CacheStats {

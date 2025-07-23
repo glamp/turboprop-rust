@@ -2,6 +2,22 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Enumeration of different embedding model types
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ModelType {
+    SentenceTransformer,
+    GGUF,
+    HuggingFace,
+}
+
+/// Enumeration of different embedding backends
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ModelBackend {
+    FastEmbed,
+    Candle,
+    Custom,
+}
+
 /// A strongly-typed wrapper for chunk identifiers to prevent mixing up different ID types
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ChunkId(String);

@@ -620,9 +620,9 @@ impl TurboPropConfig {
         // Default sizes for known models
         match model_name {
             "nomic-embed-code.Q5_K_S.gguf" => 2_500_000_000, // ~2.5GB
-            "Qwen/Qwen3-Embedding-0.6B" => 600_000_000, // ~600MB
+            "Qwen/Qwen3-Embedding-0.6B" => 600_000_000,      // ~600MB
             "sentence-transformers/all-MiniLM-L6-v2" => 44_000_000, // ~44MB
-            _ => 44_000_000, // Default to MiniLM size
+            _ => 44_000_000,                                 // Default to MiniLM size
         }
     }
 

@@ -9,7 +9,9 @@ use anyhow::Result;
 use std::fs::File;
 use std::io::Write;
 use tempfile::TempDir;
-use turboprop::backends::gguf::{validate_gguf_file, GGUFBackend, GGUFConfig, GGUFDevice, GGUFEmbeddingModel};
+use turboprop::backends::gguf::{
+    validate_gguf_file, GGUFBackend, GGUFConfig, GGUFDevice, GGUFEmbeddingModel,
+};
 use turboprop::models::{EmbeddingBackend, EmbeddingModel, ModelInfo, ModelInfoConfig};
 use turboprop::types::{ModelBackend, ModelName, ModelType};
 
@@ -93,11 +95,7 @@ fn test_gguf_backend_load_model_unsupported_type() -> Result<()> {
 
 #[test]
 fn test_gguf_embedding_model_creation() -> Result<()> {
-    let model = GGUFEmbeddingModel::new(
-        "test-model".to_string(),
-        768,
-        candle_core::Device::Cpu,
-    )?;
+    let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, candle_core::Device::Cpu)?;
 
     assert_eq!(model.dimensions(), 768);
     assert_eq!(model.max_sequence_length(), 512);
@@ -125,11 +123,7 @@ fn test_gguf_embedding_model_creation_with_config() -> Result<()> {
 
 #[test]
 fn test_gguf_embedding_model_embed_single() -> Result<()> {
-    let model = GGUFEmbeddingModel::new(
-        "test-model".to_string(),
-        768,
-        candle_core::Device::Cpu,
-    )?;
+    let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, candle_core::Device::Cpu)?;
 
     let texts = vec!["Hello, world!".to_string()];
     let result = model.embed(&texts);
@@ -146,11 +140,7 @@ fn test_gguf_embedding_model_embed_single() -> Result<()> {
 
 #[test]
 fn test_gguf_embedding_model_embed_batch() -> Result<()> {
-    let model = GGUFEmbeddingModel::new(
-        "test-model".to_string(),
-        768,
-        candle_core::Device::Cpu,
-    )?;
+    let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, candle_core::Device::Cpu)?;
 
     let texts = vec![
         "First text".to_string(),
@@ -162,10 +152,14 @@ fn test_gguf_embedding_model_embed_batch() -> Result<()> {
     assert!(result.is_ok());
     let embeddings = result.unwrap();
     assert_eq!(embeddings.len(), 3);
-    
+
     for (i, embedding) in embeddings.iter().enumerate() {
         assert_eq!(embedding.len(), 768);
-        assert!(embedding.iter().any(|&x| x != 0.0), "Embedding {} should not be all zeros", i);
+        assert!(
+            embedding.iter().any(|&x| x != 0.0),
+            "Embedding {} should not be all zeros",
+            i
+        );
     }
 
     // Different texts should produce different embeddings (at least slightly)
@@ -176,11 +170,7 @@ fn test_gguf_embedding_model_embed_batch() -> Result<()> {
 
 #[test]
 fn test_gguf_embedding_model_embed_empty() -> Result<()> {
-    let model = GGUFEmbeddingModel::new(
-        "test-model".to_string(),
-        768,
-        candle_core::Device::Cpu,
-    )?;
+    let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, candle_core::Device::Cpu)?;
 
     let texts: Vec<String> = vec![];
     let result = model.embed(&texts);
@@ -193,11 +183,7 @@ fn test_gguf_embedding_model_embed_empty() -> Result<()> {
 
 #[test]
 fn test_gguf_embedding_model_embed_empty_text_error() -> Result<()> {
-    let model = GGUFEmbeddingModel::new(
-        "test-model".to_string(),
-        768,
-        candle_core::Device::Cpu,
-    )?;
+    let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, candle_core::Device::Cpu)?;
 
     let texts = vec![
         "Valid text".to_string(),
@@ -214,14 +200,10 @@ fn test_gguf_embedding_model_embed_empty_text_error() -> Result<()> {
 
 #[test]
 fn test_gguf_embedding_model_deterministic() -> Result<()> {
-    let model = GGUFEmbeddingModel::new(
-        "test-model".to_string(),
-        768,
-        candle_core::Device::Cpu,
-    )?;
+    let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, candle_core::Device::Cpu)?;
 
     let texts = vec!["Deterministic test text".to_string()];
-    
+
     let result1 = model.embed(&texts)?;
     let result2 = model.embed(&texts)?;
 
@@ -359,10 +341,7 @@ fn test_gguf_config_parse_memory_limit() -> Result<()> {
         GGUFConfig::parse_memory_limit("2GB")?,
         2 * 1024 * 1024 * 1024
     );
-    assert_eq!(
-        GGUFConfig::parse_memory_limit("512MB")?,
-        512 * 1024 * 1024
-    );
+    assert_eq!(GGUFConfig::parse_memory_limit("512MB")?, 512 * 1024 * 1024);
     assert_eq!(GGUFConfig::parse_memory_limit("1024B")?, 1024);
     assert_eq!(
         GGUFConfig::parse_memory_limit("1.5GB")?,
@@ -421,18 +400,17 @@ fn test_gguf_model_download_and_load() -> Result<()> {
         2_500_000_000,
         "https://huggingface.co/nomic-ai/nomic-embed-code-GGUF/resolve/main/nomic-embed-code.Q5_K_S.gguf".to_string(),
     );
-    
+
     let manager = turboprop::models::ModelManager::new_with_defaults(temp_dir.path());
-    let model_path = tokio::runtime::Runtime::new()?.block_on(async {
-        manager.download_gguf_model(&model_info).await
-    })?;
-    
+    let model_path = tokio::runtime::Runtime::new()?
+        .block_on(async { manager.download_gguf_model(&model_info).await })?;
+
     assert!(model_path.exists());
     assert!(model_path.is_file());
-    
+
     let backend = GGUFBackend::new()?;
     let _model = backend.load_model(&model_info)?;
-    
+
     Ok(())
 }
 
@@ -445,12 +423,12 @@ fn test_gguf_embedding_generation_with_real_model() -> Result<()> {
         "function calculateSum(a, b) { return a + b; }".to_string(),
         "def process_data(data): return data.strip()".to_string(),
     ];
-    
+
     // When real model loading is implemented:
     // let model = create_test_gguf_model()?;
     // let embeddings = model.embed(&test_texts)?;
     // assert_eq!(embeddings.len(), 2);
     // assert_eq!(embeddings[0].len(), 768); // Expected dimensions
-    
+
     Ok(())
 }

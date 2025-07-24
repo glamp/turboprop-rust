@@ -59,6 +59,8 @@ chrono = { version = "0.4", features = ["serde"] }
 num_cpus = "1.16"
 sys-info = "0.9"
 glob = "0.3"
+lru = "0.12"  # For embedding caching
+tabled = "0.15"  # For benchmark table output
 
 [features]
 default = []

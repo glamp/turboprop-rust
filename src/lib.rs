@@ -202,6 +202,7 @@ pub mod filters;
 pub mod git;
 pub mod incremental;
 pub mod index;
+pub mod metrics;
 pub mod model_validation;
 pub mod models;
 pub mod output;
@@ -216,6 +217,7 @@ pub mod storage;
 pub mod streaming;
 pub mod types;
 pub mod validation;
+pub mod warnings;
 pub mod watcher;
 
 use crate::chunking::ChunkingStrategy;

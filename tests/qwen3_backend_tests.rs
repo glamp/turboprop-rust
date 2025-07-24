@@ -1,6 +1,6 @@
 //! Unit tests for Qwen3/HuggingFace backend functionality.
 //!
-//! These tests validate the HuggingFace backend and Qwen3 model support without 
+//! These tests validate the HuggingFace backend and Qwen3 model support without
 //! requiring large model downloads. For tests that require actual model loading,
 //! those are marked with #[ignore].
 //!
@@ -41,10 +41,10 @@ fn test_validation_invalid_model_name_format() {
 #[test]
 fn test_validation_invalid_model_name_empty_parts() {
     let invalid_names = vec![
-        ModelName::new("/model-name"),      // Empty organization
-        ModelName::new("organization/"),     // Empty model name
-        ModelName::new("org//model"),        // Double slash
-        ModelName::new("org/model/extra"),   // Too many parts
+        ModelName::new("/model-name"),     // Empty organization
+        ModelName::new("organization/"),   // Empty model name
+        ModelName::new("org//model"),      // Double slash
+        ModelName::new("org/model/extra"), // Too many parts
     ];
 
     for invalid_name in invalid_names {
@@ -58,10 +58,10 @@ fn test_validation_invalid_model_name_empty_parts() {
 #[test]
 fn test_validation_invalid_model_name_characters() {
     let invalid_names = vec![
-        ModelName::new("org/model@name"),    // @ character
-        ModelName::new("org/model name"),    // Space character
-        ModelName::new("org/model#name"),    // Hash character
-        ModelName::new("org/model%name"),    // Percent character
+        ModelName::new("org/model@name"), // @ character
+        ModelName::new("org/model name"), // Space character
+        ModelName::new("org/model#name"), // Hash character
+        ModelName::new("org/model%name"), // Percent character
     ];
 
     for invalid_name in invalid_names {
@@ -103,7 +103,7 @@ fn test_validation_file_as_cache_dir() {
     let temp_dir = TempDir::new().unwrap();
     let temp_file = temp_dir.path().join("not_a_directory.txt");
     std::fs::write(&temp_file, "test content").unwrap();
-    
+
     let file_as_cache = CachePath::new(&temp_file);
     let result = validation::validate_cache_directory(&file_as_cache);
     assert!(result.is_err());
@@ -131,7 +131,7 @@ fn test_validation_model_inputs_valid() {
     let temp_dir = TempDir::new().unwrap();
     let model_name = ModelName::new("Qwen/Qwen3-Embedding-0.6B");
     let cache_dir = CachePath::new(temp_dir.path());
-    
+
     let result = validation::validate_model_inputs(&model_name, &cache_dir);
     assert!(result.is_ok());
 }
@@ -141,7 +141,7 @@ fn test_validation_model_inputs_invalid_name() {
     let temp_dir = TempDir::new().unwrap();
     let invalid_name = ModelName::new("invalid-name");
     let cache_dir = CachePath::new(temp_dir.path());
-    
+
     let result = validation::validate_model_inputs(&invalid_name, &cache_dir);
     assert!(result.is_err());
 }
@@ -150,7 +150,7 @@ fn test_validation_model_inputs_invalid_name() {
 fn test_validation_model_inputs_invalid_cache() {
     let invalid_name = ModelName::new("Qwen/Qwen3-Embedding-0.6B");
     let invalid_cache = CachePath::new("/nonexistent/cache");
-    
+
     let result = validation::validate_model_inputs(&invalid_name, &invalid_cache);
     assert!(result.is_err());
 }
@@ -206,7 +206,11 @@ fn test_parse_qwen2_config_missing_fields() {
 
     for incomplete_config in incomplete_configs {
         let result = config::parse_qwen2_config(&incomplete_config);
-        assert!(result.is_err(), "Should fail with incomplete config: {:?}", incomplete_config);
+        assert!(
+            result.is_err(),
+            "Should fail with incomplete config: {:?}",
+            incomplete_config
+        );
     }
 }
 
@@ -243,7 +247,11 @@ fn test_parse_qwen2_config_invalid_types() {
 
     for invalid_config in invalid_configs {
         let result = config::parse_qwen2_config(&invalid_config);
-        assert!(result.is_err(), "Should fail with invalid config: {:?}", invalid_config);
+        assert!(
+            result.is_err(),
+            "Should fail with invalid config: {:?}",
+            invalid_config
+        );
     }
 }
 
@@ -252,10 +260,10 @@ fn test_model_name_type_safety() {
     let model_name = ModelName::new("Qwen/Qwen3-Embedding-0.6B");
     assert_eq!(model_name.as_str(), "Qwen/Qwen3-Embedding-0.6B");
     assert_eq!(model_name.to_string(), "Qwen/Qwen3-Embedding-0.6B");
-    
+
     let from_string = ModelName::from("test/model".to_string());
     assert_eq!(from_string.as_str(), "test/model");
-    
+
     let from_str = ModelName::from("test/model");
     assert_eq!(from_str.as_str(), "test/model");
 }
@@ -264,16 +272,16 @@ fn test_model_name_type_safety() {
 fn test_cache_path_type_safety() {
     let temp_dir = TempDir::new().unwrap();
     let cache_path = CachePath::new(temp_dir.path());
-    
+
     assert_eq!(cache_path.as_path(), temp_dir.path());
     assert!(cache_path.exists());
-    
+
     let joined = cache_path.join("subdir");
     assert_eq!(joined.as_path(), temp_dir.path().join("subdir"));
-    
+
     let from_pathbuf = CachePath::from(temp_dir.path().to_path_buf());
     assert_eq!(from_pathbuf.as_path(), temp_dir.path());
-    
+
     let from_path = CachePath::from(temp_dir.path());
     assert_eq!(from_path.as_path(), temp_dir.path());
 }
@@ -286,7 +294,7 @@ fn test_model_info_qwen3_creation() {
         1024,
         600_000_000,
     );
-    
+
     assert_eq!(model_info.name.as_str(), "Qwen/Qwen3-Embedding-0.6B");
     assert_eq!(model_info.dimensions, 1024);
     assert_eq!(model_info.size_bytes, 600_000_000);
@@ -304,19 +312,21 @@ fn test_model_info_validation_qwen3() {
         1024,
         600_000_000,
     );
-    
+
     assert!(valid_model.validate().is_ok());
-    
+
     let invalid_model = ModelInfo::huggingface_model(
         ModelName::from(""), // Empty name
         "Invalid model".to_string(),
         1024,
         600_000_000,
     );
-    
+
     let validation_result = invalid_model.validate();
     assert!(validation_result.is_err());
-    assert!(validation_result.unwrap_err().contains("Model name cannot be empty"));
+    assert!(validation_result
+        .unwrap_err()
+        .contains("Model name cannot be empty"));
 }
 
 // Test that demonstrates Qwen3 instruction-based embedding concept (without actual model)
@@ -324,12 +334,12 @@ fn test_model_info_validation_qwen3() {
 fn test_qwen3_instruction_concept() {
     let test_texts = vec![
         "This is a code function for testing".to_string(),
-        "另一个测试文本".to_string(), // Chinese text
+        "另一个测试文本".to_string(),               // Chinese text
         "console.log('Hello, world!')".to_string(), // JavaScript code
     ];
-    
+
     let instruction = "Represent this text for similarity search";
-    
+
     // Test instruction formatting logic (as it would be used in actual model)
     for text in &test_texts {
         let processed_text = format!("Instruct: {}\nQuery: {}", instruction, text);
@@ -342,14 +352,14 @@ fn test_qwen3_instruction_concept() {
 #[test]
 fn test_qwen3_multilingual_support_concept() {
     let multilingual_texts = vec![
-        "Hello world".to_string(),                    // English
-        "你好世界".to_string(),                        // Chinese
-        "Hola mundo".to_string(),                     // Spanish
-        "Bonjour le monde".to_string(),               // French
-        "console.log('test')".to_string(),            // JavaScript code
-        "def hello(): return 'world'".to_string(),    // Python code
+        "Hello world".to_string(),                 // English
+        "你好世界".to_string(),                    // Chinese
+        "Hola mundo".to_string(),                  // Spanish
+        "Bonjour le monde".to_string(),            // French
+        "console.log('test')".to_string(),         // JavaScript code
+        "def hello(): return 'world'".to_string(), // Python code
     ];
-    
+
     // Validate that we can handle different text types without errors
     assert_eq!(multilingual_texts.len(), 6);
     for text in &multilingual_texts {
@@ -365,10 +375,10 @@ async fn test_qwen3_model_download_and_load() -> Result<()> {
     let backend = HuggingFaceBackend::new()?;
     let model_name = ModelName::new("Qwen/Qwen3-Embedding-0.6B");
     let cache_dir = CachePath::new(temp_dir.path());
-    
+
     let _model = backend.load_qwen3_model(&model_name, &cache_dir).await?;
     // In a real implementation, this would download and load the actual model
-    
+
     Ok(())
 }
 
@@ -380,19 +390,19 @@ async fn test_qwen3_instruction_embeddings() -> Result<()> {
         "This is a code function for testing".to_string(),
         "另一个测试文本".to_string(), // Chinese text
     ];
-    
+
     let instruction = "Represent this text for similarity search";
-    
+
     // Mock test - in real implementation:
     // let model = create_test_qwen3_model()?;
     // let embeddings = model.embed_with_instruction(&test_texts, Some(instruction))?;
     // assert_eq!(embeddings.len(), 2);
     // assert_eq!(embeddings[0].len(), 1024); // Expected dimensions
-    
+
     // For now, just validate the test setup
     assert_eq!(test_texts.len(), 2);
     assert!(!instruction.is_empty());
-    
+
     Ok(())
 }
 
@@ -401,26 +411,26 @@ async fn test_qwen3_instruction_embeddings() -> Result<()> {
 async fn test_qwen3_multilingual_inference() -> Result<()> {
     let multilingual_texts = vec![
         "Hello world".to_string(),
-        "你好世界".to_string(), // Chinese
-        "Hola mundo".to_string(), // Spanish
+        "你好世界".to_string(),            // Chinese
+        "Hola mundo".to_string(),          // Spanish
         "console.log('test')".to_string(), // JavaScript code
     ];
-    
+
     // Mock test - in real implementation:
     // let model = create_test_qwen3_model()?;
     // let embeddings = model.embed(&multilingual_texts)?;
     // assert_eq!(embeddings.len(), 4);
-    // 
+    //
     // // Test that multilingual texts produce meaningful embeddings
     // for embedding in &embeddings {
     //     assert_eq!(embedding.len(), 1024);
     //     // Verify embeddings are not all zeros
     //     assert!(embedding.iter().any(|&x| x.abs() > 0.001));
     // }
-    
+
     // For now, validate test setup
     assert_eq!(multilingual_texts.len(), 4);
-    
+
     Ok(())
 }
 
@@ -429,10 +439,10 @@ fn test_model_backend_selection_logic() {
     // Test that Qwen3 models use the correct backend
     let manager = turboprop::models::ModelManager::new_with_defaults(std::env::temp_dir());
     let models = manager.get_available_models();
-    
+
     // Find Qwen3 model in available models
     let qwen3_model = models.iter().find(|m| m.name.as_str().contains("Qwen3"));
-    
+
     if let Some(model) = qwen3_model {
         // Verify it uses the Custom backend (which maps to HuggingFace)
         assert_eq!(model.backend, ModelBackend::Custom);

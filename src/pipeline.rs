@@ -201,7 +201,8 @@ impl IndexingPipeline {
         use crate::models::ModelManager;
 
         // Look up the model info to determine the correct backend
-        let model_manager = ModelManager::new(&self.config.embedding.cache_dir, self.config.clone());
+        let model_manager =
+            ModelManager::new(&self.config.embedding.cache_dir, self.config.clone());
         let available_models = model_manager.get_available_models();
         let model_info = available_models
             .iter()

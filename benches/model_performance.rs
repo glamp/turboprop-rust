@@ -18,9 +18,15 @@ mod bench_config {
 
 /// Generate test model names for benchmarking
 fn generate_test_model_names(count: usize) -> Vec<ModelName> {
-    let prefixes = vec!["microsoft", "sentence-transformers", "Qwen", "nomic-ai", "google"];
+    let prefixes = vec![
+        "microsoft",
+        "sentence-transformers",
+        "Qwen",
+        "nomic-ai",
+        "google",
+    ];
     let suffixes = vec!["model", "embedding", "transformer", "bert", "code"];
-    
+
     (0..count)
         .map(|i| {
             let prefix = &prefixes[i % prefixes.len()];
@@ -34,9 +40,9 @@ fn generate_test_model_names(count: usize) -> Vec<ModelName> {
 fn bench_model_loading(c: &mut Criterion) {
     let mut group = c.benchmark_group("model_loading");
     group.sample_size(bench_config::SAMPLE_SIZE);
-    
+
     let models = ModelManager::get_available_models();
-    
+
     // Benchmark model info validation
     group.bench_function("model_validation", |b| {
         b.iter(|| {
@@ -46,11 +52,11 @@ fn bench_model_loading(c: &mut Criterion) {
             }
         })
     });
-    
+
     // Benchmark model lookup by name
     group.bench_function("model_lookup", |b| {
         let test_names: Vec<_> = models.iter().take(10).map(|m| &m.name).collect();
-        
+
         b.iter(|| {
             for name in &test_names {
                 let found = models.iter().find(|m| &m.name == *name);
@@ -58,7 +64,7 @@ fn bench_model_loading(c: &mut Criterion) {
             }
         })
     });
-    
+
     group.finish();
 }
 
@@ -66,41 +72,41 @@ fn bench_model_loading(c: &mut Criterion) {
 fn bench_cache_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("cache_operations");
     group.sample_size(bench_config::SAMPLE_SIZE);
-    
+
     // Benchmark model path generation
     group.bench_function("model_path_generation", |b| {
         let temp_dir = TempDir::new().unwrap();
         let manager = ModelManager::new(temp_dir.path());
         let model_names = generate_test_model_names(100);
-        
+
         b.iter(|| {
             for model_name in &model_names {
                 let _path = manager.get_model_path(black_box(model_name));
             }
         })
     });
-    
+
     // Benchmark cache status checking
     group.bench_function("cache_status_check", |b| {
         let temp_dir = TempDir::new().unwrap();
         let manager = ModelManager::new(temp_dir.path());
         manager.init_cache().unwrap();
-        
+
         let model_names = generate_test_model_names(100);
-        
+
         b.iter(|| {
             for model_name in &model_names {
                 let _is_cached = manager.is_model_cached(black_box(model_name));
             }
         })
     });
-    
+
     // Benchmark cache statistics calculation
     group.bench_function("cache_stats", |b| {
         let temp_dir = TempDir::new().unwrap();
         let manager = ModelManager::new(temp_dir.path());
         manager.init_cache().unwrap();
-        
+
         // Create some fake cache entries
         for i in 0..20 {
             let model_path = manager.get_model_path(&ModelName::from(format!("test/model-{}", i)));
@@ -108,12 +114,12 @@ fn bench_cache_operations(c: &mut Criterion) {
             std::fs::write(model_path.join("config.json"), "{}").unwrap();
             std::fs::write(model_path.join("model.bin"), vec![0u8; 1024 * (i + 1)]).unwrap();
         }
-        
+
         b.iter(|| {
             let _stats = manager.get_cache_stats().unwrap();
         })
     });
-    
+
     // Benchmark cache initialization
     group.bench_function("cache_init", |b| {
         b.iter_with_setup(
@@ -125,7 +131,7 @@ fn bench_cache_operations(c: &mut Criterion) {
             },
         )
     });
-    
+
     group.finish();
 }
 
@@ -133,23 +139,23 @@ fn bench_cache_operations(c: &mut Criterion) {
 fn bench_text_processing(c: &mut Criterion) {
     let mut group = c.benchmark_group("text_processing");
     group.sample_size(bench_config::SAMPLE_SIZE);
-    
+
     // Generate test texts of various sizes
     let short_texts: Vec<String> = (0..100)
         .map(|i| format!("Short test text number {}", i))
         .collect();
-    
+
     let medium_texts: Vec<String> = (0..100)
         .map(|i| format!("This is a medium length test text that contains more content and represents typical document content for embedding generation. Text number: {}", i))
         .collect();
-    
+
     let long_texts: Vec<String> = (0..100)
         .map(|i| {
             let content = "This is a very long text that simulates processing large documents or code files. ".repeat(10);
             format!("{} Document number: {}", content, i)
         })
         .collect();
-    
+
     // Benchmark text length calculation
     group.bench_with_input(
         BenchmarkId::new("text_length", "short"),
@@ -161,7 +167,7 @@ fn bench_text_processing(c: &mut Criterion) {
             })
         },
     );
-    
+
     group.bench_with_input(
         BenchmarkId::new("text_length", "medium"),
         &medium_texts,
@@ -172,7 +178,7 @@ fn bench_text_processing(c: &mut Criterion) {
             })
         },
     );
-    
+
     group.bench_with_input(
         BenchmarkId::new("text_length", "long"),
         &long_texts,
@@ -183,7 +189,7 @@ fn bench_text_processing(c: &mut Criterion) {
             })
         },
     );
-    
+
     group.finish();
 }
 
@@ -191,22 +197,20 @@ fn bench_text_processing(c: &mut Criterion) {
 fn bench_model_name_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("model_name_operations");
     group.sample_size(bench_config::SAMPLE_SIZE);
-    
+
     let model_names = generate_test_model_names(1000);
-    
+
     // Benchmark model name creation
     group.bench_function("model_name_creation", |b| {
-        let name_strings: Vec<String> = (0..1000)
-            .map(|i| format!("org/model-{}", i))
-            .collect();
-        
+        let name_strings: Vec<String> = (0..1000).map(|i| format!("org/model-{}", i)).collect();
+
         b.iter(|| {
             for name_str in &name_strings {
                 let _model_name = ModelName::from(black_box(name_str.as_str()));
             }
         })
     });
-    
+
     // Benchmark model name string operations
     group.bench_function("model_name_string_ops", |b| {
         b.iter(|| {
@@ -217,12 +221,12 @@ fn bench_model_name_operations(c: &mut Criterion) {
             }
         })
     });
-    
+
     // Benchmark model name comparison
     group.bench_function("model_name_comparison", |b| {
         let first_half = &model_names[..500];
         let second_half = &model_names[500..];
-        
+
         b.iter(|| {
             let mut matches = 0;
             for (name1, name2) in first_half.iter().zip(second_half.iter()) {
@@ -233,7 +237,7 @@ fn bench_model_name_operations(c: &mut Criterion) {
             black_box(matches)
         })
     });
-    
+
     group.finish();
 }
 
@@ -241,7 +245,7 @@ fn bench_model_name_operations(c: &mut Criterion) {
 fn bench_filesystem_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("filesystem_operations");
     group.sample_size(50); // Fewer samples for I/O operations
-    
+
     // Benchmark directory creation and cleanup
     group.bench_function("directory_operations", |b| {
         b.iter_with_setup(
@@ -249,14 +253,14 @@ fn bench_filesystem_operations(c: &mut Criterion) {
             |temp_dir| {
                 let manager = ModelManager::new(temp_dir.path());
                 let model_names = generate_test_model_names(10);
-                
+
                 // Create model directories
                 for model_name in &model_names {
                     let model_path = manager.get_model_path(model_name);
                     std::fs::create_dir_all(&model_path).unwrap();
                     std::fs::write(model_path.join("config.json"), "{}").unwrap();
                 }
-                
+
                 // Check if models are cached
                 let mut cached_count = 0;
                 for model_name in &model_names {
@@ -264,12 +268,12 @@ fn bench_filesystem_operations(c: &mut Criterion) {
                         cached_count += 1;
                     }
                 }
-                
+
                 black_box(cached_count);
             },
         )
     });
-    
+
     group.finish();
 }
 

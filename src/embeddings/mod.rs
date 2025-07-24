@@ -34,6 +34,7 @@ pub mod backends;
 pub mod batch;
 pub mod config;
 pub mod generator;
+pub mod optimized;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod mock;
@@ -43,6 +44,7 @@ pub use backends::EmbeddingBackendType;
 pub use batch::{process_texts_in_batches, BatchProcessor};
 pub use config::{EmbeddingConfig, EmbeddingOptions, DEFAULT_EMBEDDING_DIMENSIONS, DEFAULT_MODEL};
 pub use generator::EmbeddingGenerator;
+pub use optimized::{OptimizedEmbeddingGenerator, PerformanceReport};
 
 #[cfg(any(test, feature = "test-utils"))]
 pub use mock::MockEmbeddingGenerator;

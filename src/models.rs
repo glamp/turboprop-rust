@@ -8,9 +8,8 @@ use futures::TryStreamExt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
-use crate::types::{ModelBackend, ModelName, ModelType};
 use crate::config::TurboPropConfig;
-
+use crate::types::{ModelBackend, ModelName, ModelType};
 
 /// Configuration for creating ModelInfo instances
 #[derive(Debug, Clone)]
@@ -212,7 +211,8 @@ impl ModelManager {
     pub fn get_model_path(&self, model_name: &ModelName) -> PathBuf {
         // Convert model name to filesystem-safe directory name
         // Replace all potentially problematic characters with underscores
-        let safe_name = model_name.as_str()
+        let safe_name = model_name
+            .as_str()
             .replace(['/', ':', '<', '>', '"', '|', '?', '*'], "_")
             .replace(".", "_");
         self.cache_dir.join(safe_name)
@@ -284,7 +284,7 @@ impl ModelManager {
     pub fn clear_cache(&self) -> Result<()> {
         if self.cache_dir.exists() {
             info!("Clearing model cache: {:?}", self.cache_dir);
-            
+
             // First try the standard approach
             match std::fs::remove_dir_all(&self.cache_dir) {
                 Ok(()) => return Ok(()),
@@ -314,13 +314,19 @@ impl ModelManager {
         {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_dir() {
                 // For FastEmbed model directories, try extra cleanup steps
-                if path.file_name().is_some_and(|name| name.to_string_lossy().contains("models--")) {
+                if path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().contains("models--"))
+                {
                     self.force_remove_fastembed_cache(&path)?;
                 } else if let Err(e) = std::fs::remove_dir_all(&path) {
-                    warn!("Failed to remove directory {:?}: {}, trying alternative method", path, e);
+                    warn!(
+                        "Failed to remove directory {:?}: {}, trying alternative method",
+                        path, e
+                    );
                     self.force_remove_directory(&path)?;
                 }
             } else if let Err(e) = std::fs::remove_file(&path) {
@@ -332,7 +338,10 @@ impl ModelManager {
         // Finally try to remove the cache directory itself
         if let Err(e) = std::fs::remove_dir(&self.cache_dir) {
             // If we can't remove the empty directory, recreate it empty
-            warn!("Could not remove cache directory {:?}: {}, recreating empty", self.cache_dir, e);
+            warn!(
+                "Could not remove cache directory {:?}: {}, recreating empty",
+                self.cache_dir, e
+            );
         }
 
         Ok(())
@@ -348,7 +357,7 @@ impl ModelManager {
             for entry in std::fs::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                
+
                 if path.is_dir() {
                     remove_locks_recursive(&path)?;
                 } else if path.extension().is_some_and(|ext| ext == "lock") {
@@ -369,7 +378,7 @@ impl ModelManager {
     /// Force remove a FastEmbed cache directory with special handling
     fn force_remove_fastembed_cache(&self, path: &std::path::Path) -> Result<()> {
         debug!("Force removing FastEmbed cache directory: {:?}", path);
-        
+
         // First try standard removal
         if std::fs::remove_dir_all(path).is_ok() {
             return Ok(());
@@ -381,7 +390,7 @@ impl ModelManager {
             let output = std::process::Command::new("rm")
                 .args(["-rf", &path.to_string_lossy()])
                 .output();
-                
+
             if let Ok(output) = output {
                 if output.status.success() {
                     debug!("Successfully removed FastEmbed cache with rm -rf");
@@ -391,9 +400,12 @@ impl ModelManager {
         }
 
         // If command line also fails, try to clean up what we can
-        warn!("Could not fully remove FastEmbed cache {:?}, attempting partial cleanup", path);
+        warn!(
+            "Could not fully remove FastEmbed cache {:?}, attempting partial cleanup",
+            path
+        );
         let _ = Self::partial_cleanup_directory(path);
-        
+
         Ok(())
     }
 
@@ -405,7 +417,10 @@ impl ModelManager {
                 .args(["-rf", &path.to_string_lossy()])
                 .output()
             {
-                warn!("Command line removal also failed for {:?}: {}", path, cmd_err);
+                warn!(
+                    "Command line removal also failed for {:?}: {}",
+                    path, cmd_err
+                );
             }
         }
         Ok(())

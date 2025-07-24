@@ -448,7 +448,7 @@ mod server_tests {
         let server = create_test_server();
 
         // Server should not be running initially
-        assert!(!server.is_running());
+        assert!(!server.is_running().await);
 
         // Starting an already running server should fail
         // Note: We can't easily test the actual start() method in unit tests

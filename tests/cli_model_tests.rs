@@ -237,7 +237,7 @@ async fn test_index_with_custom_model() -> Result<()> {
     if offline_mode {
         // In offline mode, we expect model-related failures and that's OK
         let result = cmd.assert();
-        if let Err(_) = result.try_success() {
+        if result.try_success().is_err() {
             // Command failed due to mock model, which is expected in offline mode
             return Ok(());
         }
@@ -292,7 +292,7 @@ async fn test_search_with_custom_model() -> Result<()> {
     if offline_mode {
         // In offline mode, indexing may fail due to mock model, which is expected
         let result = index_cmd.assert();
-        if let Err(_) = result.try_success() {
+        if result.try_success().is_err() {
             // Indexing failed, so search will also fail - return early
             return Ok(());
         }
@@ -313,7 +313,7 @@ async fn test_search_with_custom_model() -> Result<()> {
     if offline_mode {
         // In offline mode, search may fail due to mock model or missing index
         let result = search_cmd.assert();
-        if let Err(_) = result.try_success() {
+        if result.try_success().is_err() {
             // Search failed due to mock model, which is expected in offline mode
             return Ok(());
         }

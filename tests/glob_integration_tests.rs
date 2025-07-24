@@ -99,11 +99,12 @@ mod common;
 
 use anyhow::Result;
 use std::path::Path;
-use std::sync::{Mutex, Once};
+use std::sync::Once;
+use tokio::sync::Mutex;
 use tempfile::TempDir;
 
 // Global mutex to serialize model loading across tests to prevent lock conflicts
-static MODEL_LOCK: Mutex<()> = Mutex::new(());
+static MODEL_LOCK: Mutex<()> = Mutex::const_new(());
 use turboprop::commands::{execute_search_command_cli, SearchCliArgs};
 use turboprop::config::TurboPropConfig;
 use turboprop::embeddings::EmbeddingConfig;
@@ -321,9 +322,11 @@ async fn build_test_index_if_needed(path: &Path) -> Result<bool> {
         return Ok(true);
     }
 
-    let mut config = TurboPropConfig::default();
     // Use persistent cache to avoid re-downloading models
-    config.embedding = EmbeddingConfig::default();
+    let config = TurboPropConfig { 
+        embedding: EmbeddingConfig::default(), 
+        ..Default::default() 
+    };
     match build_persistent_index(path, &config).await {
         Ok(_) => Ok(true),
         Err(_) => {
@@ -488,7 +491,7 @@ async fn execute_test_search(
     options: TestSearchOptions,
 ) -> Result<()> {
     // Acquire global model lock to prevent concurrent model loading conflicts
-    let _guard = MODEL_LOCK.lock().unwrap();
+    let _guard = MODEL_LOCK.lock().await;
 
     let args = SearchCliArgs::new(
         query.to_string(),

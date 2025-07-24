@@ -863,7 +863,6 @@ impl Default for Tools {
 }
 
 /// Simple SearchTool that wraps the semantic search functionality for MCP server
-
 #[cfg(test)]
 mod tests {
     use super::*;

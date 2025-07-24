@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{RwLock, watch};
+use tokio::task::JoinHandle;
 use tokio::time::{interval, Instant};
 use tracing::{debug, error, info, warn};
 
@@ -17,14 +18,26 @@ use crate::incremental::IncrementalUpdater;
 use crate::index::PersistentChunkIndex;
 use crate::watcher::{FileWatcher, WatchEventBatch, WatcherConfig};
 
+// Error handling constants
+const MAX_CONSECUTIVE_ERRORS: u64 = 10;
+const ERROR_BACKOFF_BASE_MS: u64 = 100;
+const ERROR_BACKOFF_MAX_MS: u64 = 30000;
+const ERROR_BACKOFF_MULTIPLIER: u32 = 2;
+
+// Timing configuration constants
+const DEFAULT_DEBOUNCE_DURATION_MS: u64 = 500;
+const UPDATE_CHECK_INTERVAL_MS: u64 = 1000;
+const MAINTENANCE_INTERVAL_SECS: u64 = 300; // 5 minutes
+const SAVE_RETRY_DELAY_BASE_MS: u64 = 1000;
+
+// Shutdown handling constants
+const GRACEFUL_SHUTDOWN_TIMEOUT_SECS: u64 = 30;
+const TASK_JOIN_TIMEOUT_SECS: u64 = 10;
+
 /// Manages index updates for the MCP server
 pub struct IndexManager {
     /// Repository path
-    #[allow(dead_code)]
     repo_path: PathBuf,
-    /// Configuration
-    #[allow(dead_code)]
-    config: TurboPropConfig,
     /// Current index (wrapped for thread-safe access)
     index: Arc<RwLock<Option<PersistentChunkIndex>>>,
     /// Incremental updater
@@ -36,6 +49,8 @@ pub struct IndexManager {
     /// Shutdown signal
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
+    /// Background task handles for proper shutdown
+    task_handles: Arc<RwLock<Vec<JoinHandle<()>>>>,
 }
 
 /// Index statistics for monitoring
@@ -72,11 +87,11 @@ impl IndexManager {
         let gitignore_filter = GitignoreFilter::new(repo_path)
             .context("Failed to create gitignore filter")?;
         
-        // Create file watcher with custom config
-        let watcher_config = WatcherConfig {
-            debounce_duration: Duration::from_millis(500),
-            max_batch_size: 100,
-        };
+        // Create file watcher with validated config
+        let watcher_config = WatcherConfig::new(
+            Duration::from_millis(DEFAULT_DEBOUNCE_DURATION_MS),
+            100
+        ).context("Invalid watcher configuration")?;
         let file_watcher = FileWatcher::with_config(repo_path, gitignore_filter, watcher_config)
             .context("Failed to create file watcher")?;
         
@@ -102,13 +117,13 @@ impl IndexManager {
         
         Ok(Self {
             repo_path: repo_path.to_path_buf(),
-            config: config.clone(),
             index: Arc::new(RwLock::new(initial_index)),
             updater: Arc::new(RwLock::new(Some(updater))),
             file_watcher: Some(file_watcher),
             stats: Arc::new(RwLock::new(stats)),
             shutdown_tx,
             shutdown_rx,
+            task_handles: Arc::new(RwLock::new(Vec::new())),
         })
     }
     
@@ -142,15 +157,22 @@ impl IndexManager {
     pub async fn start(&mut self) -> Result<()> {
         info!("Starting index manager background tasks");
         
+        // Ensure file watcher is available
+        let mut file_watcher = self.file_watcher.take()
+            .ok_or_else(|| anyhow::anyhow!("File watcher not available - IndexManager may have already been started"))?;
+        
+        let mut task_handles = self.task_handles.write().await;
+        
         // Spawn file change processing task
         let index_clone = Arc::clone(&self.index);
         let stats_clone = Arc::clone(&self.stats);
         let updater_clone = Arc::clone(&self.updater);
-        let mut file_watcher = self.file_watcher.take().unwrap();
         let mut shutdown_rx_clone = self.shutdown_rx.clone();
         
-        tokio::spawn(async move {
+        let repo_path_clone = self.repo_path.clone();
+        let file_processing_handle = tokio::spawn(async move {
             Self::process_file_changes(
+                repo_path_clone,
                 index_clone,
                 stats_clone,
                 updater_clone,
@@ -158,21 +180,25 @@ impl IndexManager {
                 &mut shutdown_rx_clone,
             ).await;
         });
+        task_handles.push(file_processing_handle);
         
         // Spawn periodic maintenance task
         let index_clone = Arc::clone(&self.index);
         let stats_clone = Arc::clone(&self.stats);
         let mut shutdown_rx_clone = self.shutdown_rx.clone();
         
-        tokio::spawn(async move {
+        let repo_path_clone2 = self.repo_path.clone();
+        let maintenance_handle = tokio::spawn(async move {
             Self::periodic_maintenance(
+                repo_path_clone2,
                 index_clone,
                 stats_clone,
                 &mut shutdown_rx_clone,
             ).await;
         });
+        task_handles.push(maintenance_handle);
         
-        info!("Index manager started successfully");
+        info!("Index manager started successfully with {} background tasks", task_handles.len());
         Ok(())
     }
     
@@ -180,8 +206,51 @@ impl IndexManager {
     pub async fn stop(&self) -> Result<()> {
         info!("Stopping index manager");
         
-        // Send shutdown signal
-        let _ = self.shutdown_tx.send(true);
+        // Send shutdown signal to all background tasks
+        if let Err(e) = self.shutdown_tx.send(true) {
+            warn!("Failed to send shutdown signal: {}", e);
+        }
+        
+        // Wait for all background tasks to complete with timeout
+        let mut task_handles = self.task_handles.write().await;
+        let task_count = task_handles.len();
+        
+        if task_count > 0 {
+            info!("Waiting for {} background tasks to complete gracefully", task_count);
+            
+            // Create timeout for graceful shutdown
+            let timeout = tokio::time::timeout(
+                Duration::from_secs(GRACEFUL_SHUTDOWN_TIMEOUT_SECS),
+                async {
+                    // Join all tasks
+                    while let Some(handle) = task_handles.pop() {
+                        match tokio::time::timeout(
+                            Duration::from_secs(TASK_JOIN_TIMEOUT_SECS),
+                            handle
+                        ).await {
+                            Ok(Ok(())) => {
+                                debug!("Background task completed gracefully");
+                            },
+                            Ok(Err(join_error)) => {
+                                warn!("Background task failed: {}", join_error);
+                            },
+                            Err(_) => {
+                                warn!("Background task join timed out after {}s", TASK_JOIN_TIMEOUT_SECS);
+                            }
+                        }
+                    }
+                }
+            ).await;
+            
+            match timeout {
+                Ok(()) => {
+                    info!("All background tasks completed gracefully");
+                },
+                Err(_) => {
+                    warn!("Graceful shutdown timed out after {}s, some tasks may still be running", GRACEFUL_SHUTDOWN_TIMEOUT_SECS);
+                }
+            }
+        }
         
         info!("Index manager stopped");
         Ok(())
@@ -189,6 +258,7 @@ impl IndexManager {
     
     /// Background task for processing file changes
     async fn process_file_changes(
+        repo_path: PathBuf,
         index: Arc<RwLock<Option<PersistentChunkIndex>>>,
         stats: Arc<RwLock<IndexStats>>,
         updater: Arc<RwLock<Option<IncrementalUpdater>>>,
@@ -197,7 +267,7 @@ impl IndexManager {
     ) {
         info!("Starting file change processing task");
         
-        let mut update_interval = interval(Duration::from_millis(1000)); // Check every second
+        let mut update_interval = interval(Duration::from_millis(UPDATE_CHECK_INTERVAL_MS)); // Check every second
         
         loop {
             tokio::select! {
@@ -229,24 +299,33 @@ impl IndexManager {
                                 }
                             }
                             Err(e) => {
-                                error!("Failed to process file batch: {}", e);
+                                error!("Failed to process file batch for {}: {}", repo_path.display(), e);
                                 
-                                // Update error count and implement error recovery
+                                // Update error count and implement error recovery with limits
                                 let mut stats_guard = stats.write().await;
                                 stats_guard.update_errors += 1;
-                                
-                                // Implement exponential backoff for error recovery
                                 let error_count = stats_guard.update_errors;
                                 drop(stats_guard);
                                 
-                                if error_count >= 5 {
-                                    warn!("Multiple consecutive errors ({}), implementing recovery delay", error_count);
-                                    let delay_ms = std::cmp::min(1000 * 2_u64.pow((error_count - 5) as u32), 30000);
+                                // Check if we've exceeded maximum consecutive errors
+                                if error_count >= MAX_CONSECUTIVE_ERRORS {
+                                    error!("Maximum consecutive errors ({}) reached for {}. Stopping file processing to prevent infinite loops.", MAX_CONSECUTIVE_ERRORS, repo_path.display());
+                                    break;
+                                }
+                                
+                                // Implement exponential backoff for error recovery
+                                if error_count >= 3 {
+                                    let backoff_factor = std::cmp::min(error_count - 2, 10); // Cap the exponential growth
+                                    let delay_ms = std::cmp::min(
+                                        ERROR_BACKOFF_BASE_MS * ERROR_BACKOFF_MULTIPLIER.pow(backoff_factor as u32) as u64,
+                                        ERROR_BACKOFF_MAX_MS
+                                    );
+                                    warn!("Multiple consecutive errors ({}), implementing recovery delay of {}ms", error_count, delay_ms);
                                     tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                                 }
                                 
                                 // Log detailed error information for debugging
-                                debug!("Error context: batch contained {} events", batch_size);
+                                debug!("Error context: batch contained {} events, total consecutive errors: {}", batch_size, error_count);
                             }
                         }
                     }
@@ -307,13 +386,14 @@ impl IndexManager {
     
     /// Periodic maintenance task
     async fn periodic_maintenance(
+        repo_path: PathBuf,
         index: Arc<RwLock<Option<PersistentChunkIndex>>>,
         stats: Arc<RwLock<IndexStats>>,
         shutdown_rx: &mut watch::Receiver<bool>,
     ) {
         info!("Starting periodic maintenance task");
         
-        let mut maintenance_interval = interval(Duration::from_secs(300)); // 5 minutes
+        let mut maintenance_interval = interval(Duration::from_secs(MAINTENANCE_INTERVAL_SECS)); // 5 minutes
         
         loop {
             tokio::select! {
@@ -325,7 +405,7 @@ impl IndexManager {
                 }
                 
                 _ = maintenance_interval.tick() => {
-                    Self::perform_maintenance(&index, &stats).await;
+                    Self::perform_maintenance(&repo_path, &index, &stats).await;
                 }
             }
         }
@@ -333,6 +413,7 @@ impl IndexManager {
     
     /// Perform periodic maintenance
     async fn perform_maintenance(
+        repo_path: &PathBuf,
         index: &Arc<RwLock<Option<PersistentChunkIndex>>>,
         stats: &Arc<RwLock<IndexStats>>,
     ) {
@@ -370,7 +451,7 @@ impl IndexManager {
                         Err(e) => {
                             save_attempt += 1;
                             if save_attempt >= MAX_SAVE_RETRIES {
-                                error!("Failed to save index after {} attempts: {}", MAX_SAVE_RETRIES, e);
+                                error!("Failed to save index for {} after {} attempts: {}", repo_path.display(), MAX_SAVE_RETRIES, e);
                                 
                                 // Update error statistics
                                 let mut stats_guard = stats.write().await;
@@ -378,7 +459,7 @@ impl IndexManager {
                                 break;
                             } else {
                                 warn!("Failed to save index (attempt {}), retrying: {}", save_attempt, e);
-                                tokio::time::sleep(Duration::from_millis(1000 * save_attempt as u64)).await;
+                                tokio::time::sleep(Duration::from_millis(SAVE_RETRY_DELAY_BASE_MS * save_attempt as u64)).await;
                             }
                         }
                     }

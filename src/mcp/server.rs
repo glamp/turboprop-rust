@@ -66,7 +66,6 @@ pub struct McpServer {
     /// TurboProp configuration
     config: TurboPropConfig,
     /// Server configuration
-    #[allow(dead_code)]
     server_config: McpServerConfig,
     /// Tools registry
     tools: Tools,
@@ -75,7 +74,6 @@ pub struct McpServer {
     /// Server initialization state
     initialized: Arc<RwLock<bool>>,
     /// Server running state
-    #[allow(dead_code)]
     running: Arc<RwLock<bool>>,
     /// Index manager for file watching and incremental updates
     index_manager: Arc<RwLock<Option<IndexManager>>>,
@@ -127,17 +125,55 @@ impl McpServer {
         // Initialize transport
         let mut transport = StdioTransport::new();
 
-        // Initialize index manager
-        let mut index_manager = IndexManager::new(
+        // Initialize index manager with comprehensive error handling
+        let mut index_manager = match IndexManager::new(
             &server.repo_path,
             &server.config,
             None, // Initial index will be set after building
-        ).await.context("Failed to create index manager")?;
+        ).await {
+            Ok(manager) => manager,
+            Err(e) => {
+                error!("Failed to create IndexManager for repository '{}': {}", 
+                       server.repo_path.display(), e);
+                
+                // Attempt basic recovery checks
+                if !server.repo_path.exists() {
+                    return Err(anyhow::anyhow!(
+                        "Repository path '{}' does not exist. Please ensure the path is correct and accessible.",
+                        server.repo_path.display()
+                    ));
+                }
+                
+                if !server.repo_path.is_dir() {
+                    return Err(anyhow::anyhow!(
+                        "Repository path '{}' is not a directory. Please provide a valid repository directory.",
+                        server.repo_path.display()
+                    ));
+                }
+                
+                // Check for permission issues
+                if let Err(perm_err) = std::fs::read_dir(&server.repo_path) {
+                    return Err(anyhow::anyhow!(
+                        "Cannot access repository directory '{}': {}. Please check file permissions.",
+                        server.repo_path.display(), perm_err
+                    ));
+                }
+                
+                // If all basic checks pass, return the original error with additional context
+                return Err(e.context(format!(
+                    "Failed to create IndexManager for repository '{}'. This may be due to file system issues, missing dependencies, or configuration problems.",
+                    server.repo_path.display()
+                )));
+            }
+        };
 
-        // Start index manager
-        index_manager.start()
-            .await
-            .context("Failed to start index manager")?;
+        // Start index manager with enhanced error handling
+        if let Err(e) = index_manager.start().await {
+            error!("Failed to start IndexManager background tasks: {}", e);
+            return Err(e.context(
+                "IndexManager initialization succeeded but background tasks failed to start. This may indicate system resource constraints or file watcher issues."
+            ));
+        }
 
         // Store index manager reference
         {
@@ -145,12 +181,24 @@ impl McpServer {
             *manager_guard = Some(index_manager);
         }
 
-        // Initialize index immediately (avoid spawn to prevent Send issues)
+        // Initialize index immediately with enhanced error handling
         if let Err(e) = server.initialize_index_with_manager().await {
-            error!("Failed to initialize index: {}", e);
+            warn!("Initial index build failed: {}. The server will continue to run, but search functionality may be limited until the index is built.", e);
+            // Note: We don't return an error here because the server can still function
+            // for basic MCP operations even without a pre-built index
+        } else {
+            info!("Index initialization completed successfully");
         }
 
-        info!("MCP server ready and listening on stdio...");
+        // Set server running state
+        {
+            let mut running_guard = server.running.write().await;
+            *running_guard = true;
+        }
+
+        info!("MCP server ready and listening on stdio (timeout: {}s, max_connections: {})", 
+               server.server_config.request_timeout, 
+               server.server_config.max_connections);
 
         // Main message processing loop
         loop {
@@ -179,11 +227,18 @@ impl McpServer {
             }
         }
 
+        // Set server running state to false during shutdown
+        {
+            let mut running_guard = server.running.write().await;
+            *running_guard = false;
+        }
+
         // Cleanup
         if let Some(manager) = server.index_manager.read().await.as_ref() {
             let _ = manager.stop().await;
         }
 
+        info!("MCP server shutdown complete");
         Ok(())
     }
 
@@ -498,10 +553,9 @@ impl McpServer {
     }
 
     /// Check if the server is running
-    pub fn is_running(&self) -> bool {
-        // For now, return false by default since we don't track running state in the current implementation
-        // In a real implementation, this would check if the server loop is active
-        false
+    pub async fn is_running(&self) -> bool {
+        // Check the actual running state
+        *self.running.read().await
     }
 }
 
@@ -578,7 +632,8 @@ impl McpServerTrait for McpServer {
     }
 
     fn is_running(&self) -> bool {
-        self.is_running()
+        // Use try_read to avoid blocking in sync context
+        self.running.try_read().map(|guard| *guard).unwrap_or(false)
     }
 }
 

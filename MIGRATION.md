@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide helps existing TurboProp users migrate to the new multi-model support introduced in version X.X.
+This guide helps existing TurboProp users migrate to the new multi-model support introduced in version 0.1.0.
 
 ## What's Changed
 

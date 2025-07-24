@@ -55,10 +55,10 @@ impl Default for GGUFConfig {
         Self {
             device: GGUFDevice::Cpu,
             memory_limit_bytes: None,
-            context_length: 512,
+            context_length: constants::config::DEFAULT_CONTEXT_LENGTH,
             enable_batching: true,
-            gpu_layers: 0,
-            cpu_threads: None, // Auto-detect
+            gpu_layers: constants::config::DEFAULT_GPU_LAYERS,
+            cpu_threads: Some(constants::config::DEFAULT_CPU_THREADS as usize),
         }
     }
 }
@@ -646,7 +646,7 @@ mod tests {
 
         let model = result.unwrap();
         assert_eq!(model.dimensions(), 768);
-        assert_eq!(model.max_sequence_length(), 512);
+        assert_eq!(model.max_sequence_length(), 256);
     }
 
     #[test]
@@ -678,7 +678,7 @@ mod tests {
         assert!(model.is_ok());
         let model = model.unwrap();
         assert_eq!(model.dimensions(), 768);
-        assert_eq!(model.max_sequence_length(), 512);
+        assert_eq!(model.max_sequence_length(), 256);
     }
 
     #[test]
@@ -823,11 +823,11 @@ mod tests {
     fn test_gguf_config_default() {
         let config = GGUFConfig::default();
         assert_eq!(config.device, GGUFDevice::Cpu);
-        assert_eq!(config.context_length, 512);
+        assert_eq!(config.context_length, 256);
         assert!(config.enable_batching);
-        assert_eq!(config.gpu_layers, 0);
+        assert_eq!(config.gpu_layers, 32);
         assert!(config.memory_limit_bytes.is_none());
-        assert!(config.cpu_threads.is_none());
+        assert_eq!(config.cpu_threads, Some(8));
     }
 
     #[test]

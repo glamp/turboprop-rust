@@ -123,7 +123,7 @@ fn test_resource_monitor_sampling() {
     // Test peak and average memory functions - should have real values now
     let peak_memory = monitor.get_peak_memory();
     let avg_memory = monitor.get_avg_memory();
-    
+
     // With real implementation, memory should be > 0 on most platforms
     // On platforms where implementation returns 0, both values should be 0
     assert_eq!(peak_memory, avg_memory); // Should be equal with one sample

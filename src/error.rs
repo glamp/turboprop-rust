@@ -82,7 +82,7 @@ pub enum TurboPropError {
 
     /// Model loading errors
     #[error(
-        "Failed to load model '{model_name}': {reason}. Verify the model exists and is compatible."
+        "Model loading error for '{model_name}': {reason}. Verify the model exists and is compatible with your system."
     )]
     ModelLoadingError { model_name: String, reason: String },
 
@@ -91,19 +91,19 @@ pub enum TurboPropError {
     IndexNotFound { path: PathBuf },
 
     /// GGUF model loading errors
-    #[error("Failed to load GGUF model '{model_name}': {reason}. Verify the model file exists and is valid.")]
+    #[error("GGUF model loading error for '{model_name}': {reason}. Verify the model file exists and is valid.")]
     GGUFModelLoadError { model_name: String, reason: String },
 
     /// GGUF model inference errors
-    #[error("GGUF model inference failed for '{model_name}': {reason}. Check input data and model compatibility.")]
+    #[error("GGUF model inference error for '{model_name}': {reason}. Check input data and model compatibility.")]
     GGUFInferenceError { model_name: String, reason: String },
 
     /// GGUF model download errors
-    #[error("Failed to download GGUF model '{model_name}': {reason}. Check your internet connection and model URL.")]
+    #[error("GGUF model download error for '{model_name}': {reason}. Check your internet connection and model URL.")]
     GGUFDownloadError { model_name: String, reason: String },
 
-    /// GGUF model format errors
-    #[error("Invalid GGUF model format for '{model_name}': {reason}. The model file may be corrupted or incompatible.")]
+    /// GGUF model format error
+    #[error("GGUF model format error for '{model_name}': {reason}. The model file may be corrupted or incompatible.")]
     GGUFFormatError { model_name: String, reason: String },
 
     /// Generic errors for compatibility

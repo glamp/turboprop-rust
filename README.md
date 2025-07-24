@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/turboprop.svg)](https://crates.io/crates/turboprop)
 [![Documentation](https://docs.rs/turboprop/badge.svg)](https://docs.rs/turboprop)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://github.com/your-org/turboprop-rust)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://github.com/glamp/turboprop-rust)
 
 **TurboProp** (`tp`) is a fast semantic code search and indexing tool written in Rust. It uses machine learning embeddings to enable intelligent code search across your codebase, making it easy to find relevant code snippets based on natural language queries.
 
@@ -27,7 +27,7 @@ cargo install turboprop
 
 #### From Source
 ```bash
-git clone https://github.com/your-org/turboprop-rust
+git clone https://github.com/glamp/turboprop-rust
 cd turboprop-rust
 cargo build --release
 # Binary will be in target/release/tp
@@ -478,7 +478,7 @@ tp search --help       # Search command help
 
 ### Building from Source
 ```bash
-git clone https://github.com/your-org/turboprop-rust
+git clone https://github.com/glamp/turboprop-rust
 cd turboprop-rust
 cargo build --release
 ```
@@ -498,6 +498,17 @@ cargo bench                   # Run benchmarks
 - **git2**: Git repository integration
 - **notify**: File system watching
 - **walkdir**: Directory traversal
+
+## See Also
+
+For more detailed information:
+
+- **[Installation Guide](INSTALLATION.md)** - Comprehensive installation instructions for all platforms
+- **[Model Documentation](MODELS.md)** - Complete guide to available embedding models and selection criteria
+- **[Configuration Guide](CONFIGURATION.md)** - Advanced configuration options and `.turboprop.yml` setup
+- **[API Reference](docs/API.md)** - Library API documentation for programmatic usage
+- **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Solutions to common issues and performance problems
+- **[Migration Guide](MIGRATION.md)** - Upgrading from previous versions
 
 ## Contributing
 

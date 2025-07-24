@@ -176,3 +176,11 @@ You may want to re-index when:
 # Re-index with new model
 tp index --repo . --model "Qwen/Qwen3-Embedding-0.6B" --force-rebuild
 ```
+
+## See Also
+
+- **[README](README.md)** - Getting started guide and basic usage
+- **[Configuration Guide](CONFIGURATION.md)** - Model configuration options and settings
+- **[API Reference](docs/API.md)** - Programmatic model management and usage
+- **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Model-specific issues and solutions
+- **[Installation Guide](INSTALLATION.md)** - Installing models and dependencies

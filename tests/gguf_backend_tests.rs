@@ -66,7 +66,7 @@ fn test_gguf_backend_load_model_success() -> Result<()> {
 
     let model = result.unwrap();
     assert_eq!(model.dimensions(), 768);
-    assert_eq!(model.max_sequence_length(), 512); // Default context length
+    assert_eq!(model.max_sequence_length(), 256); // Default context length
     Ok(())
 }
 
@@ -98,7 +98,7 @@ fn test_gguf_embedding_model_creation() -> Result<()> {
     let model = GGUFEmbeddingModel::new("test-model".to_string(), 768, candle_core::Device::Cpu)?;
 
     assert_eq!(model.dimensions(), 768);
-    assert_eq!(model.max_sequence_length(), 512);
+    assert_eq!(model.max_sequence_length(), 256);
     Ok(())
 }
 
@@ -310,11 +310,11 @@ fn test_validate_gguf_file_valid() {
 fn test_gguf_config_default() {
     let config = GGUFConfig::default();
     assert_eq!(config.device, GGUFDevice::Cpu);
-    assert_eq!(config.context_length, 512);
+    assert_eq!(config.context_length, 256);
     assert!(config.enable_batching);
-    assert_eq!(config.gpu_layers, 0);
+    assert_eq!(config.gpu_layers, 32);
     assert!(config.memory_limit_bytes.is_none());
-    assert!(config.cpu_threads.is_none());
+    assert_eq!(config.cpu_threads, Some(8));
 }
 
 #[test]

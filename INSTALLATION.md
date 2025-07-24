@@ -16,17 +16,17 @@ This will download, compile, and install the latest version from crates.io.
 
 ### Option 2: Pre-built Binaries
 
-Download pre-built binaries from our [GitHub Releases](https://github.com/your-org/turboprop-rust/releases):
+Download pre-built binaries from our [GitHub Releases](https://github.com/glamp/turboprop-rust/releases):
 
 **Linux (x86_64)**:
 ```bash
-curl -L https://github.com/your-org/turboprop-rust/releases/latest/download/turboprop-linux-x86_64.tar.gz | tar xz
+curl -L https://github.com/glamp/turboprop-rust/releases/latest/download/turboprop-linux-x86_64.tar.gz | tar xz
 sudo mv tp /usr/local/bin/
 ```
 
 **macOS**:
 ```bash
-curl -L https://github.com/your-org/turboprop-rust/releases/latest/download/turboprop-macos.tar.gz | tar xz
+curl -L https://github.com/glamp/turboprop-rust/releases/latest/download/turboprop-macos.tar.gz | tar xz
 sudo mv tp /usr/local/bin/
 ```
 
@@ -71,7 +71,7 @@ cargo install turboprop
 #### Using Homebrew
 ```bash
 # Add our tap (if available)
-brew tap your-org/turboprop
+brew tap glamp/turboprop
 brew install turboprop
 
 # Or install via Cargo
@@ -92,7 +92,7 @@ cargo install turboprop
 #### Using Scoop
 ```bash
 # Add our bucket (if available)
-scoop bucket add turboprop https://github.com/your-org/scoop-turboprop
+scoop bucket add turboprop https://github.com/glamp/scoop-turboprop
 scoop install turboprop
 ```
 
@@ -145,7 +145,7 @@ xcode-select --install
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-org/turboprop-rust.git
+   git clone https://github.com/glamp/turboprop-rust.git
    cd turboprop-rust
    ```
 
@@ -171,7 +171,7 @@ xcode-select --install
 For development work:
 
 ```bash
-git clone https://github.com/your-org/turboprop-rust.git
+git clone https://github.com/glamp/turboprop-rust.git
 cd turboprop-rust
 cargo build
 cargo test
@@ -354,5 +354,5 @@ If you encounter issues during installation:
 
 1. Check this guide for common solutions
 2. Review the [Troubleshooting Guide](TROUBLESHOOTING.md)
-3. Search [GitHub Issues](https://github.com/your-org/turboprop-rust/issues)
+3. Search [GitHub Issues](https://github.com/glamp/turboprop-rust/issues)
 4. Create a new issue with your platform details and error messages

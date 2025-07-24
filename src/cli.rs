@@ -120,6 +120,25 @@ Examples:
         #[command(subcommand)]
         action: ModelCommands,
     },
+
+    /// Benchmark embedding models for performance comparison
+    Benchmark {
+        /// Models to benchmark (default: all available)
+        #[arg(long, value_delimiter = ',')]
+        models: Option<Vec<String>>,
+        /// Number of texts to process for benchmark
+        #[arg(long, default_value = "100")]
+        text_count: usize,
+        /// Number of benchmark iterations
+        #[arg(long, default_value = "3")]
+        iterations: usize,
+        /// Sample text file to use for benchmarking
+        #[arg(long)]
+        sample_file: Option<std::path::PathBuf>,
+        /// Output format (table, json, csv)
+        #[arg(long, default_value = "table")]
+        format: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]

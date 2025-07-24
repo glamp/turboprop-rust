@@ -1,7 +1,8 @@
 use clap::Parser;
 use turboprop::cli::{Cli, Commands};
 use turboprop::commands::{
-    execute_index_command_cli, execute_search_command_cli, handle_model_command, SearchCliArgs,
+    execute_index_command_cli, execute_search_command_cli, handle_model_command, run_benchmark,
+    BenchmarkArgs, SearchCliArgs,
 };
 use turboprop::config::{CliConfigOverrides, TurboPropConfig};
 use turboprop::types::parse_filesize;
@@ -119,6 +120,22 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Model { action } => {
             handle_model_command(action).await?;
+        }
+        Commands::Benchmark {
+            models,
+            text_count,
+            iterations,
+            sample_file,
+            format,
+        } => {
+            let args = BenchmarkArgs {
+                models,
+                text_count,
+                iterations,
+                sample_file,
+                format,
+            };
+            run_benchmark(args).await?;
         }
     }
 

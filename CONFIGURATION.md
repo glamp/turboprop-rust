@@ -398,7 +398,7 @@ tp index --repo . --dry-run  # Full validation (if supported)
 ### Custom Model Configuration
 ```yaml
 # Using a custom model
-model: "your-org/custom-code-model"
+model: "example-org/custom-code-model"
 model_revision: "v1.2"
 model_auth_token: "${HUGGINGFACE_TOKEN}"  # Environment variable
 ```
@@ -424,3 +424,11 @@ batch_size: 16
 cache_dir: "/tmp/turboprop-cache"
 log_level: "warn"
 ```
+
+## See Also
+
+- **[README](README.md)** - Basic usage and command-line examples
+- **[Model Documentation](MODELS.md)** - Model selection and model-specific configuration
+- **[API Reference](docs/API.md)** - Programmatic configuration management
+- **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Configuration-related issues and solutions
+- **[Installation Guide](INSTALLATION.md)** - Setting up configuration during installation

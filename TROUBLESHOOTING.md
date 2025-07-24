@@ -1249,7 +1249,7 @@ perf report
 
 If these solutions don't resolve your issue:
 
-1. **Check GitHub Issues**: [github.com/your-org/turboprop-rust/issues](https://github.com/your-org/turboprop-rust/issues)
+1. **Check GitHub Issues**: [github.com/your-org/turboprop-rust/issues](https://github.com/glamp/turboprop-rust/issues)
 
 2. **Create a detailed issue** with:
    - TurboProp version: `tp --version`
@@ -1302,3 +1302,11 @@ A: Typically 10-30% of your source code size, depending on compression settings.
 
 **Q: Can multiple instances of TurboProp run simultaneously?**
 A: Yes, but they should use different cache directories to avoid conflicts.
+
+## See Also
+
+- **[README](README.md)** - Basic usage and getting started
+- **[Installation Guide](INSTALLATION.md)** - Platform-specific installation troubleshooting
+- **[Model Documentation](MODELS.md)** - Model selection and performance optimization
+- **[Configuration Guide](CONFIGURATION.md)** - Advanced configuration options
+- **[API Reference](docs/API.md)** - Error handling in programmatic usage

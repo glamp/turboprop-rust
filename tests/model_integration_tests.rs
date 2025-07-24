@@ -117,11 +117,11 @@ async fn test_model_switching() -> Result<()> {
         // For mock generator, we mainly verify that embeddings are generated successfully
         // and have reasonable dimensions. Real implementation would produce different embeddings.
         assert!(
-            emb1.len() > 0,
+            !emb1.is_empty(),
             "First model should produce non-empty embeddings"
         );
         assert!(
-            emb2.len() > 0,
+            !emb2.is_empty(),
             "Second model should produce non-empty embeddings"
         );
 
@@ -446,11 +446,11 @@ async fn test_embedding_similarity_patterns() -> Result<()> {
     // Since we're using mock embeddings, we can't test actual semantic similarity,
     // but we can verify the calculations work and produce valid results
     assert!(
-        similar_similarity >= -1.0 && similar_similarity <= 1.0,
+        (-1.0..=1.0).contains(&similar_similarity),
         "Similarity should be in [-1, 1] range"
     );
     assert!(
-        different_similarity >= -1.0 && different_similarity <= 1.0,
+        (-1.0..=1.0).contains(&different_similarity),
         "Similarity should be in [-1, 1] range"
     );
 

@@ -11,7 +11,7 @@ use std::time::Instant;
 use tabled::{Table, Tabled};
 use tracing::{debug, info};
 
-use crate::embeddings::OptimizedEmbeddingGenerator;
+use crate::embeddings::{EmbeddingConfig, OptimizedEmbeddingGenerator};
 use crate::models::{ModelInfo, ModelManager};
 
 /// Command-line arguments for the benchmark command
@@ -143,7 +143,8 @@ async fn benchmark_single_model(
 ) -> Result<BenchmarkResult> {
     debug!("Starting benchmark for model: {}", model_info.name.as_str());
 
-    let mut generator = OptimizedEmbeddingGenerator::new_with_model(model_info).await?;
+    let config = EmbeddingConfig::default();
+    let mut generator = OptimizedEmbeddingGenerator::new_with_model(model_info, config).await?;
 
     let start_time = Instant::now();
     let _embeddings = generator.embed_with_monitoring(test_texts)?;

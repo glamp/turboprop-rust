@@ -386,12 +386,12 @@ async fn test_qwen3_model_download_and_load() -> Result<()> {
 #[ignore] // Requires actual model loading which may be slow/large
 async fn test_qwen3_instruction_embeddings() -> Result<()> {
     // This test would use a real Qwen3 model once implemented
-    let test_texts = vec![
+    let test_texts = [
         "This is a code function for testing".to_string(),
         "另一个测试文本".to_string(), // Chinese text
     ];
 
-    let instruction = "Represent this text for similarity search";
+    let _instruction = "Represent this text for similarity search";
 
     // Mock test - in real implementation:
     // let model = create_test_qwen3_model()?;
@@ -401,7 +401,7 @@ async fn test_qwen3_instruction_embeddings() -> Result<()> {
 
     // For now, just validate the test setup
     assert_eq!(test_texts.len(), 2);
-    assert!(!instruction.is_empty());
+    // instruction is a string literal, no need to assert it's not empty
 
     Ok(())
 }
@@ -409,7 +409,7 @@ async fn test_qwen3_instruction_embeddings() -> Result<()> {
 #[tokio::test]
 #[ignore] // Requires actual model loading
 async fn test_qwen3_multilingual_inference() -> Result<()> {
-    let multilingual_texts = vec![
+    let multilingual_texts = [
         "Hello world".to_string(),
         "你好世界".to_string(),            // Chinese
         "Hola mundo".to_string(),          // Spanish

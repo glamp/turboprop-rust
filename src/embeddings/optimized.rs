@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
 use crate::backends::{GGUFEmbeddingModel, HuggingFaceBackend};
+use crate::embeddings::EmbeddingConfig;
 use crate::metrics::{MetricsCollector, ResourceMonitor};
 use crate::models::{EmbeddingModel, ModelInfo, ModelManager};
 use crate::types::{CachePath, ModelBackend};
@@ -23,14 +24,15 @@ use super::backends::EmbeddingBackendType;
 /// Optimized embedding generator with performance monitoring and caching
 pub struct OptimizedEmbeddingGenerator {
     backend: EmbeddingBackendType,
+    config: EmbeddingConfig,
     metrics: MetricsCollector,
     resource_monitor: ResourceMonitor,
     embedding_cache: LruCache<String, Vec<f32>>,
 }
 
 impl OptimizedEmbeddingGenerator {
-    /// Create a new optimized embedding generator with the specified model
-    pub async fn new_with_model(model_info: &ModelInfo) -> Result<Self> {
+    /// Create a new optimized embedding generator with the specified model and config
+    pub async fn new_with_model(model_info: &ModelInfo, config: EmbeddingConfig) -> Result<Self> {
         let start_time = Instant::now();
         let metrics = MetricsCollector::new(model_info.name.to_string());
 
@@ -51,11 +53,13 @@ impl OptimizedEmbeddingGenerator {
             load_time.as_secs_f32()
         );
 
+        let cache_size = config.cache_size;
         Ok(Self {
             backend,
+            config,
             metrics,
             resource_monitor: ResourceMonitor::new(),
-            embedding_cache: LruCache::new(NonZeroUsize::new(1000).unwrap()),
+            embedding_cache: LruCache::new(NonZeroUsize::new(cache_size).unwrap()),
         })
     }
 
@@ -220,21 +224,21 @@ impl OptimizedEmbeddingGenerator {
         }
     }
 
-    /// Calculate optimal batch size based on model type and available memory
+    /// Calculate optimal batch size based on model type and configuration
     fn calculate_optimal_batch_size(&self, text_count: usize) -> usize {
-        // Calculate based on model type and available memory
+        // Calculate based on model type and configured batch sizes
         let base_size = match &self.backend {
             EmbeddingBackendType::FastEmbed(_) => {
-                // FastEmbed typically handles batching well
-                std::cmp::min(text_count, 32)
+                // Use configured FastEmbed batch size
+                std::cmp::min(text_count, self.config.fastembed_batch_size)
             }
             EmbeddingBackendType::GGUF(_) => {
-                // GGUF models may have memory constraints
-                std::cmp::min(text_count, 8)
+                // Use configured GGUF batch size
+                std::cmp::min(text_count, self.config.gguf_batch_size)
             }
             EmbeddingBackendType::HuggingFace(_) => {
-                // Adjust based on model size
-                std::cmp::min(text_count, 16)
+                // Use configured HuggingFace batch size
+                std::cmp::min(text_count, self.config.huggingface_batch_size)
             }
         };
 

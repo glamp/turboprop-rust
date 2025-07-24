@@ -419,7 +419,7 @@ fn test_gguf_model_download_and_load() -> Result<()> {
 fn test_gguf_embedding_generation_with_real_model() -> Result<()> {
     // This test would use a small test GGUF model
     // Implementation depends on test data availability
-    let _test_texts = vec![
+    let _test_texts = [
         "function calculateSum(a, b) { return a + b; }".to_string(),
         "def process_data(data): return data.strip()".to_string(),
     ];

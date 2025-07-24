@@ -130,8 +130,7 @@ impl EmbeddingGenerator {
             model_name: model_info.name.to_string(),
             cache_dir: cache_dir.to_path_buf(),
             embedding_dimensions: model_info.dimensions,
-            batch_size: 32,
-            batch_size_warning_threshold: constants::text::BATCH_SIZE_WARNING_THRESHOLD,
+            ..Default::default()
         };
 
         let backend = match model_info.backend {

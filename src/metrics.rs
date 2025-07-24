@@ -150,25 +150,211 @@ impl ResourceMonitor {
 
         #[cfg(target_os = "macos")]
         {
-            // Use system calls or external crates for macOS
-            // Simplified implementation for now
-            Ok(0)
+            // Use mach task_info to get memory usage on macOS
+            use std::mem;
+            
+            #[repr(C)]
+            struct mach_task_basic_info {
+                virtual_size: u64,
+                resident_size: u64,
+                resident_size_max: u64,
+                user_time: u64,
+                system_time: u64,
+                policy: i32,
+                suspend_count: i32,
+            }
+            
+            const MACH_TASK_BASIC_INFO: u32 = 20;
+            
+            extern "C" {
+                fn mach_task_self() -> u32;
+                fn task_info(task: u32, flavor: u32, task_info: *mut u8, task_info_count: *mut u32) -> i32;
+            }
+            
+            unsafe {
+                let mut info: mach_task_basic_info = mem::zeroed();
+                let mut count = (mem::size_of::<mach_task_basic_info>() / mem::size_of::<u32>()) as u32;
+                
+                let result = task_info(
+                    mach_task_self(),
+                    MACH_TASK_BASIC_INFO,
+                    &mut info as *mut _ as *mut u8,
+                    &mut count,
+                );
+                
+                if result == 0 {
+                    Ok(info.resident_size)
+                } else {
+                    Ok(0) // Fall back to 0 if system call fails
+                }
+            }
         }
 
         #[cfg(target_os = "windows")]
         {
-            // Use Windows API for memory information
-            // Simplified implementation for now
-            Ok(0)
+            // Use Windows API to get process memory information
+            #[repr(C)]
+            struct ProcessMemoryCounters {
+                cb: u32,
+                page_fault_count: u32,
+                peak_working_set_size: usize,
+                working_set_size: usize,
+                quota_peak_paged_pool_usage: usize,
+                quota_paged_pool_usage: usize,
+                quota_peak_non_paged_pool_usage: usize,
+                quota_non_paged_pool_usage: usize,
+                pagefile_usage: usize,
+                peak_pagefile_usage: usize,
+            }
+            
+            extern "system" {
+                fn GetCurrentProcess() -> *mut std::ffi::c_void;
+                fn GetProcessMemoryInfo(
+                    process: *mut std::ffi::c_void,
+                    counters: *mut ProcessMemoryCounters,
+                    cb: u32,
+                ) -> i32;
+            }
+            
+            unsafe {
+                use std::mem;
+                let mut counters: ProcessMemoryCounters = mem::zeroed();
+                counters.cb = mem::size_of::<ProcessMemoryCounters>() as u32;
+                
+                let result = GetProcessMemoryInfo(
+                    GetCurrentProcess(),
+                    &mut counters,
+                    counters.cb,
+                );
+                
+                if result != 0 {
+                    Ok(counters.working_set_size as u64)
+                } else {
+                    Ok(0) // Fall back to 0 if API call fails
+                }
+            }
         }
 
         #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         Ok(0)
     }
 
-    /// Get CPU usage (simplified implementation)
+    /// Get CPU usage (per-platform implementation)
     fn get_cpu_usage(&self) -> Result<f32, Box<dyn std::error::Error>> {
-        // Simplified CPU usage (would need more sophisticated implementation)
+        #[cfg(target_os = "linux")]
+        {
+            // Read CPU usage from /proc/self/stat
+            let stat = std::fs::read_to_string("/proc/self/stat")?;
+            let fields: Vec<&str> = stat.split_whitespace().collect();
+            
+            if fields.len() >= 15 {
+                // Sum user time (13) and system time (14) in clock ticks
+                let utime: u64 = fields[13].parse().unwrap_or(0);
+                let stime: u64 = fields[14].parse().unwrap_or(0);
+                let total_time = utime + stime;
+                
+                // Simple approximation - would need time interval for accurate percentage
+                // Return a normalized value based on total CPU time
+                Ok((total_time as f32) / 1000000.0) // Convert to approximate percentage
+            } else {
+                Ok(0.0)
+            }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            // Use the same mach API to get CPU time information
+            use std::mem;
+            
+            #[repr(C)]
+            struct mach_task_basic_info {
+                virtual_size: u64,
+                resident_size: u64,
+                resident_size_max: u64,
+                user_time: u64,
+                system_time: u64,
+                policy: i32,
+                suspend_count: i32,
+            }
+            
+            const MACH_TASK_BASIC_INFO: u32 = 20;
+            
+            extern "C" {
+                fn mach_task_self() -> u32;
+                fn task_info(task: u32, flavor: u32, task_info: *mut u8, task_info_count: *mut u32) -> i32;
+            }
+            
+            unsafe {
+                let mut info: mach_task_basic_info = mem::zeroed();
+                let mut count = (mem::size_of::<mach_task_basic_info>() / mem::size_of::<u32>()) as u32;
+                
+                let result = task_info(
+                    mach_task_self(),
+                    MACH_TASK_BASIC_INFO,
+                    &mut info as *mut _ as *mut u8,
+                    &mut count,
+                );
+                
+                if result == 0 {
+                    // Convert microseconds to approximate percentage
+                    let total_time = info.user_time + info.system_time;
+                    Ok((total_time as f32) / 1000000.0)
+                } else {
+                    Ok(0.0)
+                }
+            }
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            // Use Windows API to get process times
+            #[repr(C)]
+            struct FileTime {
+                low_date_time: u32,
+                high_date_time: u32,
+            }
+            
+            extern "system" {
+                fn GetCurrentProcess() -> *mut std::ffi::c_void;
+                fn GetProcessTimes(
+                    process: *mut std::ffi::c_void,
+                    creation_time: *mut FileTime,
+                    exit_time: *mut FileTime,
+                    kernel_time: *mut FileTime,
+                    user_time: *mut FileTime,
+                ) -> i32;
+            }
+            
+            unsafe {
+                use std::mem;
+                let mut creation_time: FileTime = mem::zeroed();
+                let mut exit_time: FileTime = mem::zeroed();
+                let mut kernel_time: FileTime = mem::zeroed();
+                let mut user_time: FileTime = mem::zeroed();
+                
+                let result = GetProcessTimes(
+                    GetCurrentProcess(),
+                    &mut creation_time,
+                    &mut exit_time,
+                    &mut kernel_time,
+                    &mut user_time,
+                );
+                
+                if result != 0 {
+                    // Convert FILETIME to approximate CPU usage
+                    let user = ((user_time.high_date_time as u64) << 32) | (user_time.low_date_time as u64);
+                    let kernel = ((kernel_time.high_date_time as u64) << 32) | (kernel_time.low_date_time as u64);
+                    let total = user + kernel;
+                    
+                    // Convert 100-nanosecond intervals to approximate percentage
+                    Ok((total as f32) / 10000000.0)
+                } else {
+                    Ok(0.0)
+                }
+            }
+        }
+        
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         Ok(0.0)
     }
 

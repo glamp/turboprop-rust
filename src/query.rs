@@ -31,6 +31,7 @@ impl QueryProcessor {
             batch_size: index_config.batch_size,
             embedding_dimensions: index_config.embedding_dimensions,
             batch_size_warning_threshold: 1000, // Use default threshold for query processing
+            ..Default::default()
         };
 
         let embedding_generator = EmbeddingGenerator::new(embedding_config)

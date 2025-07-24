@@ -21,8 +21,18 @@ pub struct EmbeddingConfig {
     pub model_name: String,
     /// Directory to cache downloaded models
     pub cache_dir: PathBuf,
-    /// Batch size for processing multiple texts at once
+    /// Batch size for processing multiple texts at once (general default)
     pub batch_size: usize,
+    /// Optimal batch size for FastEmbed models
+    pub fastembed_batch_size: usize,
+    /// Optimal batch size for GGUF models
+    pub gguf_batch_size: usize,
+    /// Optimal batch size for HuggingFace models
+    pub huggingface_batch_size: usize,
+    /// Size of the LRU cache for caching embedding results
+    pub cache_size: usize,
+    /// Interval for sampling system resources (in milliseconds)
+    pub resource_sampling_interval_ms: u64,
     /// Expected embedding dimensions for the model
     pub embedding_dimensions: usize,
     /// Threshold for warning about large batch sizes that might cause memory issues
@@ -35,6 +45,11 @@ impl Default for EmbeddingConfig {
             model_name: DEFAULT_MODEL.to_string(),
             cache_dir: PathBuf::from(".turboprop/models"),
             batch_size: 32,
+            fastembed_batch_size: 32,
+            gguf_batch_size: 8,
+            huggingface_batch_size: 16,
+            cache_size: 1000,
+            resource_sampling_interval_ms: 1000, // Sample every second by default
             embedding_dimensions: DEFAULT_EMBEDDING_DIMENSIONS,
             batch_size_warning_threshold: constants::text::BATCH_SIZE_WARNING_THRESHOLD,
         }

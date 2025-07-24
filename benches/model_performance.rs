@@ -12,20 +12,22 @@ use turboprop::types::ModelName;
 /// Benchmark configuration constants
 mod bench_config {
     pub const SAMPLE_SIZE: usize = 100;
+    #[allow(dead_code)]
     pub const WARMUP_TIME: std::time::Duration = std::time::Duration::from_secs(3);
+    #[allow(dead_code)]
     pub const MEASUREMENT_TIME: std::time::Duration = std::time::Duration::from_secs(10);
 }
 
 /// Generate test model names for benchmarking
 fn generate_test_model_names(count: usize) -> Vec<ModelName> {
-    let prefixes = vec![
+    let prefixes = [
         "microsoft",
         "sentence-transformers",
         "Qwen",
         "nomic-ai",
         "google",
     ];
-    let suffixes = vec!["model", "embedding", "transformer", "bert", "code"];
+    let suffixes = ["model", "embedding", "transformer", "bert", "code"];
 
     (0..count)
         .map(|i| {
@@ -41,7 +43,8 @@ fn bench_model_loading(c: &mut Criterion) {
     let mut group = c.benchmark_group("model_loading");
     group.sample_size(bench_config::SAMPLE_SIZE);
 
-    let models = ModelManager::get_available_models();
+    let manager = ModelManager::default();
+    let models = manager.get_available_models();
 
     // Benchmark model info validation
     group.bench_function("model_validation", |b| {
@@ -76,7 +79,7 @@ fn bench_cache_operations(c: &mut Criterion) {
     // Benchmark model path generation
     group.bench_function("model_path_generation", |b| {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
         let model_names = generate_test_model_names(100);
 
         b.iter(|| {
@@ -89,7 +92,7 @@ fn bench_cache_operations(c: &mut Criterion) {
     // Benchmark cache status checking
     group.bench_function("cache_status_check", |b| {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
         manager.init_cache().unwrap();
 
         let model_names = generate_test_model_names(100);
@@ -104,7 +107,7 @@ fn bench_cache_operations(c: &mut Criterion) {
     // Benchmark cache statistics calculation
     group.bench_function("cache_stats", |b| {
         let temp_dir = TempDir::new().unwrap();
-        let manager = ModelManager::new(temp_dir.path());
+        let manager = ModelManager::new_with_defaults(temp_dir.path());
         manager.init_cache().unwrap();
 
         // Create some fake cache entries
@@ -125,7 +128,7 @@ fn bench_cache_operations(c: &mut Criterion) {
         b.iter_with_setup(
             || TempDir::new().unwrap(),
             |temp_dir| {
-                let manager = ModelManager::new(temp_dir.path());
+                let manager = ModelManager::new_with_defaults(temp_dir.path());
                 let _result = manager.init_cache();
                 black_box(manager);
             },
@@ -251,7 +254,7 @@ fn bench_filesystem_operations(c: &mut Criterion) {
         b.iter_with_setup(
             || TempDir::new().unwrap(),
             |temp_dir| {
-                let manager = ModelManager::new(temp_dir.path());
+                let manager = ModelManager::new_with_defaults(temp_dir.path());
                 let model_names = generate_test_model_names(10);
 
                 // Create model directories

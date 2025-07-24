@@ -120,14 +120,18 @@ fn test_resource_monitor_sampling() {
     // Sample resources (should not panic)
     monitor.sample_resources();
 
-    // Test peak and average memory functions with empty samples
-    assert_eq!(monitor.get_peak_memory(), 0);
-    assert_eq!(monitor.get_avg_memory(), 0);
+    // Test peak and average memory functions - should have real values now
+    let peak_memory = monitor.get_peak_memory();
+    let avg_memory = monitor.get_avg_memory();
+    
+    // With real implementation, memory should be > 0 on most platforms
+    // On platforms where implementation returns 0, both values should be 0
+    assert_eq!(peak_memory, avg_memory); // Should be equal with one sample
 }
 
 #[test]
 fn test_resource_monitor_memory_calculations() {
-    let mut monitor = ResourceMonitor::new();
+    let monitor = ResourceMonitor::new();
 
     // Manually add some memory samples for testing
     // We'll need to access the internal data structure through a method

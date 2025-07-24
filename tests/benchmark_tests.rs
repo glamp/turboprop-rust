@@ -1,12 +1,12 @@
 //! Tests for benchmark command and performance comparison tools
 
 use std::path::PathBuf;
-use std::time::Duration;
 use turboprop::commands::benchmark::{run_benchmark, BenchmarkArgs, BenchmarkResult};
 use turboprop::models::ModelInfo;
 use turboprop::types::{ModelBackend, ModelName, ModelType};
 
 /// Mock model info for testing
+#[allow(dead_code)]
 fn create_test_model_info(name: &str) -> ModelInfo {
     ModelInfo {
         name: ModelName::from(name),
@@ -123,7 +123,7 @@ async fn test_benchmark_with_no_models() {
 #[test]
 fn test_generate_test_texts() {
     // Test the test text generation logic
-    let sample_texts = vec![
+    let sample_texts = [
         "function calculateSum(a, b) { return a + b; }",
         "def process_data(data): return data.strip().upper()",
         "class UserService { authenticate(user) { return user.isValid(); } }",
@@ -161,7 +161,7 @@ fn test_load_sample_texts_from_content() {
 #[test]
 fn test_average_benchmark_results() {
     // Test averaging logic for multiple benchmark iterations
-    let results = vec![
+    let results = [
         BenchmarkResult {
             model: "test-model".to_string(),
             texts_per_second: 40.0,
@@ -220,7 +220,7 @@ fn test_benchmark_result_serialization() {
 
 #[test]
 fn test_benchmark_output_formats() {
-    let results = vec![
+    let results = [
         BenchmarkResult {
             model: "model1".to_string(),
             texts_per_second: 50.0,
@@ -240,7 +240,7 @@ fn test_benchmark_output_formats() {
     ];
 
     // Test CSV format generation
-    let csv_header =
+    let _csv_header =
         "model,texts_per_second,avg_latency_ms,model_load_time_s,peak_memory_mb,cache_efficiency";
     let csv_lines: Vec<String> = results
         .iter()
@@ -262,7 +262,7 @@ fn test_benchmark_output_formats() {
 
     // Test that results can be used with tabled
     // (We can't easily test the actual table output without integration testing)
-    assert!(results.len() > 0);
+    assert!(!results.is_empty());
 }
 
 #[test]

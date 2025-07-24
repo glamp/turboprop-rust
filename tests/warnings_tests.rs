@@ -24,7 +24,7 @@ fn test_resource_warnings_creation() {
     let _warnings = ResourceWarnings;
 
     // This test mainly verifies the module structure
-    assert!(true);
+    // Test passes by reaching this point
 }
 
 #[test]
@@ -35,7 +35,7 @@ fn test_check_model_requirements_small_model() {
     ResourceWarnings::check_model_requirements(&model);
 
     // The function doesn't return anything, so we just verify it doesn't panic
-    assert!(true);
+    // Test passes by reaching this point
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn test_check_model_requirements_large_model() {
     ResourceWarnings::check_model_requirements(&model);
 
     // The function doesn't return anything, so we just verify it doesn't panic
-    assert!(true);
+    // Test passes by reaching this point
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn test_check_model_requirements_gguf_model() {
     ResourceWarnings::check_model_requirements(&model);
 
     // The function doesn't return anything, so we just verify it doesn't panic
-    assert!(true);
+    // Test passes by reaching this point
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn test_check_model_requirements_qwen3_model() {
     ResourceWarnings::check_model_requirements(&model);
 
     // The function doesn't return anything, so we just verify it doesn't panic
-    assert!(true);
+    // Test passes by reaching this point
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn test_get_available_memory() {
         }
         Err(_) => {
             // It's OK if we can't get memory info on some systems
-            assert!(true);
+            // Test passes by reaching this point
         }
     }
 }
@@ -135,7 +135,7 @@ fn test_memory_warning_thresholds() {
     ResourceWarnings::check_model_requirements(&medium_model);
     ResourceWarnings::check_model_requirements(&large_model);
 
-    assert!(true);
+    // Test passes by reaching this point
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn test_model_name_pattern_matching() {
         ResourceWarnings::check_model_requirements(&model);
     }
 
-    assert!(true);
+    // Test passes by reaching this point
 }
 
 #[test]
@@ -201,7 +201,7 @@ fn test_backend_specific_warnings() {
     ResourceWarnings::check_model_requirements(&gguf_model);
     ResourceWarnings::check_model_requirements(&qwen_model);
 
-    assert!(true);
+    // Test passes by reaching this point
 }
 
 #[test]
@@ -256,5 +256,5 @@ fn test_error_handling() {
         ResourceWarnings::check_model_requirements(&model);
     }
 
-    assert!(true);
+    // Test passes by reaching this point
 }

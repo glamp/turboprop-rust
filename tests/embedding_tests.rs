@@ -144,7 +144,7 @@ fn test_config_integration() {
         "sentence-transformers/all-MiniLM-L6-v2"
     );
     assert_eq!(config.embedding.batch_size, 32);
-    
+
     // Cache directory should now default to ~/.turboprop/models
     let expected_cache_dir = dirs::home_dir()
         .map(|p| p.join(".turboprop").join("models"))

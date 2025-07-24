@@ -7,14 +7,16 @@ mod common;
 
 use anyhow::Result;
 use std::path::Path;
+use std::path::PathBuf;
 use turboprop::config::TurboPropConfig;
+use turboprop::embeddings::config::EmbeddingConfig;
+use turboprop::embeddings::mock::MockEmbeddingGenerator;
 use turboprop::index::PersistentChunkIndex;
 use turboprop::search::{search_index, SearchConfig, SearchEngine};
+use turboprop::types::{
+    ChunkId, ChunkIndex, ChunkIndexNum, ContentChunk, IndexedChunk, SourceLocation, TokenCount,
+};
 use turboprop::{build_persistent_index, search_with_config};
-use turboprop::types::{ChunkIndex, IndexedChunk, ContentChunk, ChunkId, SourceLocation, TokenCount, ChunkIndexNum};
-use turboprop::embeddings::mock::MockEmbeddingGenerator;
-use turboprop::embeddings::config::EmbeddingConfig;
-use std::path::PathBuf;
 
 /// Maximum allowed duration for performance tests in seconds
 const PERFORMANCE_TEST_TIMEOUT_SECONDS: u64 = 30;
@@ -74,25 +76,45 @@ fn create_test_indexed_chunk(
 /// Build a test index with mock embeddings (fast - for unit tests)
 fn build_mock_test_index() -> Result<ChunkIndex> {
     let mut mock_generator = MockEmbeddingGenerator::new(EmbeddingConfig::default());
-    
+
     // Create test content similar to what would be found in a codebase
     let test_data = vec![
-        ("chunk1", "function main() { println!(\"Hello, world!\"); }", "main.rs"),
-        ("chunk2", "pub struct User { id: u32, name: String }", "types.rs"),
-        ("chunk3", "impl User { fn new(id: u32, name: String) -> Self { User { id, name } } }", "types.rs"),
-        ("chunk4", "fn calculate_sum(a: i32, b: i32) -> i32 { a + b }", "math.rs"),
-        ("chunk5", "use std::collections::HashMap; fn process_data() {}", "processing.rs"),
+        (
+            "chunk1",
+            "function main() { println!(\"Hello, world!\"); }",
+            "main.rs",
+        ),
+        (
+            "chunk2",
+            "pub struct User { id: u32, name: String }",
+            "types.rs",
+        ),
+        (
+            "chunk3",
+            "impl User { fn new(id: u32, name: String) -> Self { User { id, name } } }",
+            "types.rs",
+        ),
+        (
+            "chunk4",
+            "fn calculate_sum(a: i32, b: i32) -> i32 { a + b }",
+            "math.rs",
+        ),
+        (
+            "chunk5",
+            "use std::collections::HashMap; fn process_data() {}",
+            "processing.rs",
+        ),
     ];
-    
+
     let mut index = ChunkIndex::new();
-    
+
     for (id, content, file_path) in test_data {
         // Generate mock embedding for this content
         let embedding = mock_generator.embed_single(content)?;
         let chunk = create_test_chunk(id, content, file_path);
         index.add_chunk(chunk, embedding);
     }
-    
+
     Ok(index)
 }
 
@@ -114,22 +136,40 @@ async fn test_search_config() -> Result<()> {
 fn test_basic_search_functionality() -> Result<()> {
     // Use mock index for fast unit testing
     let index = build_mock_test_index()?;
-    
+
     assert!(!index.is_empty(), "Index should contain chunks");
     assert_eq!(index.len(), 5, "Should have 5 test chunks");
-    
+
     // Test similarity search functionality
     let chunks = index.get_chunks();
     assert_eq!(chunks.len(), 5);
-    
+
     // Test that all chunks have proper embeddings
     for chunk in chunks {
-        assert!(!chunk.embedding.is_empty(), "Each chunk should have an embedding");
-        assert_eq!(chunk.embedding.len(), 384, "Should use default embedding dimensions");
-        assert!(!chunk.chunk.content.is_empty(), "Each chunk should have content");
-        assert!(!chunk.chunk.source_location.file_path.to_string_lossy().is_empty(), "Each chunk should have a file path");
+        assert!(
+            !chunk.embedding.is_empty(),
+            "Each chunk should have an embedding"
+        );
+        assert_eq!(
+            chunk.embedding.len(),
+            384,
+            "Should use default embedding dimensions"
+        );
+        assert!(
+            !chunk.chunk.content.is_empty(),
+            "Each chunk should have content"
+        );
+        assert!(
+            !chunk
+                .chunk
+                .source_location
+                .file_path
+                .to_string_lossy()
+                .is_empty(),
+            "Each chunk should have a file path"
+        );
     }
-    
+
     Ok(())
 }
 
@@ -137,27 +177,37 @@ fn test_basic_search_functionality() -> Result<()> {
 fn test_search_with_threshold() -> Result<()> {
     // Create mock index with test data
     let index = build_mock_test_index()?;
-    
+
     // Create mock query embedding (similar to "authentication" which doesn't match our test data well)
     let mut mock_generator = MockEmbeddingGenerator::new(EmbeddingConfig::default());
     let query_embedding = mock_generator.embed_single("authentication")?;
-    
+
     // Test similarity search functionality
     let results = index.similarity_search(&query_embedding, SMALL_RESULT_LIMIT);
-    
+
     // All results should meet minimum similarity and be within limit
-    assert!(results.len() <= SMALL_RESULT_LIMIT, "Results should be limited to {}", SMALL_RESULT_LIMIT);
-    
+    assert!(
+        results.len() <= SMALL_RESULT_LIMIT,
+        "Results should be limited to {}",
+        SMALL_RESULT_LIMIT
+    );
+
     // Test that similarity scores are reasonable (between 0.0 and 1.0)
     for (similarity, chunk) in &results {
-        assert!(*similarity >= 0.0 && *similarity <= 1.0, 
-               "Similarity score {} should be between 0.0 and 1.0", similarity);
-        
+        assert!(
+            *similarity >= 0.0 && *similarity <= 1.0,
+            "Similarity score {} should be between 0.0 and 1.0",
+            similarity
+        );
+
         // Test chunk properties
         assert!(!chunk.chunk.content.is_empty(), "Chunk should have content");
-        assert!(!chunk.chunk.id.as_str().is_empty(), "Chunk should have an ID");
+        assert!(
+            !chunk.chunk.id.as_str().is_empty(),
+            "Chunk should have an ID"
+        );
     }
-    
+
     Ok(())
 }
 

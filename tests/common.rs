@@ -4,8 +4,8 @@
 //! and common test operations to reduce duplication across test files.
 
 use anyhow::Result;
-use std::{env, fs};
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 use tempfile::TempDir;
 use turboprop::embeddings::EmbeddingConfig;
 
@@ -160,32 +160,35 @@ pub fn create_test_file(dir: &Path, name: &str, content: &str) -> PathBuf {
 }
 
 /// Get a persistent test cache directory that survives across test runs
-/// 
+///
 /// This prevents model downloads on every test run by using a stable cache location.
 /// Supports TURBOPROP_TEST_CACHE_DIR environment variable for customization.
 pub fn get_persistent_test_cache_dir() -> PathBuf {
     if let Ok(cache_dir) = env::var("TURBOPROP_TEST_CACHE_DIR") {
         return PathBuf::from(cache_dir);
     }
-    
+
     // Use a stable directory in the project for test caching
     let cache_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("target")
         .join("test_cache")
         .join("models");
-    
+
     // Ensure the directory exists
     if let Err(e) = fs::create_dir_all(&cache_dir) {
-        eprintln!("Warning: Failed to create test cache directory {:?}: {}", cache_dir, e);
+        eprintln!(
+            "Warning: Failed to create test cache directory {:?}: {}",
+            cache_dir, e
+        );
         // Fallback to temp directory if we can't create the persistent one
         return std::env::temp_dir().join("turboprop_test_cache");
     }
-    
+
     cache_dir
 }
 
 /// Create an EmbeddingConfig with persistent cache for tests
-/// 
+///
 /// This uses a stable cache directory to avoid re-downloading models on every test run.
 pub fn create_persistent_embedding_config() -> EmbeddingConfig {
     EmbeddingConfig::default().with_cache_dir(get_persistent_test_cache_dir())

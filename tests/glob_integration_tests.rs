@@ -488,7 +488,7 @@ async fn execute_test_search(
 ) -> Result<()> {
     // Acquire global model lock to prevent concurrent model loading conflicts
     let _guard = MODEL_LOCK.lock().unwrap();
-    
+
     let args = SearchCliArgs::new(
         query.to_string(),
         temp_path.to_path_buf(),

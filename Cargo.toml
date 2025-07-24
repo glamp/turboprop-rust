@@ -63,6 +63,7 @@ lru = "0.12"  # For embedding caching
 tabled = "0.15"  # For benchmark table output
 # MCP Protocol Support (minimal additions)
 uuid = { version = "1.6", features = ["v4", "serde"] }
+async-trait = "0.1"
 
 [features]
 default = []

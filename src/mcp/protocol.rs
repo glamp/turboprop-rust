@@ -480,6 +480,54 @@ impl JsonRpcError {
     pub fn is_application_error(&self) -> bool {
         self.code >= -32099 && self.code <= -32000
     }
+
+    /// Create a tool not found error
+    pub fn tool_not_found(tool_name: &str) -> Self {
+        Self::new(
+            tool_errors::TOOL_NOT_FOUND,
+            format!("Tool not found: {}", tool_name),
+            None,
+        )
+    }
+    
+    /// Create an invalid tool parameters error
+    pub fn invalid_tool_params(message: String) -> Self {
+        Self::new(
+            tool_errors::INVALID_TOOL_PARAMS,
+            format!("Invalid tool parameters: {}", message),
+            None,
+        )
+    }
+    
+    /// Create a tool execution error
+    pub fn tool_execution_error(message: String) -> Self {
+        Self::new(
+            tool_errors::TOOL_EXECUTION_ERROR,
+            format!("Tool execution failed: {}", message),
+            None,
+        )
+    }
+    
+    /// Create an index not ready error
+    pub fn index_not_ready() -> Self {
+        Self::new(
+            tool_errors::INDEX_NOT_READY,
+            "Search index is not ready. Please wait for indexing to complete.".to_string(),
+            None,
+        )
+    }
+}
+
+/// Tool execution error codes (following JSON-RPC conventions)
+pub mod tool_errors {
+    /// Tool not found
+    pub const TOOL_NOT_FOUND: i32 = -32000;
+    /// Invalid tool parameters  
+    pub const INVALID_TOOL_PARAMS: i32 = -32001;
+    /// Tool execution failed
+    pub const TOOL_EXECUTION_ERROR: i32 = -32002;
+    /// Index not ready
+    pub const INDEX_NOT_READY: i32 = -32003;
 }
 
 /// MCP protocol constants

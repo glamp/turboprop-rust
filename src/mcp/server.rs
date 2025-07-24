@@ -181,6 +181,19 @@ impl McpServer {
         }
     }
 
+    /// Create a new MCP server with custom configuration and tools for testing
+    pub fn with_config_and_tools(config: McpServerConfig, tools: Tools) -> Self {
+        Self {
+            config,
+            transport: StdioTransport::new(),
+            tools,
+            initialized: false,
+            running: false,
+            client_capabilities: None,
+            server_task: None,
+        }
+    }
+
     /// Get server configuration
     pub fn config(&self) -> &McpServerConfig {
         &self.config

@@ -302,7 +302,8 @@ mod server_tests {
             max_connections: 10,
             request_timeout_seconds: 5,
         };
-        McpServer::with_config(config)
+        let tools = Tools::new_for_integration_tests();
+        McpServer::with_config_and_tools(config, tools)
     }
 
     #[tokio::test]
@@ -405,6 +406,9 @@ mod server_tests {
         let request = test_data::create_tools_call_request();
         let result = server.handle_request(request).await;
         
+        if result.is_err() {
+            eprintln!("Server tools call failed with error: {:?}", result.as_ref().unwrap_err());
+        }
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.result.is_some());
@@ -454,7 +458,7 @@ mod tools_integration_tests {
 
     #[tokio::test]
     async fn test_tools_registry() {
-        let tools = Tools::new();
+        let tools = Tools::new_for_integration_tests();
         
         // Check default tools are registered
         assert!(tools.has_tool("semantic_search"));
@@ -474,7 +478,7 @@ mod tools_integration_tests {
 
     #[tokio::test]
     async fn test_semantic_search_tool_execution() {
-        let tools = Tools::new();
+        let tools = Tools::new_for_integration_tests();
         
         let mut args = HashMap::new();
         args.insert("query".to_string(), Value::String("test query".to_string()));
@@ -490,6 +494,9 @@ mod tools_integration_tests {
         assert!(response.is_ok());
         
         let result = response.unwrap();
+        if !result.success {
+            eprintln!("Tool execution failed with error: {:?}", result.error);
+        }
         assert!(result.success);
         assert!(result.content.is_some());
         assert!(result.error.is_none());
@@ -497,7 +504,7 @@ mod tools_integration_tests {
 
     #[tokio::test]
     async fn test_semantic_search_tool_validation_errors() {
-        let tools = Tools::new();
+        let tools = Tools::new_for_integration_tests();
         
         // Test missing query
         let request_no_query = ToolCallRequest {
@@ -537,7 +544,7 @@ mod tools_integration_tests {
 
     #[tokio::test]
     async fn test_unknown_tool_execution() {
-        let tools = Tools::new();
+        let tools = Tools::new_for_integration_tests();
         
         let request = ToolCallRequest {
             name: "unknown_tool".to_string(),
@@ -600,7 +607,7 @@ mod concurrent_request_tests {
 
     #[tokio::test]
     async fn test_concurrent_tool_execution() {
-        let tools = Arc::new(Tools::new());
+        let tools = Arc::new(Tools::new_for_integration_tests());
         let num_concurrent = 10;
         let mut join_set = JoinSet::new();
 

@@ -1,7 +1,7 @@
 //! MCP server command implementation
 //!
-//! Provides the `tp mcp` command that starts an MCP server for real-time
-//! semantic search integration with coding agents.
+//! Provides the `tp mcp` command that starts an MCP server exposing
+//! semantic search functionality for coding agents.
 
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -216,8 +216,8 @@ fn log_config_summary(config: &TurboPropConfig, args: &McpArgs) {
 /// Display helpful information for setting up MCP with coding agents
 pub fn print_setup_info(repo_path: &Path) {
     eprintln!();
-    eprintln!("🚀 TurboProp MCP Server Started");
-    eprintln!("────────────────────────────────");
+    eprintln!("🚀 TurboProp Semantic Search MCP Server Started");
+    eprintln!("──────────────────────────────────────────────");
     eprintln!("Repository: {}", repo_path.display());
     eprintln!();
     eprintln!("To integrate with coding agents, add this to your MCP configuration:");
@@ -248,7 +248,7 @@ pub fn print_setup_info(repo_path: &Path) {
         repo_path.display()
     );
     eprintln!();
-    eprintln!("Available search tool parameters:");
+    eprintln!("Semantic search tool parameters:");
     eprintln!("  • query (required): Natural language search query");
     eprintln!("  • limit: Maximum results (default: 10)");
     eprintln!("  • threshold: Similarity threshold (0.0-1.0)");

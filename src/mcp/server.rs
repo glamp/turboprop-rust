@@ -47,9 +47,10 @@ impl Default for McpServerConfig {
 }
 
 /// Server initialization state
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum InitializationState {
     /// Server is not initialized
+    #[default]
     NotStarted,
     /// Server is currently initializing
     InProgress,
@@ -109,11 +110,6 @@ impl InitializationState {
     }
 }
 
-impl Default for InitializationState {
-    fn default() -> Self {
-        InitializationState::NotStarted
-    }
-}
 
 /// Trait defining the MCP server interface
 #[async_trait]

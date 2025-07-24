@@ -140,16 +140,16 @@ Examples:
         format: String,
     },
 
-    /// Start MCP server for real-time semantic search
+    /// Start MCP server for semantic code search
     /// 
     /// The MCP (Model Context Protocol) server enables integration with coding
     /// agents like Claude Code, GitHub Copilot, Cursor, Windsurf, Aider, Continue.dev,
-    /// and more. It provides real-time semantic search capabilities over your codebase.
+    /// and more. It provides semantic search functionality over your codebase.
     /// 
     /// The server will:
     /// • Automatically index all files in the specified repository
     /// • Watch for file changes and update the index in real-time  
-    /// • Expose a 'search' tool via the MCP protocol
+    /// • Expose a semantic search tool via the MCP protocol
     /// • Support natural language queries across your entire codebase
     /// 
     /// Quick Setup by Agent:

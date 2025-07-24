@@ -1,6 +1,6 @@
 [package]
 name = "turboprop"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Turboprop Contributors"]
 description = "Fast semantic code search and indexing tool"

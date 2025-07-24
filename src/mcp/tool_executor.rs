@@ -1,6 +1,6 @@
-//! Tool executor for MCP server - handles tool execution logic
+//! Tool executor for MCP server - handles semantic search tool execution
 //!
-//! Separates tool execution concerns from protocol and server management
+//! Executes the semantic search tool via the tools registry
 
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -14,33 +14,26 @@ use crate::config::TurboPropConfig;
 use crate::index::PersistentChunkIndex;
 use crate::mcp::error::McpError;
 
-use super::tools::{SearchTool, ToolCallRequest, ToolResponse, Tools};
+use super::tools::{ToolCallRequest, ToolResponse, Tools};
 
 // Operation timeouts
-const SEARCH_OPERATION_TIMEOUT_SECS: u64 = 20; // 20 seconds for search operations
 const TOOL_EXECUTION_TIMEOUT_SECS: u64 = 25; // 25 seconds for tool execution
 
-/// Handles tool execution for MCP server
+/// Handles semantic search tool execution for MCP server
 pub struct ToolExecutor {
-    /// Search tool instance
-    search_tool: SearchTool,
-    /// Tools registry
+    /// Tools registry containing the semantic search tool
     tools: Option<Tools>,
 }
 
 impl ToolExecutor {
     /// Create a new tool executor
     pub fn new() -> Self {
-        Self {
-            search_tool: SearchTool::new(),
-            tools: None,
-        }
+        Self { tools: None }
     }
 
     /// Create a new tool executor with tools registry
     pub fn with_tools(tools: Tools) -> Self {
         Self {
-            search_tool: SearchTool::new(),
             tools: Some(tools),
         }
     }
@@ -50,26 +43,27 @@ impl ToolExecutor {
         self.tools = Some(tools);
     }
 
-    /// Execute a tool call with the given parameters
+    /// Execute the semantic search tool with the given parameters
     pub async fn execute_tool(
         &self,
         tool_name: &str,
         arguments: Value,
-        index: &Arc<RwLock<Option<PersistentChunkIndex>>>,
-        config: &TurboPropConfig,
-        repo_path: &Path,
+        _index: &Arc<RwLock<Option<PersistentChunkIndex>>>,
+        _config: &TurboPropConfig,
+        _repo_path: &Path,
     ) -> Result<Value, ToolExecutionError> {
         // Security validation for tool parameters
         Self::validate_tool_parameters(&arguments)?;
 
-        // Execute tool using tools registry if available
-        if let Some(ref tools_registry) = self.tools {
-            self.execute_with_registry(tool_name, arguments, tools_registry)
-                .await
-        } else {
-            // Fallback to direct tool execution
-            self.execute_direct_tool(tool_name, arguments, index, config, repo_path)
-                .await
+        // Execute tool using tools registry
+        match &self.tools {
+            Some(tools_registry) => {
+                self.execute_with_registry(tool_name, arguments, tools_registry)
+                    .await
+            }
+            None => Err(ToolExecutionError::ToolNotFound(
+                "No tools registry configured".to_string(),
+            )),
         }
     }
 
@@ -114,98 +108,12 @@ impl ToolExecutor {
         }
     }
 
-    /// Execute tool directly (fallback path)
-    async fn execute_direct_tool(
-        &self,
-        tool_name: &str,
-        arguments: Value,
-        index: &Arc<RwLock<Option<PersistentChunkIndex>>>,
-        config: &TurboPropConfig,
-        repo_path: &Path,
-    ) -> Result<Value, ToolExecutionError> {
-        match tool_name {
-            "search" => {
-                // Get index
-                let index_guard = index.read().await;
-                let index = match index_guard.as_ref() {
-                    Some(index) => index,
-                    None => {
-                        return Err(ToolExecutionError::IndexNotReady);
-                    }
-                };
 
-                // Execute search tool with timeout
-                match tokio::time::timeout(
-                    Duration::from_secs(SEARCH_OPERATION_TIMEOUT_SECS),
-                    self.search_tool.execute(arguments, index, config, repo_path),
-                )
-                .await
-                {
-                    Ok(Ok(result)) => {
-                        debug!("Search tool executed successfully");
-                        Ok(result)
-                    }
-                    Ok(Err(e)) => {
-                        error!("Search tool execution failed: {}", e);
-                        Err(ToolExecutionError::ExecutionFailed(e.to_string()))
-                    }
-                    Err(_) => {
-                        warn!("Search tool execution timed out");
-                        Err(ToolExecutionError::Timeout(SEARCH_OPERATION_TIMEOUT_SECS))
-                    }
-                }
-            }
-            _ => Err(ToolExecutionError::ToolNotFound(tool_name.to_string())),
-        }
-    }
-
-    /// Get list of available tools
+    /// Get the semantic search tool definition
     pub fn list_tools(&self) -> Vec<super::tools::ToolDefinition> {
-        if let Some(ref tools_registry) = self.tools {
-            tools_registry.list_tools()
-        } else {
-            // Create a ToolDefinition for the SearchTool
-            vec![super::tools::ToolDefinition {
-                name: "search".to_string(),
-                description: "Semantic search across the codebase using natural language queries"
-                    .to_string(),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Natural language search query to find relevant code"
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of results to return",
-                            "default": 10,
-                            "minimum": 1,
-                            "maximum": 100
-                        },
-                        "threshold": {
-                            "type": "number",
-                            "description": "Minimum similarity threshold (0.0 to 1.0)",
-                            "minimum": 0.0,
-                            "maximum": 1.0
-                        },
-                        "filetype": {
-                            "type": "string",
-                            "description": "Filter by file extension (e.g., '.rs', '.js')"
-                        },
-                        "filter": {
-                            "type": "string",
-                            "description": "Glob pattern filter (e.g., '*.rs', 'src/**/*.js')"
-                        },
-                        "include_content": {
-                            "type": "boolean",
-                            "description": "Include file content in results",
-                            "default": true
-                        }
-                    },
-                    "required": ["query"]
-                }),
-            }]
+        match &self.tools {
+            Some(tools_registry) => tools_registry.list_tools(),
+            None => vec![], // No tools available without registry
         }
     }
 
@@ -298,9 +206,6 @@ pub enum ToolExecutionError {
     #[error("Tool execution timed out after {0} seconds")]
     Timeout(u64),
 
-    #[error("Index not ready")]
-    IndexNotReady,
-
     #[error("Invalid parameters: {0}")]
     InvalidParameters(String),
 
@@ -380,7 +285,6 @@ mod tests {
     fn test_list_tools_default() {
         let executor = ToolExecutor::new();
         let tools = executor.list_tools();
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "search");
+        assert_eq!(tools.len(), 0); // No tools without registry
     }
 }

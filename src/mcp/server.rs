@@ -17,7 +17,7 @@ use super::protocol::{
     constants, InitializeParams, InitializeResult, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     ServerCapabilities, ServerInfo, ToolsCapability,
 };
-use super::tools::{SearchTool, Tools};
+use super::tools::Tools;
 use super::transport::StdioTransport;
 
 /// Configuration for MCP server
@@ -66,10 +66,8 @@ pub struct McpServer {
     /// Server configuration
     #[allow(dead_code)]
     server_config: McpServerConfig,
-    /// Search tool instance
-    search_tool: SearchTool,
     /// Tools registry
-    tools: Option<Tools>,
+    tools: Tools,
     /// Persistent index (wrapped for thread safety)
     index: Arc<RwLock<Option<PersistentChunkIndex>>>,
     /// Server initialization state
@@ -84,12 +82,17 @@ impl McpServer {
     pub async fn new(repo_path: &Path, config: &TurboPropConfig) -> Result<Self> {
         info!("Initializing MCP server for {}", repo_path.display());
 
+        let tools = Tools::with_search_tool(
+            repo_path.to_path_buf(),
+            repo_path.to_path_buf(),
+            config.clone(),
+        );
+
         let server = Self {
             repo_path: repo_path.to_path_buf(),
             config: config.clone(),
             server_config: McpServerConfig::default(),
-            search_tool: SearchTool::new(),
-            tools: None,
+            tools,
             index: Arc::new(RwLock::new(None)),
             initialized: Arc::new(RwLock::new(false)),
             running: Arc::new(RwLock::new(false)),
@@ -104,8 +107,7 @@ impl McpServer {
             repo_path: PathBuf::new(), // Will be set later
             config: TurboPropConfig::default(),
             server_config,
-            search_tool: SearchTool::new(),
-            tools: Some(tools),
+            tools,
             index: Arc::new(RwLock::new(None)),
             initialized: Arc::new(RwLock::new(false)),
             running: Arc::new(RwLock::new(false)),
@@ -279,53 +281,8 @@ impl McpServer {
             return request.create_error_response(error);
         }
 
-        // Use tools registry if available, otherwise create a ToolDefinition from search tool
-        let tools = if let Some(ref tools_registry) = self.tools {
-            tools_registry.list_tools()
-        } else {
-            // Create a ToolDefinition for the SearchTool
-            vec![crate::mcp::tools::ToolDefinition {
-                name: "search".to_string(),
-                description: "Semantic search across the codebase using natural language queries"
-                    .to_string(),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Natural language search query to find relevant code"
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of results to return",
-                            "default": 10,
-                            "minimum": 1,
-                            "maximum": 100
-                        },
-                        "threshold": {
-                            "type": "number",
-                            "description": "Minimum similarity threshold (0.0 to 1.0)",
-                            "minimum": 0.0,
-                            "maximum": 1.0
-                        },
-                        "filetype": {
-                            "type": "string",
-                            "description": "Filter by file extension (e.g., '.rs', '.js')"
-                        },
-                        "filter": {
-                            "type": "string",
-                            "description": "Glob pattern filter (e.g., '*.rs', 'src/**/*.js')"
-                        },
-                        "include_content": {
-                            "type": "boolean",
-                            "description": "Include file content in results",
-                            "default": true
-                        }
-                    },
-                    "required": ["query"]
-                }),
-            }]
-        };
+        // Use the tools registry
+        let tools = self.tools.list_tools();
 
         let result = json!({
             "tools": tools
@@ -370,77 +327,38 @@ impl McpServer {
 
         let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
-        // Execute tool using tools registry if available
-        if let Some(ref tools_registry) = self.tools {
-            // Use the tools registry
-            let tool_call_request = crate::mcp::tools::ToolCallRequest {
-                name: tool_name.to_string(),
-                arguments: serde_json::from_value(arguments).unwrap_or_default(),
-            };
+        // Use the tools registry
+        let tool_call_request = crate::mcp::tools::ToolCallRequest {
+            name: tool_name.to_string(),
+            arguments: serde_json::from_value(arguments).unwrap_or_default(),
+        };
 
-            match tools_registry.execute_tool(tool_call_request).await {
-                Ok(tool_response) => {
-                    if tool_response.success {
-                        debug!("Tool executed successfully: {}", tool_name);
-                        let result = tool_response.content.unwrap_or(json!({}));
-                        request.create_success_response(result)
-                    } else {
-                        error!(
-                            "Tool execution failed: {}",
-                            tool_response
-                                .error
-                                .as_ref()
-                                .unwrap_or(&"Unknown error".to_string())
-                        );
-                        let error = JsonRpcError::tool_execution_error(
-                            tool_response
-                                .error
-                                .unwrap_or_else(|| "Unknown error".to_string()),
-                        );
-                        request.create_error_response(error)
-                    }
-                }
-                Err(e) => {
-                    error!("Tool execution failed: {}", e);
-                    let error = JsonRpcError::tool_execution_error(e.to_string());
+        match self.tools.execute_tool(tool_call_request).await {
+            Ok(tool_response) => {
+                if tool_response.success {
+                    debug!("Tool executed successfully: {}", tool_name);
+                    let result = tool_response.content.unwrap_or(json!({}));
+                    request.create_success_response(result)
+                } else {
+                    error!(
+                        "Tool execution failed: {}",
+                        tool_response
+                            .error
+                            .as_ref()
+                            .unwrap_or(&"Unknown error".to_string())
+                    );
+                    let error = JsonRpcError::tool_execution_error(
+                        tool_response
+                            .error
+                            .unwrap_or_else(|| "Unknown error".to_string()),
+                    );
                     request.create_error_response(error)
                 }
             }
-        } else {
-            // Fallback to the old direct search tool execution
-            match tool_name {
-                "search" => {
-                    // Get index
-                    let index_guard = self.index.read().await;
-                    let index = match index_guard.as_ref() {
-                        Some(index) => index,
-                        None => {
-                            let error = JsonRpcError::index_not_ready();
-                            return request.create_error_response(error);
-                        }
-                    };
-
-                    // Execute search tool
-                    match self
-                        .search_tool
-                        .execute(arguments, index, &self.config, &self.repo_path)
-                        .await
-                    {
-                        Ok(result) => {
-                            debug!("Search tool executed successfully");
-                            request.create_success_response(result)
-                        }
-                        Err(e) => {
-                            error!("Search tool execution failed: {}", e);
-                            let error = JsonRpcError::tool_execution_error(e.to_string());
-                            request.create_error_response(error)
-                        }
-                    }
-                }
-                _ => {
-                    let error = JsonRpcError::tool_not_found(tool_name);
-                    request.create_error_response(error)
-                }
+            Err(e) => {
+                error!("Tool execution failed: {}", e);
+                let error = JsonRpcError::tool_execution_error(e.to_string());
+                request.create_error_response(error)
             }
         }
     }
@@ -672,7 +590,7 @@ mod tests {
         let result = response.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0]["name"], "search");
+        assert_eq!(tools[0]["name"], "semantic_search");
     }
 
     #[test]
@@ -713,7 +631,7 @@ mod tests {
         let request = JsonRpcRequest::new(
             constants::methods::TOOLS_CALL.to_string(),
             Some(json!({
-                "name": "search",
+                "name": "semantic_search",
                 "arguments": {
                     "query": "test"
                 }

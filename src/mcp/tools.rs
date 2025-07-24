@@ -7,11 +7,9 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::Path;
 use tracing::{debug, info};
 
 use crate::config::TurboPropConfig;
-use crate::index::PersistentChunkIndex;
 use crate::search::search_index_with_filters;
 
 /// Strong type for search query strings
@@ -278,8 +276,7 @@ fn default_include_content() -> bool {
 }
 
 // Keep the existing ToolExecutor trait and other types for compatibility
-// Note: Commenting out error import to avoid circular dependencies - will need to be fixed later
-// use crate::mcp::error::{McpError as ExistingMcpError, McpResult as ExistingMcpResult};
+use crate::mcp::error::{McpError, McpResult};
 use async_trait::async_trait;
 
 /// Tool definition for MCP protocol
@@ -317,13 +314,13 @@ pub struct ToolCallResponse {
 #[async_trait]
 pub trait ToolExecutor {
     /// Execute a tool with given arguments
-    async fn execute(&self, request: ToolCallRequest) -> Result<ToolCallResponse>;
+    async fn execute(&self, request: ToolCallRequest) -> McpResult<ToolCallResponse>;
 
     /// Get tool definition
     fn definition(&self) -> ToolDefinition;
 
     /// Check if tool supports given arguments
-    fn validate_arguments(&self, arguments: &HashMap<String, Value>) -> Result<()>;
+    fn validate_arguments(&self, arguments: &HashMap<String, Value>) -> McpResult<()>;
 }
 
 /// Semantic search tool that integrates with TurboProp
@@ -671,7 +668,7 @@ impl SemanticSearchTool {
 
 #[async_trait]
 impl ToolExecutor for SemanticSearchTool {
-    async fn execute(&self, request: ToolCallRequest) -> Result<ToolCallResponse> {
+    async fn execute(&self, request: ToolCallRequest) -> McpResult<ToolCallResponse> {
         debug!(
             "Executing semantic search tool with arguments: {:?}",
             request.arguments
@@ -712,11 +709,11 @@ impl ToolExecutor for SemanticSearchTool {
         }
 
         // Convert arguments to search params
-        let search_params: SearchToolParams =
-            serde_json::from_value(serde_json::to_value(&request.arguments).map_err(|e| {
-                anyhow::anyhow!("Tool execution failed for {}: {}", request.name, e)
-            })?)
-            .map_err(|e| anyhow::anyhow!("Tool execution failed for {}: {}", request.name, e))?;
+        let search_params: SearchToolParams = serde_json::from_value(
+            serde_json::to_value(&request.arguments)
+                .map_err(|e| McpError::tool_execution(&request.name, format!("Failed to serialize arguments: {}", e)))?
+        )
+        .map_err(|e| McpError::tool_execution(&request.name, format!("Failed to parse arguments: {}", e)))?;
 
         // Execute search directly
         match self.execute_search(search_params).await {
@@ -741,28 +738,28 @@ impl ToolExecutor for SemanticSearchTool {
         }
     }
 
-    fn validate_arguments(&self, arguments: &HashMap<String, Value>) -> Result<()> {
+    fn validate_arguments(&self, arguments: &HashMap<String, Value>) -> McpResult<()> {
         // Check required query parameter
         if !arguments.contains_key("query") {
-            return Err(anyhow::anyhow!("Missing required 'query' parameter"));
+            return Err(McpError::tool_execution("semantic_search", "Missing required 'query' parameter"));
         }
 
         // Validate query is a string
         if !arguments.get("query").unwrap().is_string() {
-            return Err(anyhow::anyhow!("'query' parameter must be a string"));
+            return Err(McpError::tool_execution("semantic_search", "'query' parameter must be a string"));
         }
 
         // Validate limit if provided
         if let Some(limit_value) = arguments.get("limit") {
             if let Some(limit) = limit_value.as_u64() {
                 if limit == 0 || limit > self.config.max_limit as u64 {
-                    return Err(anyhow::anyhow!(
-                        "'limit' must be between 1 and {}",
-                        self.config.max_limit
+                    return Err(McpError::tool_execution(
+                        "semantic_search",
+                        format!("'limit' must be between 1 and {}", self.config.max_limit)
                     ));
                 }
             } else {
-                return Err(anyhow::anyhow!("'limit' parameter must be an integer"));
+                return Err(McpError::tool_execution("semantic_search", "'limit' parameter must be an integer"));
             }
         }
 
@@ -772,14 +769,13 @@ impl ToolExecutor for SemanticSearchTool {
                 if !(self.config.min_threshold as f64..=self.config.max_threshold as f64)
                     .contains(&threshold)
                 {
-                    return Err(anyhow::anyhow!(
-                        "'threshold' must be between {} and {}",
-                        self.config.min_threshold,
-                        self.config.max_threshold
+                    return Err(McpError::tool_execution(
+                        "semantic_search",
+                        format!("'threshold' must be between {} and {}", self.config.min_threshold, self.config.max_threshold)
                     ));
                 }
             } else {
-                return Err(anyhow::anyhow!("'threshold' parameter must be a number"));
+                return Err(McpError::tool_execution("semantic_search", "'threshold' parameter must be a number"));
             }
         }
 
@@ -851,7 +847,7 @@ impl Tools {
             .get(&request.name)
             .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", request.name))?;
 
-        tool.execute(request).await
+        tool.execute(request).await.map_err(|e| anyhow::anyhow!("Tool execution error: {}", e))
     }
 
     /// Check if a tool exists
@@ -867,187 +863,6 @@ impl Default for Tools {
 }
 
 /// Simple SearchTool that wraps the semantic search functionality for MCP server
-#[derive(Debug, Clone)]
-pub struct SearchTool {
-    config: SearchToolConfig,
-}
-
-impl SearchTool {
-    /// Create a new SearchTool
-    pub fn new() -> Self {
-        Self {
-            config: SearchToolConfig::default(),
-        }
-    }
-
-    /// Execute a search with the given arguments, index, config, and repo path
-    pub async fn execute(
-        &self,
-        arguments: Value,
-        index: &PersistentChunkIndex,
-        config: &TurboPropConfig,
-        _repo_path: &Path,
-    ) -> Result<Value> {
-        // Parse the arguments into SearchToolParams
-        let params: SearchToolParams =
-            serde_json::from_value(arguments).context("Failed to parse search tool arguments")?;
-
-        // Validate parameters
-        if params.query.is_empty() {
-            anyhow::bail!("Query cannot be empty");
-        }
-
-        if params.query.len() > self.config.max_query_length {
-            anyhow::bail!(
-                "Query too long: {} characters (max: {})",
-                params.query.len(),
-                self.config.max_query_length
-            );
-        }
-
-        // Execute the search using the provided index
-        let start_time = std::time::Instant::now();
-
-        // Create search config with the provided parameters
-        let mut search_config = crate::search::SearchConfig::default()
-            .with_limit(params.limit.get())
-            .with_parallel(true);
-
-        if let Some(threshold) = params.threshold {
-            search_config = search_config.with_threshold(threshold.get());
-        }
-
-        if let Some(filetype) = &params.filetype {
-            search_config = search_config.with_filetype_filter(filetype.clone());
-        }
-
-        if let Some(filter) = &params.filter {
-            search_config = search_config.with_glob_filter(filter.clone());
-        }
-
-        // Create search engine with the existing index
-        let mut search_engine =
-            crate::search::SearchEngine::from_existing_index(index, search_config, config)
-                .await
-                .context("Failed to create search engine with existing index")?;
-
-        let results = search_engine
-            .search(params.query.as_str())
-            .context("Search execution failed")?;
-
-        let execution_time = start_time.elapsed();
-        let total_results = results.len();
-
-        // Convert results to MCP format
-        let mcp_results: Vec<McpSearchResult> = results
-            .into_iter()
-            .map(|result| McpSearchResult {
-                file_path: result
-                    .chunk
-                    .chunk
-                    .source_location
-                    .file_path
-                    .to_string_lossy()
-                    .to_string(),
-                line_number: result.chunk.chunk.source_location.start_line,
-                similarity_score: SimilarityScore::new(result.similarity),
-                content: if params.include_content {
-                    result.chunk.chunk.content.clone()
-                } else {
-                    "[Content hidden]".to_string()
-                },
-                context: None, // Could be extended to include context
-                file_type: result
-                    .chunk
-                    .chunk
-                    .source_location
-                    .file_path
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .unwrap_or("unknown")
-                    .to_string(),
-                start_line: result.chunk.chunk.source_location.start_line,
-                end_line: result.chunk.chunk.source_location.end_line,
-            })
-            .collect();
-
-        let search_result = SearchToolResult {
-            results: mcp_results,
-            total_results,
-            execution_time_ms: execution_time.as_millis() as u64,
-            query_info: SearchQueryInfo {
-                query: params.query.as_str().to_string(),
-                filters: SearchFilters {
-                    filetype: params.filetype,
-                    glob_pattern: params.filter,
-                },
-                limit: params.limit.get(),
-                threshold: params
-                    .threshold
-                    .map(|t| t.get())
-                    .unwrap_or(self.config.default_threshold),
-            },
-        };
-
-        serde_json::to_value(search_result).context("Failed to serialize search results")
-    }
-}
-
-impl Default for SearchTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// Implement Serialize for SearchTool so it can be included in tools list
-impl Serialize for SearchTool {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let tool_def = json!({
-            "name": "search",
-            "description": "Semantic search across the codebase using natural language queries",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Natural language search query to find relevant code"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of results to return",
-                        "default": 10,
-                        "minimum": 1,
-                        "maximum": 100
-                    },
-                    "threshold": {
-                        "type": "number",
-                        "description": "Minimum similarity threshold (0.0 to 1.0)",
-                        "minimum": 0.0,
-                        "maximum": 1.0
-                    },
-                    "filetype": {
-                        "type": "string",
-                        "description": "Filter by file extension (e.g., '.rs', '.js')"
-                    },
-                    "filter": {
-                        "type": "string",
-                        "description": "Glob pattern filter (e.g., '*.rs', 'src/**/*.js')"
-                    },
-                    "include_content": {
-                        "type": "boolean",
-                        "description": "Include file content in results",
-                        "default": true
-                    }
-                },
-                "required": ["query"]
-            }
-        });
-        tool_def.serialize(serializer)
-    }
-}
 
 #[cfg(test)]
 mod tests {

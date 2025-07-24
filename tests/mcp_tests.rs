@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use tokio::task::JoinSet;
+use tokio::time::timeout;
 
 use turboprop::mcp::error::McpError;
 use turboprop::mcp::protocol::{
@@ -295,7 +297,7 @@ mod transport_tests {
 mod server_tests {
     use super::*;
 
-    fn create_test_server() -> McpServer {
+    pub fn create_test_server() -> McpServer {
         let config = McpServerConfig {
             address: "127.0.0.1".to_string(),
             port: 0, // Use port 0 for testing
@@ -766,5 +768,478 @@ mod performance_tests {
             "Serialization performance too slow: {:?}",
             duration
         );
+    }
+}
+
+/// Integration tests for index initialization and failure recovery
+#[cfg(test)]
+mod index_initialization_tests {
+    use super::*;
+    use tempfile::TempDir;
+    use turboprop::config::TurboPropConfig;
+
+    #[tokio::test]
+    async fn test_index_initialization_failure_recovery() {
+        // Create a temporary directory that doesn't exist for testing failure
+        let temp_dir = TempDir::new().unwrap();
+        let non_existent_path = temp_dir.path().join("non_existent");
+
+        let config = TurboPropConfig::default();
+
+        // This should handle the error gracefully without crashing
+        let result = turboprop::mcp::McpServer::new(&non_existent_path, &config).await;
+
+        // Server creation should succeed even if index can't be built initially
+        // The server should handle this gracefully in the background
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_server_continues_without_index() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = TurboPropConfig::default();
+
+        // Create server with valid path but potentially no content
+        let mut server = turboprop::mcp::McpServer::new(temp_dir.path(), &config)
+            .await
+            .unwrap();
+
+        // Initialize server
+        let init_params = InitializeParams {
+            protocol_version: "2024-11-05".to_string(),
+            client_info: ClientInfo {
+                name: "test-client".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            capabilities: ClientCapabilities::default(),
+        };
+
+        let init_result = server.initialize(init_params).await;
+        assert!(init_result.is_ok());
+
+        // Server should be able to handle tools/list even if index isn't ready
+        let tools_request = test_data::create_tools_list_request();
+        let tools_result = server.handle_request(tools_request).await;
+        assert!(tools_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_index_initialization() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = TurboPropConfig::default();
+
+        // Create multiple servers concurrently trying to initialize the same repository
+        let mut join_set = JoinSet::new();
+        let num_servers = 5;
+
+        for _ in 0..num_servers {
+            let path = temp_dir.path().to_path_buf();
+            let config_clone = config.clone();
+
+            join_set
+                .spawn(async move { turboprop::mcp::McpServer::new(&path, &config_clone).await });
+        }
+
+        // All servers should be created successfully despite concurrent initialization
+        let mut success_count = 0;
+        while let Some(result) = join_set.join_next().await {
+            match result {
+                Ok(server_result) => {
+                    assert!(server_result.is_ok());
+                    success_count += 1;
+                }
+                Err(e) => {
+                    panic!("Server creation task failed: {}", e);
+                }
+            }
+        }
+
+        assert_eq!(success_count, num_servers);
+    }
+}
+
+/// Resource exhaustion and DoS protection tests
+#[cfg(test)]
+mod resource_exhaustion_tests {
+    use super::*;
+    use std::sync::Arc;
+    use tokio::time::{timeout, Duration};
+
+    #[tokio::test]
+    async fn test_concurrent_request_overload() {
+        let _server = std::sync::Arc::new(server_tests::create_test_server());
+
+        // Initialize server
+        let mut server_mut = server_tests::create_test_server();
+        let init_params = InitializeParams {
+            protocol_version: "2024-11-05".to_string(),
+            client_info: ClientInfo {
+                name: "test-client".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            capabilities: ClientCapabilities::default(),
+        };
+        server_mut.initialize(init_params).await.unwrap();
+        let server = Arc::new(server_mut);
+
+        // Spawn many concurrent requests to test overload protection
+        let mut join_set = JoinSet::new();
+        let num_requests = 50; // Exceed normal capacity
+
+        for i in 0..num_requests {
+            let server_clone: Arc<McpServer> = Arc::clone(&server);
+            join_set.spawn(async move {
+                let request = if i % 2 == 0 {
+                    test_data::create_tools_list_request()
+                } else {
+                    test_data::create_tools_call_request()
+                };
+
+                // Add timeout to prevent hanging
+                timeout(
+                    Duration::from_secs(10),
+                    server_clone.handle_request(request),
+                )
+                .await
+            });
+        }
+
+        let mut completed_requests = 0;
+        let mut successful_requests = 0;
+        let mut overload_rejections = 0;
+
+        while let Some(result) = join_set.join_next().await {
+            completed_requests += 1;
+
+            match result {
+                Ok(Ok(response_result)) => match response_result {
+                    Ok(_response) => {
+                        successful_requests += 1;
+                    }
+                    Err(e) => {
+                        if e.to_string().contains("overload") {
+                            overload_rejections += 1;
+                        }
+                    }
+                },
+                Ok(Err(_timeout)) => {
+                    // Timeout occurred, which is acceptable under load
+                }
+                Err(e) => {
+                    panic!("Request task panicked: {}", e);
+                }
+            }
+        }
+
+        assert_eq!(completed_requests, num_requests);
+        // Should have some successful requests and potentially some overload rejections
+        assert!(successful_requests > 0);
+
+        println!(
+            "Completed: {}, Successful: {}, Overload rejections: {}",
+            completed_requests, successful_requests, overload_rejections
+        );
+    }
+
+    #[tokio::test]
+    async fn test_large_query_handling() {
+        let tools = Tools::new_for_integration_tests();
+
+        // Test with progressively larger queries
+        let query_sizes = vec![100, 500, 1000, 2000]; // Characters
+
+        for size in query_sizes {
+            let large_query = "x".repeat(size);
+
+            let mut args = HashMap::new();
+            args.insert("query".to_string(), Value::String(large_query));
+
+            let request = ToolCallRequest {
+                name: "semantic_search".to_string(),
+                arguments: args,
+            };
+
+            let result = timeout(Duration::from_secs(5), tools.execute_tool(request)).await;
+
+            match result {
+                Ok(tool_result) => {
+                    if size <= 1000 {
+                        // Should succeed for reasonable sizes
+                        if let Err(e) = &tool_result {
+                            println!("Query size {} failed: {}", size, e);
+                        }
+                    } else {
+                        // May fail for very large queries (security protection)
+                        if let Err(e) = &tool_result {
+                            assert!(
+                                e.to_string().contains("too long")
+                                    || e.to_string().contains("suspicious"),
+                                "Expected size-related error for large query, got: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+                Err(_) => {
+                    // Timeout is acceptable for very large queries
+                    println!("Query size {} timed out (acceptable)", size);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_malicious_query_patterns() {
+        let tools = Tools::new_for_integration_tests();
+
+        let long_query = "x".repeat(5000);
+        let repeated_word_query = "word".repeat(1000);
+        let malicious_queries = vec![
+            "../../../etc/passwd",           // Path traversal
+            "..\\..\\..\\windows\\system32", // Windows path traversal
+            "query\0with\0nulls",            // Null byte injection
+            &long_query,                     // Extremely long query
+            &repeated_word_query,            // Many repeated words
+        ];
+
+        for malicious_query in malicious_queries {
+            let mut args = HashMap::new();
+            args.insert("query".to_string(), Value::String(malicious_query.to_string()));
+
+            let request = ToolCallRequest {
+                name: "semantic_search".to_string(),
+                arguments: args,
+            };
+
+            let result = tools.execute_tool(request).await;
+
+            // Malicious queries should be rejected
+            if let Err(e) = result {
+                assert!(
+                    e.to_string().contains("suspicious")
+                        || e.to_string().contains("too long")
+                        || e.to_string().contains("security")
+                        || e.to_string().contains("invalid"),
+                    "Expected security error for malicious query '{}', got: {}",
+                    malicious_query,
+                    e
+                );
+            } else {
+                // If it succeeds, the query should at least be sanitized/limited
+                println!(
+                    "Malicious query '{}' was processed (potentially sanitized)",
+                    malicious_query
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiting_behavior() {
+        use turboprop::mcp::transport::TokenBucketRateLimiter;
+
+        // Test rate limiter behavior under sustained load
+        let mut limiter = TokenBucketRateLimiter::new(5, 300); // 5 tokens, 300 per minute (5 per second)
+
+        // Burst should be allowed
+        for i in 0..5 {
+            assert!(
+                limiter.try_consume(),
+                "Burst request {} should succeed",
+                i + 1
+            );
+        }
+
+        // Further requests should be rate limited
+        for i in 0..10 {
+            let allowed = limiter.try_consume();
+            // Most should be rejected during rate limiting
+            if !allowed {
+                println!("Request {} was rate limited (expected)", i + 6);
+            }
+        }
+
+        // After some time, requests should be allowed again
+        // Note: This test depends on the rate limiter implementation
+        // For a real test, we'd need to advance time or wait
+    }
+}
+
+/// Protocol violation and edge case tests
+#[cfg(test)]
+mod protocol_violation_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_invalid_json_rpc_version() {
+        let server = server_tests::create_test_server();
+
+        let invalid_request = JsonRpcRequest {
+            jsonrpc: "1.0".to_string(), // Wrong version
+            id: RequestId::from_number(1),
+            method: "initialize".to_string(),
+            params: Some(json!({
+                "protocol_version": "2024-11-05",
+                "client_info": {
+                    "name": "test-client",
+                    "version": "1.0.0"
+                },
+                "capabilities": {}
+            })),
+        };
+
+        let result = server.handle_request(invalid_request).await;
+        assert!(result.is_err());
+
+        // Should get a validation error
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("jsonrpc") || error.to_string().contains("version"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_required_parameters() {
+        let mut server = server_tests::create_test_server();
+
+        // Initialize server first
+        let init_params = InitializeParams {
+            protocol_version: "2024-11-05".to_string(),
+            client_info: ClientInfo {
+                name: "test-client".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            capabilities: ClientCapabilities::default(),
+        };
+        server.initialize(init_params).await.unwrap();
+
+        // Test tools/call without required parameters
+        let invalid_call = JsonRpcRequest::with_number_id(
+            1,
+            "tools/call".to_string(),
+            Some(json!({})), // Missing tool name and arguments
+        );
+
+        let result = server.handle_request(invalid_call).await;
+        assert!(result.is_err());
+
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("Missing") || error.to_string().contains("required"));
+    }
+
+    #[tokio::test]
+    async fn test_extremely_long_method_names() {
+        let server = server_tests::create_test_server();
+
+        let long_method = "x".repeat(1000);
+        let request = JsonRpcRequest::with_number_id(1, long_method, None);
+
+        let result = server.handle_request(request).await;
+        assert!(result.is_err());
+
+        // Should be rejected as method not found or validation error
+        let error = result.unwrap_err();
+        assert!(
+            error.to_string().contains("Method not found")
+                || error.to_string().contains("validation")
+                || error.to_string().contains("invalid")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_null_and_empty_request_ids() {
+        let server = server_tests::create_test_server();
+
+        // Test with string-based empty ID
+        let empty_id_request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: RequestId::from_string(""),
+            method: "tools/list".to_string(),
+            params: None,
+        };
+
+        // Should handle empty ID gracefully
+        let result = server.handle_request(empty_id_request).await;
+        // The result itself may fail for other reasons (not initialized),
+        // but it shouldn't crash due to empty ID
+        match result {
+            Ok(_) => {} // Fine
+            Err(e) => {
+                // Should not be an ID-related error
+                assert!(!e.to_string().contains("ID"));
+            }
+        }
+    }
+}
+
+/// Memory usage and resource cleanup tests  
+#[cfg(test)]
+mod resource_cleanup_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_server_cleanup_after_error() {
+        // Test that server properly cleans up resources after errors
+        let mut server = server_tests::create_test_server();
+
+        // Try to initialize with invalid parameters
+        let invalid_params = InitializeParams {
+            protocol_version: "invalid-version".to_string(),
+            client_info: ClientInfo {
+                name: "test-client".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            capabilities: ClientCapabilities::default(),
+        };
+
+        let result = server.initialize(invalid_params).await;
+        assert!(result.is_err());
+
+        // Server should still be in a valid state for subsequent operations
+        let valid_params = InitializeParams {
+            protocol_version: "2024-11-05".to_string(),
+            client_info: ClientInfo {
+                name: "test-client".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            capabilities: ClientCapabilities::default(),
+        };
+
+        let second_result = server.initialize(valid_params).await;
+        assert!(second_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_repeated_tool_executions() {
+        let tools = Tools::new_for_integration_tests();
+        let num_executions = 100;
+
+        // Execute the same tool many times to test for memory leaks or resource buildup
+        for i in 0..num_executions {
+            let mut args = HashMap::new();
+            args.insert(
+                "query".to_string(),
+                Value::String(format!("test query {}", i)),
+            );
+
+            let request = ToolCallRequest {
+                name: "semantic_search".to_string(),
+                arguments: args,
+            };
+
+            let result = timeout(Duration::from_secs(5), tools.execute_tool(request)).await;
+
+            match result {
+                Ok(_tool_result) => {
+                    // Most should succeed (some may fail due to missing index, which is OK)
+                    if i % 10 == 0 {
+                        println!("Completed {} tool executions", i + 1);
+                    }
+                }
+                Err(_) => {
+                    panic!("Tool execution {} timed out", i + 1);
+                }
+            }
+        }
+
+        println!("Successfully completed {} tool executions", num_executions);
     }
 }

@@ -14,6 +14,7 @@ pub mod server;
 pub mod tools;
 pub mod transport;
 
+pub use error::ErrorHandler;
 pub use server::{McpServer, McpServerBuilder, McpServerConfig, McpServerTrait};
 pub use transport::{
     RequestValidator, StdioTransport, StdioTransportConfig, TokenBucketRateLimiter,

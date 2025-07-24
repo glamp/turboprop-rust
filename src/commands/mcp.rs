@@ -5,15 +5,16 @@
 
 use anyhow::{Context, Result};
 use std::path::Path;
-use tracing::{info, warn, debug, Level};
+use tracing::{info, debug};
 
 use crate::cli::McpArgs;
 use crate::config::TurboPropConfig;
 use crate::mcp::McpServer;
 use crate::types::parse_filesize;
 
-/// Validate MCP command arguments with proper imports
-fn validate_mcp_args(args: &McpArgs) -> Result<()> {
+/// Comprehensive validation of MCP command arguments
+/// This is the single source of validation for all MCP arguments
+fn validate_args(args: &McpArgs) -> Result<()> {
     // Validate repository path
     if !args.repo.exists() {
         return Err(anyhow::anyhow!("Repository path does not exist: {}", args.repo.display()));
@@ -43,13 +44,15 @@ fn validate_mcp_args(args: &McpArgs) -> Result<()> {
 /// Execute the MCP server command
 pub async fn execute_mcp_command(args: McpArgs) -> Result<()> {
     // Set up logging (to stderr to avoid interfering with MCP protocol)
-    setup_logging(args.verbose, args.debug)?;
+    setup_logging(args.verbose, args.debug)
+        .context("Failed to initialize logging for MCP server")?;
     
     info!("Starting TurboProp MCP server");
     debug!("MCP arguments: {:?}", args);
     
-    // Validate arguments - do detailed validation here where we have imports
-    validate_mcp_args(&args)?;
+    // Comprehensive argument validation
+    validate_args(&args)
+        .context("MCP command argument validation failed")?;
     
     // Print setup information after validation
     print_setup_info(&args.repo);
@@ -65,7 +68,8 @@ pub async fn execute_mcp_command(args: McpArgs) -> Result<()> {
     };
     
     // Apply CLI overrides
-    apply_config_overrides(&mut config, &args)?;
+    apply_config_overrides(&mut config, &args)
+        .context("Failed to apply CLI argument overrides to configuration")?;
     
     // Log configuration summary
     log_config_summary(&config, &args);
@@ -105,36 +109,45 @@ fn apply_config_overrides(config: &mut TurboPropConfig, args: &McpArgs) -> Resul
         config.file_discovery.max_filesize_bytes = Some(max_filesize_bytes);
     }
     
-    // Override filters if specified - TODO: implement proper filtering
-    if let Some(_filter) = &args.filter {
-        warn!("Filter patterns are not yet implemented in config override");
+    // Check for unsupported CLI overrides and provide helpful feedback
+    if let Some(filter) = &args.filter {
+        return Err(anyhow::anyhow!(
+            "Filter patterns (--filter '{}') are not yet supported in MCP mode. \
+             Use .turboprop.yml configuration file to specify filtering options.", 
+            filter
+        ));
     }
     
-    if let Some(_filetype) = &args.filetype {
-        warn!("File type filtering is not yet implemented in config override");
+    if let Some(filetype) = &args.filetype {
+        return Err(anyhow::anyhow!(
+            "File type filtering (--filetype '{}') is not yet supported in MCP mode. \
+             Use .turboprop.yml configuration file to specify filtering options.", 
+            filetype
+        ));
     }
     
-    // Set force rebuild flag - TODO: implement proper force rebuild
     if args.force_rebuild {
-        warn!("Force rebuild is not yet implemented in config override");
+        return Err(anyhow::anyhow!(
+            "Force rebuild (--force-rebuild) is not yet supported in MCP mode. \
+             Remove or recreate the index directory to force a rebuild."
+        ));
     }
     
     Ok(())
 }
 
-/// Set up logging for the MCP server
-fn setup_logging(verbose: bool, debug: bool) -> Result<()> {
-    let _log_level = if debug {
-        Level::DEBUG
-    } else if verbose {
-        Level::INFO
-    } else {
-        Level::WARN
-    };
-    
-    // Skip logging setup since main.rs already sets up a global subscriber
-    // The MCP server will use the existing logging configuration
-    debug!("Using existing logging configuration");
+/// Initialize logging for the MCP server
+/// 
+/// Currently uses the global logging configuration set up by main.rs.
+/// The verbose and debug parameters are accepted for API compatibility
+/// but do not currently affect the logging level.
+///
+/// # Future Enhancement
+/// In the future, this function could be enhanced to configure MCP-specific
+/// logging levels or output destinations while avoiding conflicts with the
+/// global subscriber.
+fn setup_logging(_verbose: bool, _debug: bool) -> Result<()> {
+    debug!("MCP server using global logging configuration");
     Ok(())
 }
 
@@ -221,7 +234,7 @@ mod tests {
             verbose: false,
             debug: false,
         };
-        assert!(validate_mcp_args(&valid_args).is_ok());
+        assert!(validate_args(&valid_args).is_ok());
         
         // Invalid repository path
         let invalid_repo = McpArgs {
@@ -234,7 +247,7 @@ mod tests {
             verbose: false,
             debug: false,
         };
-        assert!(validate_mcp_args(&invalid_repo).is_err());
+        assert!(validate_args(&invalid_repo).is_err());
         
         // Invalid file size
         let invalid_size = McpArgs {
@@ -247,7 +260,7 @@ mod tests {
             verbose: false,
             debug: false,
         };
-        assert!(validate_mcp_args(&invalid_size).is_err());
+        assert!(validate_args(&invalid_size).is_err());
         
         // Invalid glob pattern
         let invalid_glob = McpArgs {
@@ -260,7 +273,7 @@ mod tests {
             verbose: false,
             debug: false,
         };
-        assert!(validate_mcp_args(&invalid_glob).is_err());
+        assert!(validate_args(&invalid_glob).is_err());
     }
     
     #[test]
@@ -268,21 +281,63 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut config = TurboPropConfig::default();
         
-        let args = McpArgs {
+        // Test successful overrides (model and max_filesize)
+        let supported_args = McpArgs {
             repo: temp_dir.path().to_path_buf(),
             model: Some("custom-model".to_string()),
             max_filesize: Some("5mb".to_string()),
+            filter: None,
+            filetype: None,
+            force_rebuild: false,
+            verbose: false,
+            debug: false,
+        };
+        
+        apply_config_overrides(&mut config, &supported_args).unwrap();
+        
+        assert_eq!(config.embedding.model_name, "custom-model");
+        assert_eq!(config.file_discovery.max_filesize_bytes, Some(5 * 1024 * 1024));
+        
+        // Test unsupported filter option returns error
+        let filter_args = McpArgs {
+            repo: temp_dir.path().to_path_buf(),
+            model: None,
+            max_filesize: None,
             filter: Some("src/**/*.rs".to_string()),
+            filetype: None,
+            force_rebuild: false,
+            verbose: false,
+            debug: false,
+        };
+        
+        assert!(apply_config_overrides(&mut config, &filter_args).is_err());
+        
+        // Test unsupported filetype option returns error
+        let filetype_args = McpArgs {
+            repo: temp_dir.path().to_path_buf(),
+            model: None,
+            max_filesize: None,
+            filter: None,
             filetype: Some("rust".to_string()),
+            force_rebuild: false,
+            verbose: false,
+            debug: false,
+        };
+        
+        assert!(apply_config_overrides(&mut config, &filetype_args).is_err());
+        
+        // Test unsupported force_rebuild option returns error
+        let force_rebuild_args = McpArgs {
+            repo: temp_dir.path().to_path_buf(),
+            model: None,
+            max_filesize: None,
+            filter: None,
+            filetype: None,
             force_rebuild: true,
             verbose: false,
             debug: false,
         };
         
-        apply_config_overrides(&mut config, &args).unwrap();
-        
-        assert_eq!(config.embedding.model_name, "custom-model");
-        assert_eq!(config.file_discovery.max_filesize_bytes, Some(5 * 1024 * 1024));
-        // Note: Other fields are not yet implemented in config override
+        assert!(apply_config_overrides(&mut config, &force_rebuild_args).is_err());
     }
 }

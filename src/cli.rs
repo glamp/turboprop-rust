@@ -225,21 +225,5 @@ pub struct McpArgs {
     pub debug: bool,
 }
 
-impl McpArgs {
-    /// Validate MCP command arguments
-    pub fn validate(&self) -> Result<(), String> {
-        // Validate repository path
-        if !self.repo.exists() {
-            return Err(format!("Repository path does not exist: {}", self.repo.display()));
-        }
-        
-        if !self.repo.is_dir() {
-            return Err(format!("Repository path is not a directory: {}", self.repo.display()));
-        }
-        
-        // Note: More detailed validation is done in the command handler
-        // to avoid dependency issues in CLI module
-        
-        Ok(())
-    }
-}
+// Note: MCP argument validation is handled entirely in the command handler
+// to avoid dependency issues in the CLI module and prevent duplication

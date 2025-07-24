@@ -25,6 +25,10 @@ pub struct SearchConfig {
     pub threshold: Option<f32>,
     /// Enable parallel processing for similarity calculations
     pub parallel: bool,
+    /// Filter by file extension (e.g., ".rs", ".js", ".py")
+    pub filetype_filter: Option<String>,
+    /// Glob pattern filter (e.g., "*.rs", "src/**/*.js")
+    pub glob_filter: Option<String>,
 }
 
 impl Default for SearchConfig {
@@ -33,6 +37,8 @@ impl Default for SearchConfig {
             limit: DEFAULT_SEARCH_LIMIT,
             threshold: None,
             parallel: true,
+            filetype_filter: None,
+            glob_filter: None,
         }
     }
 }
@@ -52,6 +58,16 @@ impl SearchConfig {
         self.parallel = parallel;
         self
     }
+
+    pub fn with_filetype_filter(mut self, filetype: String) -> Self {
+        self.filetype_filter = Some(filetype);
+        self
+    }
+
+    pub fn with_glob_filter(mut self, glob_pattern: String) -> Self {
+        self.glob_filter = Some(glob_pattern);
+        self
+    }
 }
 
 /// Search engine for performing similarity searches against vector indices
@@ -62,6 +78,35 @@ pub struct SearchEngine {
 }
 
 impl SearchEngine {
+    /// Check if a chunk passes the configured filters
+    fn passes_filters(&self, chunk: &IndexedChunk) -> bool {
+        // Apply filetype filter if specified
+        if let Some(filetype) = &self.config.filetype_filter {
+            let chunk_filetype = chunk.chunk.source_location.file_path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| format!(".{}", ext))
+                .unwrap_or_default();
+            if chunk_filetype != *filetype {
+                return false;
+            }
+        }
+
+        // Apply glob filter if specified
+        if let Some(glob_pattern) = &self.config.glob_filter {
+            use glob::Pattern;
+            if let Ok(pattern) = Pattern::new(glob_pattern) {
+                if !pattern.matches_path(&chunk.chunk.source_location.file_path) {
+                    return false;
+                }
+            } else {
+                // If pattern is invalid, exclude this chunk
+                return false;
+            }
+        }
+
+        true
+    }
     /// Create a new search engine from an index path
     pub async fn new<P: AsRef<Path>>(index_path: P, config: SearchConfig) -> Result<Self> {
         let index = PersistentChunkIndex::load(index_path.as_ref())
@@ -146,6 +191,11 @@ impl SearchEngine {
             .flat_map_iter(|chunk_batch| {
                 // Process batch with SIMD optimizations when possible
                 chunk_batch.iter().filter_map(|chunk| {
+                    // Apply filters first to avoid unnecessary similarity calculations
+                    if !self.passes_filters(chunk) {
+                        return None;
+                    }
+
                     let similarity =
                         self.calculate_similarity_optimized(query_embedding, &chunk.embedding);
 
@@ -179,6 +229,11 @@ impl SearchEngine {
         let results: Vec<(f32, &IndexedChunk)> = chunks
             .iter()
             .filter_map(|chunk| {
+                // Apply filters first to avoid unnecessary similarity calculations
+                if !self.passes_filters(chunk) {
+                    return None;
+                }
+
                 let similarity =
                     self.calculate_similarity_optimized(query_embedding, &chunk.embedding);
 
@@ -254,6 +309,18 @@ pub async fn search_index<P: AsRef<Path>>(
     limit: Option<usize>,
     threshold: Option<f32>,
 ) -> Result<Vec<SearchResult>> {
+    search_index_with_filters(index_path, query, limit, threshold, None, None).await
+}
+
+/// Enhanced convenience function to perform a search with filters
+pub async fn search_index_with_filters<P: AsRef<Path>>(
+    index_path: P,
+    query: &str,
+    limit: Option<usize>,
+    threshold: Option<f32>,
+    filetype_filter: Option<String>,
+    glob_filter: Option<String>,
+) -> Result<Vec<SearchResult>> {
     let mut config = SearchConfig::default();
 
     if let Some(limit) = limit {
@@ -262,6 +329,14 @@ pub async fn search_index<P: AsRef<Path>>(
 
     if let Some(threshold) = threshold {
         config = config.with_threshold(threshold);
+    }
+
+    if let Some(filetype) = filetype_filter {
+        config = config.with_filetype_filter(filetype);
+    }
+
+    if let Some(glob_pattern) = glob_filter {
+        config = config.with_glob_filter(glob_pattern);
     }
 
     let mut engine = SearchEngine::new(index_path, config).await?;

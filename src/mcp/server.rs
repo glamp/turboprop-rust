@@ -46,6 +46,75 @@ impl Default for McpServerConfig {
     }
 }
 
+/// Server initialization state
+#[derive(Debug, Clone, PartialEq)]
+pub enum InitializationState {
+    /// Server is not initialized
+    NotStarted,
+    /// Server is currently initializing
+    InProgress,
+    /// Server initialization completed successfully
+    Ready,
+    /// Server initialization failed with error details
+    Failed { 
+        error: String, 
+        retry_count: u32,
+        last_attempt: std::time::SystemTime,
+    },
+}
+
+impl InitializationState {
+    /// Check if the server is ready to handle tool calls
+    pub fn is_ready(&self) -> bool {
+        matches!(self, InitializationState::Ready)
+    }
+
+    /// Check if initialization is in progress
+    pub fn is_in_progress(&self) -> bool {
+        matches!(self, InitializationState::InProgress)
+    }
+
+    /// Check if initialization has failed
+    pub fn is_failed(&self) -> bool {
+        matches!(self, InitializationState::Failed { .. })
+    }
+
+    /// Get error message if failed
+    pub fn error_message(&self) -> Option<&str> {
+        match self {
+            InitializationState::Failed { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+
+    /// Get retry count if failed
+    pub fn retry_count(&self) -> u32 {
+        match self {
+            InitializationState::Failed { retry_count, .. } => *retry_count,
+            _ => 0,
+        }
+    }
+
+    /// Check if enough time has passed for a retry attempt
+    pub fn can_retry(&self, retry_delay_seconds: u64) -> bool {
+        match self {
+            InitializationState::Failed { last_attempt, .. } => {
+                std::time::SystemTime::now()
+                    .duration_since(*last_attempt)
+                    .map(|d| d.as_secs() >= retry_delay_seconds)
+                    .unwrap_or(true)
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Default for InitializationState {
+    fn default() -> Self {
+        InitializationState::NotStarted
+    }
+}
+
 /// Trait defining the MCP server interface
 #[async_trait]
 pub trait McpServerTrait {
@@ -72,7 +141,7 @@ pub struct McpServer {
     /// Persistent index (wrapped for thread safety)
     index: Arc<RwLock<Option<PersistentChunkIndex>>>,
     /// Server initialization state
-    initialized: Arc<RwLock<bool>>,
+    initialization_state: Arc<RwLock<InitializationState>>,
     /// Server running state
     running: Arc<RwLock<bool>>,
     /// Index manager for file watching and incremental updates
@@ -96,7 +165,7 @@ impl McpServer {
             server_config: McpServerConfig::default(),
             tools,
             index: Arc::new(RwLock::new(None)),
-            initialized: Arc::new(RwLock::new(false)),
+            initialization_state: Arc::new(RwLock::new(InitializationState::default())),
             running: Arc::new(RwLock::new(false)),
             index_manager: Arc::new(RwLock::new(None)),
         };
@@ -112,7 +181,7 @@ impl McpServer {
             server_config,
             tools,
             index: Arc::new(RwLock::new(None)),
-            initialized: Arc::new(RwLock::new(false)),
+            initialization_state: Arc::new(RwLock::new(InitializationState::default())),
             running: Arc::new(RwLock::new(false)),
             index_manager: Arc::new(RwLock::new(None)),
         }
@@ -311,24 +380,56 @@ impl McpServer {
         let index_clone = Arc::clone(&self.index);
         let repo_path = self.repo_path.clone();
         let config = self.config.clone();
-        let initialized_flag = Arc::clone(&self.initialized);
+        let init_state_clone = Arc::clone(&self.initialization_state);
+
+        // Set state to InProgress before starting
+        {
+            let mut state_guard = init_state_clone.write().await;
+            *state_guard = InitializationState::InProgress;
+        }
 
         tokio::spawn(async move {
-            match Self::initialize_index(&repo_path, &config).await {
-                Ok(index) => {
-                    {
-                        let mut index_guard = index_clone.write().await;
-                        *index_guard = Some(index);
+            const MAX_RETRIES: u32 = 3;
+            const RETRY_DELAY_SECONDS: u64 = 10;
+            
+            let mut retry_count = 0;
+            
+            loop {
+                match Self::initialize_index(&repo_path, &config).await {
+                    Ok(index) => {
+                        // Successfully initialized
+                        {
+                            let mut index_guard = index_clone.write().await;
+                            *index_guard = Some(index);
+                        }
+                        {
+                            let mut state_guard = init_state_clone.write().await;
+                            *state_guard = InitializationState::Ready;
+                        }
+                        info!("Index initialization completed successfully");
+                        break;
                     }
-                    {
-                        let mut initialized_guard = initialized_flag.write().await;
-                        *initialized_guard = true;
+                    Err(e) => {
+                        retry_count += 1;
+                        let error_msg = format!("Failed to initialize index: {}", e);
+                        
+                        if retry_count >= MAX_RETRIES {
+                            // Max retries reached, mark as failed
+                            error!("{} (attempt {}/{}). Giving up.", error_msg, retry_count, MAX_RETRIES);
+                            let mut state_guard = init_state_clone.write().await;
+                            *state_guard = InitializationState::Failed {
+                                error: error_msg,
+                                retry_count,
+                                last_attempt: std::time::SystemTime::now(),
+                            };
+                            break;
+                        } else {
+                            // Retry after delay
+                            warn!("{} (attempt {}/{}). Retrying in {} seconds...", 
+                                  error_msg, retry_count, MAX_RETRIES, RETRY_DELAY_SECONDS);
+                            tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_DELAY_SECONDS)).await;
+                        }
                     }
-                    info!("Index initialization completed");
-                }
-                Err(e) => {
-                    error!("Failed to initialize index: {}", e);
-                    // Note: Server continues to run but search will return errors
                 }
             }
         });
@@ -366,13 +467,24 @@ impl McpServer {
         debug!("Handling tools/list request");
 
         // Check if server is initialized first
-        let initialized = {
-            let initialized_guard = self.initialized.read().await;
-            *initialized_guard
+        let init_state = {
+            let state_guard = self.initialization_state.read().await;
+            state_guard.clone()
         };
 
-        if !initialized {
-            let error = JsonRpcError::internal_error("Server not initialized");
+        if !init_state.is_ready() {
+            let error = match init_state {
+                InitializationState::InProgress => {
+                    JsonRpcError::index_not_ready()
+                }
+                InitializationState::Failed { error, retry_count, .. } => {
+                    JsonRpcError::internal_error(format!(
+                        "Server initialization failed after {} attempts: {}",
+                        retry_count, error
+                    ))
+                }
+                _ => JsonRpcError::internal_error("Server not initialized")
+            };
             return request.create_error_response(error);
         }
 
@@ -391,13 +503,27 @@ impl McpServer {
         debug!("Handling tools/call request");
 
         // Check if server is initialized
-        let initialized = {
-            let initialized_guard = self.initialized.read().await;
-            *initialized_guard
+        let init_state = {
+            let state_guard = self.initialization_state.read().await;
+            state_guard.clone()
         };
 
-        if !initialized {
-            let error = JsonRpcError::index_not_ready();
+        if !init_state.is_ready() {
+            let error = match init_state {
+                InitializationState::InProgress => {
+                    JsonRpcError::index_not_ready()
+                }
+                InitializationState::Failed { error, retry_count, .. } => {
+                    JsonRpcError::application_error(
+                        -32003, // INDEX_NOT_READY error code
+                        format!(
+                            "Index initialization failed after {} attempts: {}. Please restart the server or check logs for details.",
+                            retry_count, error
+                        )
+                    )
+                }
+                _ => JsonRpcError::index_not_ready()
+            };
             return request.create_error_response(error);
         }
 
@@ -504,8 +630,8 @@ impl McpServer {
 
         // Mark as initialized
         {
-            let mut initialized_guard = self.initialized.write().await;
-            *initialized_guard = true;
+            let mut state_guard = self.initialization_state.write().await;
+            *state_guard = InitializationState::Ready;
         }
 
         info!("Index initialization completed with file watching enabled");
@@ -535,8 +661,8 @@ impl McpServer {
 
         // Mark as initialized
         {
-            let mut initialized_guard = self.initialized.write().await;
-            *initialized_guard = true;
+            let mut state_guard = self.initialization_state.write().await;
+            *state_guard = InitializationState::Ready;
         }
 
         // Create initialization result
@@ -699,8 +825,8 @@ mod tests {
 
         // Mark server as initialized for this test
         {
-            let mut initialized_guard = server.initialized.write().await;
-            *initialized_guard = true;
+            let mut state_guard = server.initialization_state.write().await;
+            *state_guard = InitializationState::Ready;
         }
 
         let request = JsonRpcRequest::new(constants::methods::TOOLS_LIST.to_string(), None);

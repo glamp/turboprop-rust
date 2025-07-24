@@ -111,7 +111,6 @@ impl PersistentChunkIndex {
         };
 
         // Process files and build index
-        let mut chunk_index = ChunkIndex::new();
         let mut all_indexed_chunks = Vec::new();
         let chunking_strategy = ChunkingStrategy::new(config.chunking.clone());
 
@@ -141,22 +140,22 @@ impl PersistentChunkIndex {
                 .map(|(chunk, embedding)| IndexedChunk { chunk, embedding })
                 .collect();
 
-            // Add to chunk_index efficiently without cloning (takes ownership)
-            let chunks_for_index = batch_indexed_chunks.clone(); // This clone is necessary due to dual usage
-            chunk_index.add_indexed_chunks(chunks_for_index);
-
-            // Move the original chunks to the final collection
+            // Move the chunks to the final collection
             all_indexed_chunks.extend(batch_indexed_chunks);
         }
 
         info!("Generated {} indexed chunks", all_indexed_chunks.len());
 
-        // Save to disk
+        // Save to disk first (only needs a reference)
         storage.save_index(
             &all_indexed_chunks,
             &index_config,
             &config.general.storage_version,
         )?;
+
+        // Build chunk_index efficiently by taking ownership (no clone needed)
+        let mut chunk_index = ChunkIndex::new();
+        chunk_index.add_indexed_chunks(all_indexed_chunks);
 
         Ok(Self {
             chunk_index,
@@ -366,10 +365,17 @@ impl PersistentChunkIndex {
 
         result.total_chunks_after = filtered_chunks.len();
 
+        // Save updated index to disk first (only needs a reference)
+        self.storage.save_index(
+            &filtered_chunks,
+            &self.config,
+            &config.general.storage_version,
+        )?;
+
         // Build new index completely before replacing existing one to avoid race conditions
         let mut new_chunk_index = ChunkIndex::new();
-        // Use efficient bulk addition instead of individual clones
-        new_chunk_index.add_indexed_chunks(filtered_chunks.clone());
+        // Use efficient bulk addition without cloning (takes ownership)
+        new_chunk_index.add_indexed_chunks(filtered_chunks);
 
         // Atomically replace the in-memory index only after it's fully built
         self.chunk_index = new_chunk_index;
@@ -378,13 +384,6 @@ impl PersistentChunkIndex {
         self.config.model_name = config.embedding.model_name.clone();
         self.config.embedding_dimensions = config.embedding.embedding_dimensions;
         self.config.batch_size = config.embedding.batch_size;
-
-        // Save updated index to disk
-        self.storage.save_index(
-            &filtered_chunks,
-            &self.config,
-            &config.general.storage_version,
-        )?;
 
         info!(
             "Incremental update completed: {} chunks before, {} chunks after",

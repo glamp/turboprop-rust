@@ -154,7 +154,7 @@ impl SearchEngine {
 
     /// Create a search engine from an existing index
     pub async fn from_existing_index(
-        index: &PersistentChunkIndex,
+        index: PersistentChunkIndex,
         search_config: SearchConfig,
         turboprop_config: &TurboPropConfig,
     ) -> Result<Self> {
@@ -169,7 +169,7 @@ impl SearchEngine {
         );
 
         Ok(Self {
-            index: index.clone(),
+            index,
             query_processor,
             config: search_config,
         })
@@ -310,6 +310,8 @@ impl SearchEngine {
         }
 
         // Convert to SearchResult with minimal allocations
+        // Note: Clone is necessary here as SearchResult requires owned data while
+        // search operates on references for performance during similarity computation
         results
             .into_iter()
             .enumerate()

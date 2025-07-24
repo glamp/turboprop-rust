@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::TurboPropConfig;
 use crate::index::PersistentChunkIndex;
+use crate::types::{ConnectionLimit, Port, TimeoutSeconds};
 
 use super::protocol::{
     constants, InitializeParams, InitializeResult, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
@@ -26,20 +27,20 @@ pub struct McpServerConfig {
     /// Server address (for future TCP transport)
     pub address: String,
     /// Server port (for future TCP transport)
-    pub port: u16,
+    pub port: Port,
     /// Maximum number of connections
-    pub max_connections: usize,
+    pub max_connections: ConnectionLimit,
     /// Request timeout in seconds
-    pub request_timeout_seconds: u64,
+    pub request_timeout: TimeoutSeconds,
 }
 
 impl Default for McpServerConfig {
     fn default() -> Self {
         Self {
             address: "127.0.0.1".to_string(),
-            port: 0, // STDIO by default
-            max_connections: 10,
-            request_timeout_seconds: 30,
+            port: Port::dynamic(), // STDIO by default (port 0)
+            max_connections: ConnectionLimit::default(),
+            request_timeout: TimeoutSeconds::default(),
         }
     }
 }

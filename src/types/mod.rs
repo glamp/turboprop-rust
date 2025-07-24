@@ -9,12 +9,14 @@
 //! - `models` - Model-related types (ModelName, ModelBackend, etc.)
 //! - `chunks` - Chunk-related types (ChunkId, ContentChunk, etc.)
 //! - `indexing` - Index-related types (IndexedChunk, SearchResult, etc.)
+//! - `mcp` - MCP server types (Port, TimeoutSeconds, etc.)
 //! - `files` - File-related types (FileMetadata, FileDiscoveryConfig, etc.)
 //! - `similarity` - Similarity calculation utilities
 
 pub mod chunks;
 pub mod files;
 pub mod indexing;
+pub mod mcp;
 pub mod models;
 pub mod similarity;
 
@@ -36,6 +38,12 @@ pub use files::{parse_filesize, DocumentChunk, FileDiscoveryConfig, FileMetadata
 
 // Re-export similarity utilities
 pub use similarity::cosine_similarity;
+
+// Re-export MCP types
+pub use mcp::{
+    ConnectionLimit, ErrorCode, InvalidConnectionLimitError, InvalidMessageSizeError,
+    InvalidPortError, MessageSize, Port, PreviewLength, TimeoutSeconds,
+};
 
 #[cfg(test)]
 mod tests {

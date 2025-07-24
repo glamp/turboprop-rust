@@ -302,9 +302,24 @@ impl IndexStorage {
         let mut file_timestamps = std::collections::HashMap::new();
         for indexed_chunk in indexed_chunks {
             let file_path = &indexed_chunk.chunk.source_location.file_path;
-            // Note: We store the current time as the indexed timestamp
-            // In practice, you might want to store the actual file modification time
-            file_timestamps.insert(file_path.clone(), std::time::SystemTime::now());
+            // Store the actual file modification time for proper incremental update detection
+            match std::fs::metadata(file_path) {
+                Ok(metadata) => {
+                    match metadata.modified() {
+                        Ok(modified_time) => {
+                            file_timestamps.insert(file_path.clone(), modified_time);
+                        }
+                        Err(e) => {
+                            warn!("Could not get modification time for {}: {}. Using current time as fallback.", file_path.display(), e);
+                            file_timestamps.insert(file_path.clone(), std::time::SystemTime::now());
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Could not get metadata for {}: {}. Using current time as fallback.", file_path.display(), e);
+                    file_timestamps.insert(file_path.clone(), std::time::SystemTime::now());
+                }
+            }
         }
 
         let metadata = StoredIndexMetadata {

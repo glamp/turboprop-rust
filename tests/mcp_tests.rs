@@ -300,9 +300,9 @@ mod server_tests {
     pub fn create_test_server() -> McpServer {
         let config = McpServerConfig {
             address: "127.0.0.1".to_string(),
-            port: 0, // Use port 0 for testing
-            max_connections: 10,
-            request_timeout_seconds: 5,
+            port: turboprop::types::Port::dynamic(), // Use port 0 for testing
+            max_connections: turboprop::types::ConnectionLimit::new(10).unwrap(),
+            request_timeout: turboprop::types::TimeoutSeconds::new(5),
         };
         let tools = Tools::new_for_integration_tests();
         McpServer::with_config_and_tools(config, tools)

@@ -31,8 +31,12 @@ fi
 
 echo "Installing man pages to: $MAN_DIR"
 
-# Copy man page
+# Copy man pages
 cp "$OUT_DIR/tp.1" "$MAN_DIR/"
+if [ -f "$OUT_DIR/tp-mcp.1" ]; then
+    cp "$OUT_DIR/tp-mcp.1" "$MAN_DIR/"
+    echo "Installed tp-mcp.1 man page"
+fi
 
 # Update man database if available
 if command -v mandb >/dev/null 2>&1; then
@@ -46,8 +50,9 @@ fi
 
 echo "Installation complete!"
 echo ""
-echo "You can now view the manual with:"
-echo "  man tp"
+echo "You can now view the manuals with:"
+echo "  man tp        # Main command manual"
+echo "  man tp-mcp    # MCP server manual"
 echo ""
 echo "If the manual is not found, make sure your MANPATH includes:"
 echo "  $MAN_DIR"

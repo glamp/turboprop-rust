@@ -663,6 +663,254 @@ tp search "test content" --filter "*.rs" --limit 1
 rm test_file.rs
 ```
 
+# MCP Server Troubleshooting
+
+## MCP Server Issues
+
+### Server Won't Start
+
+**Error**: `Repository path does not exist`
+```
+Error: Repository path does not exist: /path/to/project
+```
+
+**Solutions**:
+- Verify the path exists: `ls -la /path/to/project`
+- Use absolute paths instead of relative paths
+- Check directory permissions: `ls -ld /path/to/project`
+
+**Error**: `Failed to create file watcher`
+```
+Error: Failed to create file watcher: too many open files
+```
+
+**Solutions**:
+- Increase file descriptor limit: `ulimit -n 4096`
+- Add to shell profile: `echo 'ulimit -n 4096' >> ~/.bashrc`
+- On macOS, check system limits: `launchctl limit maxfiles`
+
+### Agent Integration Issues
+
+**Problem**: Agent can't connect to MCP server
+
+**Symptoms**:
+- "MCP server not available" 
+- "Connection refused"
+- "Server timeout"
+
+**Solutions**:
+1. **Verify server is running**:
+   ```bash
+   ps aux | grep "tp mcp"
+   ```
+
+2. **Check agent configuration**:
+   - Verify JSON syntax in MCP config file
+   - Ensure `tp` command is in PATH
+   - Try absolute path to `tp` binary
+
+3. **Test server manually**:
+   ```bash
+   tp mcp --repo . --verbose
+   ```
+
+4. **Check agent logs** for specific error messages
+
+### Search Issues
+
+**Problem**: Search returns no results
+
+**Debugging steps**:
+1. **Wait for indexing to complete**:
+   ```bash
+   tp mcp --repo . --verbose
+   # Look for "Index initialization completed" message
+   ```
+
+2. **Verify files are being indexed**:
+   ```bash
+   tp mcp --repo . --debug 2>debug.log
+   # Check debug.log for file discovery logs
+   ```
+
+3. **Test with known content**:
+   - Search for exact strings that exist in your code
+   - Try broader queries
+
+4. **Check file filters**:
+   - Review `.turboprop.yml` include/exclude patterns
+   - Test without filters: `tp mcp --repo . --force-rebuild`
+
+**Problem**: Search results are irrelevant
+
+**Solutions**:
+1. **Increase similarity threshold**:
+   ```yaml
+   # .turboprop.yml
+   search:
+     similarity_threshold: 0.5  # Higher = more strict
+   ```
+
+2. **Use more specific queries**:
+   - Instead of "function", use "authentication function"
+   - Include context: "JWT token validation function"
+
+3. **Filter by file type**:
+   ```json
+   {
+     "query": "database connection",
+     "filetype": ".rs",
+     "limit": 10
+   }
+   ```
+
+### Performance Issues
+
+**Problem**: High memory usage
+
+**Symptoms**:
+- Server uses > 2GB RAM
+- System becomes slow
+- Out of memory errors
+
+**Solutions**:
+1. **Reduce batch size**:
+   ```yaml
+   # .turboprop.yml
+   embedding:
+     batch_size: 8  # Default is 32
+   ```
+
+2. **Limit file size**:
+   ```bash
+   tp mcp --repo . --max-filesize 500kb
+   ```
+
+3. **Use restrictive patterns**:
+   ```yaml
+   file_discovery:
+     include_patterns:
+       - "src/**/*.rs"  # Only source files
+     exclude_patterns:
+       - "target/**"    # Exclude build artifacts
+       - "*.log"        # Exclude logs
+   ```
+
+**Problem**: Slow search responses
+
+**Solutions**:
+1. **Use smaller model**:
+   ```bash
+   tp mcp --repo . --model sentence-transformers/all-MiniLM-L6-v2
+   ```
+
+2. **Limit concurrent searches**:
+   ```yaml
+   # .turboprop.yml
+   mcp:
+     max_concurrent_searches: 3
+   ```
+
+3. **Optimize queries**:
+   - Use specific terms
+   - Set appropriate limits
+   - Filter by file type
+
+### File Watching Issues
+
+**Problem**: Index doesn't update when files change
+
+**Debugging**:
+1. **Check file watching logs**:
+   ```bash
+   tp mcp --repo . --debug 2>&1 | grep -i watch
+   ```
+
+2. **Test file changes**:
+   - Make a simple change to a tracked file
+   - Check if server logs show the change
+
+3. **Verify file patterns**:
+   - Ensure changed files match include patterns
+   - Check that files aren't excluded
+
+**Problem**: Too many file change events
+
+**Symptoms**:
+- High CPU usage
+- Frequent index updates
+- Server logs show constant file changes
+
+**Solutions**:
+1. **Increase debounce time**:
+   ```yaml
+   # .turboprop.yml
+   mcp:
+     update_debounce_ms: 2000  # Wait 2 seconds
+   ```
+
+2. **Exclude noisy directories**:
+   ```yaml
+   file_discovery:
+     exclude_patterns:
+       - "target/**"      # Build output
+       - ".git/**"        # Git metadata
+       - "node_modules/**" # Dependencies
+       - "*.tmp"          # Temporary files
+   ```
+
+### Logging and Debugging
+
+**Enable comprehensive logging**:
+```bash
+# Maximum debug output
+RUST_LOG=debug tp mcp --repo . --debug 2>mcp-debug.log
+
+# Focus on specific modules
+RUST_LOG=turboprop::mcp=debug tp mcp --repo . 2>mcp-debug.log
+```
+
+**Useful log patterns to search for**:
+- Index initialization: `grep -i "index.*init" mcp-debug.log`
+- File changes: `grep -i "file.*change" mcp-debug.log`  
+- Search queries: `grep -i "search.*query" mcp-debug.log`
+- Errors: `grep -i error mcp-debug.log`
+
+**Check system resources**:
+```bash
+# Monitor during operation
+top -p $(pgrep "tp")
+
+# Memory usage over time
+while true; do
+  ps -o pid,rss,vsz,comm -p $(pgrep "tp")
+  sleep 5
+done
+```
+
+## Getting Help
+
+If these solutions don't resolve your issue:
+
+1. **Gather diagnostic information**:
+   - TurboProp version: `tp --version`
+   - Operating system: `uname -a`
+   - Available memory: `free -h` (Linux) or `vm_stat` (macOS)
+   - Disk space: `df -h`
+
+2. **Create a minimal reproduction**:
+   - Try with a small test repository
+   - Use default configuration
+   - Document exact steps to reproduce
+
+3. **File an issue** with:
+   - Diagnostic information
+   - Configuration files
+   - Relevant log excerpts
+   - Steps to reproduce the problem
+
+See the [GitHub issues page](https://github.com/turboprop-org/turboprop/issues) for existing solutions and to report new problems.
+
 ## Performance Issues
 
 ### High CPU usage

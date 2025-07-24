@@ -27,6 +27,18 @@ fn main() -> Result<(), Error> {
 
     fs::write(man_dir.join("tp.1"), buffer)?;
 
+    // Generate MCP subcommand man page
+    let mcp_cmd = Cli::command()
+        .find_subcommand("mcp")
+        .unwrap()
+        .clone()
+        .name("tp-mcp");
+    let mcp_man = Man::new(mcp_cmd);
+    let mut mcp_buffer: Vec<u8> = vec![];
+    mcp_man.render(&mut mcp_buffer)?;
+
+    fs::write(man_dir.join("tp-mcp.1"), mcp_buffer)?;
+
     println!("Generated man pages in {:?}", man_dir);
 
     Ok(())

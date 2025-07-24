@@ -15,6 +15,101 @@
 - **Multiple Output Formats**: JSON for tools, human-readable text for reading
 - **Performance Optimized**: Handles codebases from 50 to 10,000+ files
 - **Easy Configuration**: Optional `.turboprop.yml` configuration file
+- **MCP Server Integration**: Built-in MCP server for coding agents like Claude Code, Cursor, and Windsurf
+
+## MCP Server for Coding Agents
+
+**What is MCP?** MCP (Model Context Protocol) is a standard way for AI coding agents to access external tools. Think of it as a bridge that lets your AI assistant search through your code in real-time.
+
+**Before MCP**: "Find JWT authentication code" → Agent can only see files you've shared  
+**With MCP**: "Find JWT authentication code" → Agent searches your entire codebase semantically
+
+TurboProp's MCP server works like a librarian for your codebase - it catalogs all your code, keeps it up-to-date, and helps agents find relevant code instantly.
+
+### Quick Start (< 2 minutes)
+
+1. **Start the MCP server**:
+   ```bash
+   tp mcp --repo .
+   ```
+
+2. **Configure your coding agent** (see integration examples below)
+
+3. **Ask your agent**: "Find the JWT authentication implementation"
+
+That's it! Your agent can now search your entire codebase semantically.
+
+### Agent Integration
+
+**Claude Code** - Add to `.claude.json` in your project:
+```json
+{
+  "mcpServers": {
+    "turboprop": {
+      "command": "tp",
+      "args": ["mcp", "--repo", "."]
+    }
+  }
+}
+```
+
+**Cursor** - Add to `.cursor/mcp.json` in your project:
+```json
+{
+  "mcpServers": {
+    "turboprop": {
+      "command": "tp", 
+      "args": ["mcp", "--repo", "."],
+      "cwd": "."
+    }
+  }
+}
+```
+
+**Other Agents** (GitHub Copilot, Windsurf, etc.) - Use these settings:
+- **Command**: `tp`
+- **Arguments**: `["mcp", "--repo", "."]`
+
+**✓ Verify Setup**: Restart your agent and ask: "Search for error handling code"
+
+### What You Can Ask Your Agent
+
+Once configured, you can ask natural language questions like:
+
+- **"Find the JWT authentication implementation"** - Locates authentication code
+- **"Show me error handling patterns"** - Finds error handling across the codebase  
+- **"Where is database connection logic?"** - Discovers database-related code
+- **"Find all tests for user login"** - Locates relevant test files
+- **"How does the API rate limiting work?"** - Finds rate limiting implementation
+
+### Advanced Search Options
+
+Your agent can also use these parameters to refine searches:
+
+- **`limit`**: Maximum results (default: 10)
+- **`filetype`**: Filter by extension (`.rs`, `.js`, `.py`)
+- **`filter`**: Glob pattern (`src/**/*.rs`, `tests/**`)
+- **`threshold`**: Similarity threshold (0.0-1.0)
+
+Example: *"Find authentication code, limit to 5 results, only in Rust files"*
+
+### Configuration & Advanced Usage
+
+**Custom Model & Settings**:
+```bash
+tp mcp --repo . --model sentence-transformers/all-MiniLM-L12-v2 --max-filesize 5mb
+```
+
+**Project Configuration** (`.turboprop.yml`):
+```yaml
+model: "sentence-transformers/all-MiniLM-L6-v2"
+max_filesize: "2mb" 
+similarity_threshold: 0.3
+```
+
+**📖 Complete Guide**: [MCP User Guide](docs/MCP_GUIDE.md)  
+**🔧 Troubleshooting**: [Common Issues & Solutions](TROUBLESHOOTING.md#mcp-server-troubleshooting)  
+**⚡ Performance**: Tips for large repositories and team usage
 
 ## Quick Start
 

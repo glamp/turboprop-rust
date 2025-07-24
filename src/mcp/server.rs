@@ -144,14 +144,14 @@ impl McpServer {
                 // Attempt basic recovery checks
                 if !server.repo_path.exists() {
                     return Err(anyhow::anyhow!(
-                        "Repository path '{}' does not exist. Please ensure the path is correct and accessible.",
+                        "Repository path '{}' does not exist",
                         server.repo_path.display()
                     ));
                 }
 
                 if !server.repo_path.is_dir() {
                     return Err(anyhow::anyhow!(
-                        "Repository path '{}' is not a directory. Please provide a valid repository directory.",
+                        "Repository path '{}' is not a directory",
                         server.repo_path.display()
                     ));
                 }
@@ -159,14 +159,14 @@ impl McpServer {
                 // Check for permission issues
                 if let Err(perm_err) = std::fs::read_dir(&server.repo_path) {
                     return Err(anyhow::anyhow!(
-                        "Cannot access repository directory '{}': {}. Please check file permissions.",
+                        "Cannot access repository directory '{}': {}",
                         server.repo_path.display(), perm_err
                     ));
                 }
 
                 // If all basic checks pass, return the original error with additional context
                 return Err(e.context(format!(
-                    "Failed to create IndexManager for repository '{}'. This may be due to file system issues, missing dependencies, or configuration problems.",
+                    "Failed to create IndexManager for repository '{}'",
                     server.repo_path.display()
                 )));
             }
@@ -176,7 +176,7 @@ impl McpServer {
         if let Err(e) = index_manager.start().await {
             error!("Failed to start IndexManager background tasks: {}", e);
             return Err(e.context(
-                "IndexManager initialization succeeded but background tasks failed to start. This may indicate system resource constraints or file watcher issues."
+                "IndexManager initialization succeeded but background tasks failed to start"
             ));
         }
 

@@ -247,6 +247,103 @@ servers.turboprop.command = "tp"
 servers.turboprop.args = ["mcp", "--repo", "."]
 ```
 
+### Aider
+
+**Standard Configuration**
+
+Aider supports MCP through its `--mcp-server` flag. Start Aider with TurboProp MCP server:
+
+```bash
+# Basic setup - run from your project root
+aider --mcp-server "tp mcp --repo ."
+```
+
+**Advanced Configuration** (with custom settings):
+
+```bash
+# With custom file size limits and verbose output
+aider --mcp-server "tp mcp --repo . --verbose --max-filesize 5mb"
+```
+
+**Configuration File** (`.aider.conf.yml`):
+
+```yaml
+mcp-servers:
+  - name: "turboprop"
+    command: "tp"
+    args: ["mcp", "--repo", "."]
+    description: "Semantic code search for your project"
+```
+
+**Usage Examples**:
+- *"Use the turboprop tool to find authentication code in this project"*
+- *"Search for error handling patterns and show me the most relevant examples"*
+- *"Find database connection logic and explain how it works"*
+
+**✓ Verify Setup**: Ask Aider to search your codebase: *"Search for configuration files and explain the project structure"*
+
+### Continue.dev
+
+**VS Code Extension Configuration**
+
+Add to your Continue configuration file (`~/.continue/config.json`):
+
+```json
+{
+  "models": [
+    {
+      "title": "GPT-4",
+      "provider": "openai",
+      "model": "gpt-4"
+    }
+  ],
+  "mcpServers": {
+    "turboprop": {
+      "command": "tp",
+      "args": ["mcp", "--repo", "."],
+      "env": {}
+    }
+  }
+}
+```
+
+**JetBrains Plugin Configuration**
+
+Add to your Continue settings in JetBrains IDEs:
+
+```json
+{
+  "mcpServers": {
+    "turboprop": {
+      "command": "tp", 
+      "args": ["mcp", "--repo", ".", "--verbose"],
+      "workingDirectory": "."
+    }
+  }
+}
+```
+
+**Project-specific Configuration** (`.continue/config.json` in project root):
+
+```json
+{
+  "mcpServers": {
+    "turboprop": {
+      "command": "tp",
+      "args": ["mcp", "--repo", ".", "--max-filesize", "3mb"],
+      "description": "Semantic search for this specific project"
+    }
+  }
+}
+```
+
+**Usage Examples**:
+- Right-click in editor → Continue → *"Search this codebase for similar functions"*  
+- Chat: *"Use turboprop to find all tests related to user authentication"*
+- Chat: *"Search for TODO comments and prioritize them by complexity"*
+
+**✓ Verify Setup**: Use Continue's chat and ask: *"Search the codebase for API endpoints and list them"*
+
 ### Development Environment Integration
 
 #### VS Code (Multiple Agents)
@@ -643,6 +740,856 @@ file_discovery:
 mcp:
   update_debounce_ms: 1000  # Reduce update frequency
 ```
+
+### Docker Environment Setup
+
+Deploy TurboProp MCP server in Docker for consistent team development or production use.
+
+#### Basic Docker Setup
+
+**Dockerfile** for TurboProp MCP server:
+
+```dockerfile
+FROM rust:1.75 as builder
+
+# Install TurboProp
+RUN cargo install turboprop --version latest
+
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y git ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy TurboProp binary from builder stage
+COPY --from=builder /usr/local/cargo/bin/tp /usr/local/bin/tp
+
+# Set working directory
+WORKDIR /workspace
+
+# Default command runs MCP server
+CMD ["tp", "mcp", "--repo", "/workspace", "--verbose"]
+```
+
+**Build and run**:
+
+```bash
+# Build the image
+docker build -t turboprop-mcp .
+
+# Run with your code mounted
+docker run -it --rm \
+  -v "$(pwd):/workspace" \
+  -p 3000:3000 \
+  turboprop-mcp
+```
+
+#### Docker Compose Setup
+
+**docker-compose.yml** for development environment:
+
+```yaml
+version: '3.8'
+services:
+  turboprop-mcp:
+    build: .
+    volumes:
+      - .:/workspace:ro
+      - turboprop-cache:/root/.turboprop-cache
+    environment:
+      - RUST_LOG=info
+      - TURBOPROP_CACHE_DIR=/root/.turboprop-cache
+    command: tp mcp --repo /workspace --max-filesize 5mb --verbose
+    restart: unless-stopped
+    
+  # Optional: Development agent that uses the MCP server
+  dev-agent:
+    image: cursor/dev:latest
+    depends_on:
+      - turboprop-mcp
+    volumes:
+      - .:/workspace
+    environment:
+      - MCP_SERVER_URL=http://turboprop-mcp:3000
+      
+volumes:
+  turboprop-cache:
+```
+
+**Start the environment**:
+
+```bash
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f turboprop-mcp
+
+# Stop services
+docker-compose down
+```
+
+#### Production Docker Setup
+
+**Multi-stage production Dockerfile**:
+
+```dockerfile
+FROM rust:1.75-alpine as builder
+
+# Install dependencies for building
+RUN apk add --no-cache musl-dev git
+
+# Install TurboProp
+RUN cargo install turboprop --version latest
+
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk add --no-cache git ca-certificates
+
+# Create non-root user for security
+RUN addgroup -g 1000 turboprop && \
+    adduser -D -s /bin/sh -u 1000 -G turboprop turboprop
+
+# Copy binary and set ownership
+COPY --from=builder /usr/local/cargo/bin/tp /usr/local/bin/tp
+RUN chown turboprop:turboprop /usr/local/bin/tp
+
+# Switch to non-root user
+USER turboprop
+WORKDIR /workspace
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD tp --version || exit 1
+
+# Expose port for HTTP API (if enabled)
+EXPOSE 3000
+
+# Run MCP server
+ENTRYPOINT ["tp", "mcp"]
+CMD ["--repo", "/workspace", "--verbose"]
+```
+
+#### Kubernetes Deployment
+
+**turboprop-mcp-deployment.yaml**:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: turboprop-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: turboprop-mcp
+  template:
+    metadata:
+      labels:
+        app: turboprop-mcp
+    spec:
+      containers:
+      - name: turboprop-mcp
+        image: your-registry/turboprop-mcp:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: RUST_LOG
+          value: "info"
+        - name: TURBOPROP_CACHE_DIR
+          value: "/cache"
+        volumeMounts:
+        - name: source-code
+          mountPath: /workspace
+          readOnly: true
+        - name: cache-volume
+          mountPath: /cache
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - tp
+            - --version
+          initialDelaySeconds: 30
+          periodSeconds: 30
+      volumes:
+      - name: source-code
+        persistentVolumeClaim:
+          claimName: source-code-pvc
+      - name: cache-volume
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: turboprop-mcp-service
+spec:
+  selector:
+    app: turboprop-mcp
+  ports:
+  - protocol: TCP
+    port: 3000
+    targetPort: 3000
+```
+
+**Deploy to Kubernetes**:
+
+```bash
+# Apply the deployment
+kubectl apply -f turboprop-mcp-deployment.yaml
+
+# Check status
+kubectl get pods -l app=turboprop-mcp
+
+# View logs
+kubectl logs -l app=turboprop-mcp -f
+```
+
+#### Docker Environment Tips
+
+**Performance Optimization**:
+
+```bash
+# Use bind mounts for better I/O performance
+docker run -it --rm \
+  --mount type=bind,source="$(pwd)",target=/workspace,readonly \
+  --mount type=volume,source=turboprop-cache,target=/root/.turboprop-cache \
+  turboprop-mcp
+
+# Allocate more memory for large repositories
+docker run -it --rm \
+  --memory=2g \
+  --cpus=2 \
+  -v "$(pwd):/workspace" \
+  turboprop-mcp tp mcp --repo /workspace --max-filesize 10mb
+```
+
+**Development Workflow**:
+
+```bash
+# Create a development alias
+alias turboprop-dev='docker run -it --rm -v "$(pwd):/workspace" turboprop-mcp'
+
+# Use in any project
+cd /path/to/your/project
+turboprop-dev tp mcp --repo /workspace
+```
+
+**Multi-Project Setup**:
+
+```bash
+# Run multiple instances for different projects
+docker run -d --name project1-mcp \
+  -v "/path/to/project1:/workspace" \
+  turboprop-mcp
+
+docker run -d --name project2-mcp \
+  -v "/path/to/project2:/workspace" \
+  turboprop-mcp tp mcp --repo /workspace --model all-MiniLM-L12-v2
+```
+
+### CI/CD Pipeline Integration
+
+Integrate TurboProp indexing and search capabilities into your continuous integration workflows.
+
+#### GitHub Actions
+
+**Basic CI Pipeline** (`.github/workflows/turboprop-ci.yml`):
+
+```yaml
+name: TurboProp CI Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  turboprop-analysis:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for better analysis
+        
+    - name: Install TurboProp
+      run: |
+        curl -L https://github.com/your-org/turboprop/releases/latest/download/turboprop-linux-x64.tar.gz | tar xz
+        sudo mv tp /usr/local/bin/
+        tp --version
+        
+    - name: Cache TurboProp embeddings
+      uses: actions/cache@v3
+      with:
+        path: ~/.turboprop-cache
+        key: turboprop-${{ runner.os }}-${{ hashFiles('**/*.rs', '**/*.py', '**/*.js') }}
+        restore-keys: |
+          turboprop-${{ runner.os }}-
+          
+    - name: Build semantic index
+      run: |
+        tp index --repo . --max-filesize 5mb --verbose
+        
+    - name: Run code analysis
+      run: |
+        # Search for common code quality issues
+        tp search "TODO" --limit 50 > analysis/todos.txt
+        tp search "FIXME" --limit 50 > analysis/fixmes.txt
+        tp search "deprecated" --limit 20 > analysis/deprecated.txt
+        
+        # Find security-related code
+        tp search "password" --limit 10 > analysis/security-review.txt
+        tp search "secret key" --limit 10 >> analysis/security-review.txt
+        
+    - name: Generate code insights
+      run: |
+        # Find test coverage gaps
+        tp search "untested" --limit 30 > analysis/test-gaps.txt
+        
+        # Analyze error handling patterns
+        tp search "error handling" --limit 20 > analysis/error-patterns.txt
+        
+    - name: Upload analysis artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: turboprop-analysis
+        path: analysis/
+        retention-days: 30
+        
+    - name: Comment on PR (if applicable)
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const todoCount = fs.readFileSync('analysis/todos.txt', 'utf8').split('\n').length - 1;
+          const fixmeCount = fs.readFileSync('analysis/fixmes.txt', 'utf8').split('\n').length - 1;
+          
+          const comment = `## 🔍 TurboProp Code Analysis
+          
+          - **TODO items**: ${todoCount}
+          - **FIXME items**: ${fixmeCount}
+          
+          [View detailed analysis artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+```
+
+**Advanced GitHub Actions** with semantic diff analysis:
+
+```yaml
+name: Semantic Code Change Analysis
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  semantic-diff:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout PR head
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+        
+    - name: Checkout PR base
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        path: base-branch
+        
+    - name: Install TurboProp
+      run: |
+        wget https://github.com/your-org/turboprop/releases/latest/download/turboprop-linux-x64.tar.gz
+        tar -xzf turboprop-linux-x64.tar.gz
+        sudo mv tp /usr/local/bin/
+        
+    - name: Index both versions
+      run: |
+        # Index current PR
+        tp index --repo . --output-dir .turboprop-head
+        
+        # Index base branch
+        cd base-branch
+        tp index --repo . --output-dir ../.turboprop-base
+        cd ..
+        
+    - name: Semantic change detection
+      run: |
+        # Find functions that changed semantically
+        tp search "function" --repo . --index-dir .turboprop-head > head-functions.txt
+        tp search "function" --repo base-branch --index-dir .turboprop-base > base-functions.txt
+        
+        # Compare and generate insights
+        python scripts/compare-semantic-changes.py head-functions.txt base-functions.txt > semantic-diff-report.md
+        
+    - name: Post semantic diff report
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('semantic-diff-report.md', 'utf8');
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## 🧠 Semantic Change Analysis\n\n${report}`
+          });
+```
+
+#### GitLab CI
+
+**GitLab CI Pipeline** (`.gitlab-ci.yml`):
+
+```yaml
+stages:
+  - setup
+  - analysis
+  - report
+
+variables:
+  TURBOPROP_CACHE_DIR: ".turboprop-cache"
+
+cache:
+  paths:
+    - .turboprop-cache/
+    - .turboprop/
+
+install-turboprop:
+  stage: setup
+  image: ubuntu:22.04
+  before_script:
+    - apt-get update && apt-get install -y curl wget
+  script:
+    - curl -L https://github.com/your-org/turboprop/releases/latest/download/turboprop-linux-x64.tar.gz | tar xz
+    - mv tp /usr/local/bin/
+    - tp --version
+  artifacts:
+    paths:
+      - /usr/local/bin/tp
+    expire_in: 1 hour
+
+semantic-analysis:
+  stage: analysis
+  image: ubuntu:22.04
+  dependencies:
+    - install-turboprop
+  script:
+    - tp index --repo . --verbose
+    
+    # Code quality analysis
+    - mkdir -p reports
+    - tp search "TODO" --limit 100 --output-format json > reports/todos.json
+    - tp search "FIXME" --limit 50 --output-format json > reports/fixmes.json
+    - tp search "hack" --limit 20 --output-format json > reports/hacks.json
+    
+    # Security analysis
+    - tp search "password" --limit 10 --output-format json > reports/security.json
+    - tp search "hardcoded" --limit 15 --output-format json >> reports/security.json
+    
+    # Architecture analysis
+    - tp search "dependency injection" --limit 30 > reports/architecture.txt
+    - tp search "design pattern" --limit 25 > reports/patterns.txt
+    
+  artifacts:
+    paths:
+      - reports/
+    expire_in: 1 week
+    reports:
+      junit: reports/turboprop-junit.xml
+
+merge-request-analysis:
+  stage: analysis
+  image: ubuntu:22.04
+  dependencies:
+    - install-turboprop
+  only:
+    - merge_requests
+  script:
+    # Analyze only changed files
+    - git diff --name-only $CI_MERGE_REQUEST_TARGET_BRANCH_SHA HEAD > changed-files.txt
+    
+    # Build focused index on changed files
+    - tp index --repo . --filter-file changed-files.txt --verbose
+    
+    # Analyze changes
+    - tp search "new feature" --limit 10 > reports/new-features.txt
+    - tp search "breaking change" --limit 5 > reports/breaking-changes.txt
+    - tp search "performance" --limit 15 > reports/performance-impact.txt
+    
+  artifacts:
+    paths:
+      - reports/
+    expire_in: 3 days
+
+generate-report:
+  stage: report
+  image: python:3.9
+  dependencies:
+    - semantic-analysis
+  script:
+    - pip install jinja2 json2html
+    - python scripts/generate-turboprop-report.py reports/ > turboprop-report.html
+    
+  artifacts:
+    paths:
+      - turboprop-report.html
+    expire_in: 1 month
+  only:
+    - main
+    - develop
+```
+
+#### Jenkins Pipeline
+
+**Jenkinsfile** for TurboProp integration:
+
+```groovy
+pipeline {
+    agent any
+    
+    environment {
+        TURBOPROP_CACHE_DIR = "${WORKSPACE}/.turboprop-cache"
+    }
+    
+    stages {
+        stage('Setup') {
+            steps {
+                script {
+                    // Install TurboProp
+                    sh '''
+                        if ! command -v tp &> /dev/null; then
+                            curl -L https://github.com/your-org/turboprop/releases/latest/download/turboprop-linux-x64.tar.gz | tar xz
+                            sudo mv tp /usr/local/bin/
+                        fi
+                        tp --version
+                    '''
+                }
+            }
+        }
+        
+        stage('Semantic Indexing') {
+            steps {
+                // Cache embeddings between builds
+                cache(maxCacheSize: 250, caches: [
+                    arbitraryFileCache(
+                        path: '.turboprop-cache',
+                        includes: '**/*',
+                        fingerprinting: true
+                    )
+                ]) {
+                    sh 'tp index --repo . --max-filesize 5mb --verbose'
+                }
+            }
+        }
+        
+        stage('Code Analysis') {
+            parallel {
+                stage('Quality Analysis') {
+                    steps {
+                        sh '''
+                            mkdir -p analysis
+                            tp search "TODO" --limit 100 > analysis/todos.txt
+                            tp search "FIXME" --limit 50 > analysis/fixmes.txt
+                            tp search "deprecated" --limit 25 > analysis/deprecated.txt
+                        '''
+                    }
+                }
+                
+                stage('Security Scan') {
+                    steps {
+                        sh '''
+                            mkdir -p analysis
+                            tp search "password" --limit 10 > analysis/security-concerns.txt
+                            tp search "secret" --limit 10 >> analysis/security-concerns.txt
+                            tp search "hardcoded" --limit 15 >> analysis/security-concerns.txt
+                        '''
+                    }
+                }
+                
+                stage('Architecture Review') {
+                    steps {
+                        sh '''
+                            mkdir -p analysis
+                            tp search "architecture" --limit 20 > analysis/architecture.txt
+                            tp search "design decision" --limit 15 > analysis/design-decisions.txt
+                            tp search "technical debt" --limit 30 > analysis/tech-debt.txt
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Generate Reports') {
+            steps {
+                script {
+                    // Generate summary report
+                    sh '''
+                        python3 << EOF
+import os
+import json
+
+def count_lines(filename):
+    try:
+        with open(filename, 'r') as f:
+            return len([line for line in f if line.strip()])
+    except:
+        return 0
+
+report = {
+    "todos": count_lines("analysis/todos.txt"),
+    "fixmes": count_lines("analysis/fixmes.txt"),
+    "deprecated": count_lines("analysis/deprecated.txt"),
+    "security_concerns": count_lines("analysis/security-concerns.txt"),
+    "tech_debt": count_lines("analysis/tech-debt.txt")
+}
+
+with open("analysis/summary.json", "w") as f:
+    json.dump(report, f, indent=2)
+
+print(f"Analysis Summary:")
+print(f"- TODOs: {report['todos']}")
+print(f"- FIXMEs: {report['fixmes']}")  
+print(f"- Deprecated: {report['deprecated']}")
+print(f"- Security concerns: {report['security_concerns']}")
+print(f"- Technical debt items: {report['tech_debt']}")
+EOF
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            archiveArtifacts artifacts: 'analysis/**/*', fingerprint: true
+            publishHTML([
+                allowMissing: false,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'analysis',
+                reportFiles: '*.txt,*.json',
+                reportName: 'TurboProp Analysis Report'
+            ])
+        }
+        
+        success {
+            echo 'TurboProp analysis completed successfully!'
+        }
+        
+        failure {
+            emailext (
+                subject: "TurboProp Analysis Failed: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
+                body: "The TurboProp semantic analysis failed. Check ${env.BUILD_URL} for details.",
+                to: "${env.CHANGE_AUTHOR_EMAIL}"
+            )
+        }
+    }
+}
+```
+
+#### Azure DevOps Pipeline
+
+**azure-pipelines.yml**:
+
+```yaml
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+      - feature/*
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  TURBOPROP_CACHE_DIR: '$(Pipeline.Workspace)/.turboprop-cache'
+
+stages:
+- stage: Setup
+  displayName: 'Setup TurboProp'
+  jobs:
+  - job: InstallTurboProp
+    displayName: 'Install TurboProp'
+    steps:
+    - script: |
+        curl -L https://github.com/your-org/turboprop/releases/latest/download/turboprop-linux-x64.tar.gz | tar xz
+        sudo mv tp /usr/local/bin/
+        tp --version
+      displayName: 'Install TurboProp binary'
+      
+    - task: Cache@2
+      inputs:
+        key: 'turboprop | "$(Agent.OS)" | $(Build.SourcesDirectory)/**/*.rs'
+        restoreKeys: |
+          turboprop | "$(Agent.OS)"
+        path: $(TURBOPROP_CACHE_DIR)
+      displayName: 'Cache TurboProp embeddings'
+
+- stage: Analysis
+  displayName: 'Semantic Code Analysis'
+  dependsOn: Setup
+  jobs:
+  - job: SemanticAnalysis
+    displayName: 'Run Semantic Analysis'
+    steps:
+    - script: |
+        tp index --repo . --max-filesize 5mb --verbose
+      displayName: 'Build semantic index'
+      
+    - script: |
+        mkdir -p $(Build.ArtifactStagingDirectory)/analysis
+        
+        # Code quality analysis
+        tp search "TODO" --limit 100 > $(Build.ArtifactStagingDirectory)/analysis/todos.txt
+        tp search "FIXME" --limit 50 > $(Build.ArtifactStagingDirectory)/analysis/fixmes.txt
+        tp search "hack" --limit 25 > $(Build.ArtifactStagingDirectory)/analysis/hacks.txt
+        
+        # Security analysis
+        tp search "password" --limit 10 > $(Build.ArtifactStagingDirectory)/analysis/security.txt
+        tp search "secret" --limit 10 >> $(Build.ArtifactStagingDirectory)/analysis/security.txt
+        
+        # Generate summary
+        echo "# TurboProp Analysis Summary" > $(Build.ArtifactStagingDirectory)/analysis/README.md
+        echo "Generated on: $(date)" >> $(Build.ArtifactStagingDirectory)/analysis/README.md
+        echo "" >> $(Build.ArtifactStagingDirectory)/analysis/README.md
+        echo "## Statistics" >> $(Build.ArtifactStagingDirectory)/analysis/README.md
+        echo "- TODOs: $(wc -l < $(Build.ArtifactStagingDirectory)/analysis/todos.txt)" >> $(Build.ArtifactStagingDirectory)/analysis/README.md
+        echo "- FIXMEs: $(wc -l < $(Build.ArtifactStagingDirectory)/analysis/fixmes.txt)" >> $(Build.ArtifactStagingDirectory)/analysis/README.md
+        echo "- Security concerns: $(wc -l < $(Build.ArtifactStagingDirectory)/analysis/security.txt)" >> $(Build.ArtifactStagingDirectory)/analysis/README.md
+      displayName: 'Run semantic code analysis'
+      
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathToPublish: '$(Build.ArtifactStagingDirectory)/analysis'
+        artifactName: 'turboprop-analysis'
+        publishLocation: 'Container'
+      displayName: 'Publish analysis artifacts'
+
+- stage: Report
+  displayName: 'Generate Reports'
+  dependsOn: Analysis
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - job: GenerateReport
+    displayName: 'Generate HTML Report'
+    steps:
+    - task: DownloadBuildArtifacts@0
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'turboprop-analysis'
+        downloadPath: '$(System.ArtifactsDirectory)'
+        
+    - script: |
+        python3 -c "
+import os
+import glob
+
+analysis_dir = '$(System.ArtifactsDirectory)/turboprop-analysis'
+html_content = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TurboProp Analysis Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .section { margin: 20px 0; }
+        .count { font-weight: bold; color: #d73a49; }
+        pre { background: #f6f8fa; padding: 15px; border-radius: 6px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 TurboProp Semantic Analysis Report</h1>
+    <p>Build: $(Build.BuildNumber) | Date: $(date)</p>
+'''
+
+for filename in glob.glob(f'{analysis_dir}/*.txt'):
+    name = os.path.basename(filename).replace('.txt', '').replace('-', ' ').title()
+    with open(filename, 'r') as f:
+        lines = [line.strip() for line in f if line.strip()]
+        count = len(lines)
+        
+    html_content += f'''
+    <div class='section'>
+        <h2>{name} <span class='count'>({count} items)</span></h2>
+        <details>
+            <summary>View details</summary>
+            <pre>{''.join(lines[:20])}</pre>
+        </details>
+    </div>
+'''
+
+html_content += '''
+</body>
+</html>
+'''
+
+with open('$(Build.ArtifactStagingDirectory)/turboprop-report.html', 'w') as f:
+    f.write(html_content)
+        "
+      displayName: 'Generate HTML report'
+      
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathToPublish: '$(Build.ArtifactStagingDirectory)/turboprop-report.html'
+        artifactName: 'turboprop-html-report'
+        publishLocation: 'Container'
+      displayName: 'Publish HTML report'
+```
+
+#### Integration Tips
+
+**Best Practices for CI/CD Integration**:
+
+1. **Caching Strategy**:
+   ```bash
+   # Cache embeddings based on code content hash
+   cache_key="turboprop-$(find . -name '*.rs' -o -name '*.py' | xargs sha256sum | sha256sum | cut -d' ' -f1)"
+   ```
+
+2. **Incremental Analysis**:
+   ```bash
+   # Only analyze changed files in PRs
+   git diff --name-only origin/main..HEAD | xargs tp index --files-from-stdin
+   ```
+
+3. **Parallel Processing**:
+   ```bash
+   # Split large repositories for parallel analysis
+   tp index --repo . --worker-threads 4 --batch-size 16
+   ```
+
+4. **Quality Gates**:
+   ```bash
+   # Fail builds based on analysis results
+   TODO_COUNT=$(tp search "TODO" --count-only)
+   if [ "$TODO_COUNT" -gt 100 ]; then
+     echo "Too many TODOs ($TODO_COUNT). Please address some before merging."
+     exit 1
+   fi
+   ```
 
 ## Troubleshooting
 

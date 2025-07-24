@@ -12,6 +12,28 @@ use crate::config::TurboPropConfig;
 use crate::mcp::McpServer;
 use crate::types::parse_filesize;
 
+/// Logging configuration for MCP server
+#[derive(Debug, Clone)]
+pub struct McpLoggingConfig {
+    /// Enable verbose logging
+    pub verbose: bool,
+    /// Enable debug logging
+    pub debug: bool,
+}
+
+impl McpLoggingConfig {
+    /// Create new logging config
+    pub fn new(verbose: bool, debug: bool) -> Self {
+        Self { verbose, debug }
+    }
+}
+
+impl From<&McpArgs> for McpLoggingConfig {
+    fn from(args: &McpArgs) -> Self {
+        Self::new(args.verbose, args.debug)
+    }
+}
+
 /// Comprehensive validation of MCP command arguments
 /// This is the single source of validation for all MCP arguments
 fn validate_args(args: &McpArgs) -> Result<()> {
@@ -54,7 +76,7 @@ fn validate_args(args: &McpArgs) -> Result<()> {
 /// Execute the MCP server command
 pub async fn execute_mcp_command(args: McpArgs) -> Result<()> {
     // Set up logging (to stderr to avoid interfering with MCP protocol)
-    setup_logging(args.verbose, args.debug)
+    setup_logging(McpLoggingConfig::from(&args))
         .context("Failed to initialize logging for MCP server")?;
 
     info!("Starting TurboProp MCP server");
@@ -123,24 +145,24 @@ fn apply_config_overrides(config: &mut TurboPropConfig, args: &McpArgs) -> Resul
     // Check for unsupported CLI overrides and provide helpful feedback
     if let Some(filter) = &args.filter {
         return Err(anyhow::anyhow!(
-            "Filter patterns (--filter '{}') are not yet supported in MCP mode. \
-             Use .turboprop.yml configuration file to specify filtering options.",
+            "Filter patterns (--filter '{}') are not yet supported in MCP mode; \
+             use .turboprop.yml configuration file to specify filtering options",
             filter
         ));
     }
 
     if let Some(filetype) = &args.filetype {
         return Err(anyhow::anyhow!(
-            "File type filtering (--filetype '{}') is not yet supported in MCP mode. \
-             Use .turboprop.yml configuration file to specify filtering options.",
+            "File type filtering (--filetype '{}') is not yet supported in MCP mode; \
+             use .turboprop.yml configuration file to specify filtering options",
             filetype
         ));
     }
 
     if args.force_rebuild {
         return Err(anyhow::anyhow!(
-            "Force rebuild (--force-rebuild) is not yet supported in MCP mode. \
-             Remove or recreate the index directory to force a rebuild."
+            "Force rebuild (--force-rebuild) is not yet supported in MCP mode; \
+             remove or recreate the index directory to force a rebuild"
         ));
     }
 
@@ -157,8 +179,11 @@ fn apply_config_overrides(config: &mut TurboPropConfig, args: &McpArgs) -> Resul
 /// In the future, this function could be enhanced to configure MCP-specific
 /// logging levels or output destinations while avoiding conflicts with the
 /// global subscriber.
-fn setup_logging(_verbose: bool, _debug: bool) -> Result<()> {
-    debug!("MCP server using global logging configuration");
+fn setup_logging(config: McpLoggingConfig) -> Result<()> {
+    debug!(
+        "MCP server using global logging configuration (verbose: {}, debug: {})",
+        config.verbose, config.debug
+    );
     Ok(())
 }
 

@@ -143,8 +143,8 @@ Examples:
     /// Start MCP server for real-time semantic search
     /// 
     /// The MCP (Model Context Protocol) server enables integration with coding
-    /// agents like Claude Code, GitHub Copilot, Cursor, and Windsurf. It provides
-    /// real-time semantic search capabilities over your codebase.
+    /// agents like Claude Code, GitHub Copilot, Cursor, Windsurf, Aider, Continue.dev,
+    /// and more. It provides real-time semantic search capabilities over your codebase.
     /// 
     /// The server will:
     /// • Automatically index all files in the specified repository
@@ -152,19 +152,51 @@ Examples:
     /// • Expose a 'search' tool via the MCP protocol
     /// • Support natural language queries across your entire codebase
     /// 
-    /// Setup Instructions:
-    /// 1. Start the server: tp mcp --repo .
-    /// 2. Configure your coding agent to use the MCP server
-    /// 3. Ask your agent to search your code using natural language
+    /// Quick Setup by Agent:
     /// 
-    /// For detailed setup instructions, see: https://github.com/turboprop-org/turboprop/blob/main/docs/MCP_GUIDE.md
+    /// Claude Code:
+    ///   1. Add to ~/.claude/mcp.json:
+    ///      {"mcpServers": {"turboprop": {"command": "tp", "args": ["mcp", "--repo", "."]}}}
+    ///   2. Start Claude Code and ask: "Search for error handling in this project"
     /// 
-    /// Examples:
+    /// Cursor:
+    ///   1. Add to .cursor/mcp.json:
+    ///      {"mcpServers": {"turboprop": {"command": "tp", "args": ["mcp", "--repo", "."]}}}
+    ///   2. Use Cursor's AI to search your codebase
+    /// 
+    /// Aider:
+    ///   1. Start with: aider --mcp-server "tp mcp --repo ."
+    ///   2. Ask: "Use turboprop to find authentication code"
+    /// 
+    /// Continue.dev:
+    ///   1. Add to ~/.continue/config.json:
+    ///      {"mcpServers": {"turboprop": {"command": "tp", "args": ["mcp", "--repo", "."]}}}
+    ///   2. Chat: "Search the codebase for API endpoints"
+    /// 
+    /// GitHub Copilot (VS Code):
+    ///   1. Add to settings.json:
+    ///      {"github.copilot.mcp.servers": [{"name": "turboprop", "command": "tp", "args": ["mcp", "--repo", "."]}]}
+    ///   2. Use Copilot Chat with semantic search capabilities
+    /// 
+    /// Windsurf:
+    ///   1. Add to project config:
+    ///      {"mcp": {"servers": {"turboprop": {"command": "tp", "args": ["mcp", "--repo", "."]}}}}
+    ///   2. Ask Windsurf to search your code semantically
+    /// 
+    /// Docker Integration:
+    ///   docker run -v "$(pwd):/workspace" turboprop-mcp tp mcp --repo /workspace
+    /// 
+    /// For comprehensive setup instructions and troubleshooting:
+    /// https://github.com/turboprop-org/turboprop/blob/main/docs/MCP_GUIDE.md
+    /// 
+    /// Basic Examples:
     ///   tp mcp --repo .                           # Index current directory
     ///   tp mcp --repo /path/to/project           # Index specific project
     ///   tp mcp --repo . --verbose                # Enable verbose logging
     ///   tp mcp --repo . --force-rebuild          # Force rebuild index
     ///   tp mcp --repo . --filter "src/**/*.rs"   # Only index Rust files
+    ///   tp mcp --repo . --max-filesize 5mb       # Limit file size for large repos
+    ///   tp mcp --repo . --model all-MiniLM-L12-v2 # Use better accuracy model
     Mcp(McpArgs),
 }
 

@@ -24,7 +24,7 @@ mod test_fixtures {
 
         // Initialize git repository
         std::process::Command::new("git")
-            .args(&["init"])
+            .args(["init"])
             .current_dir(root)
             .output()?;
 
@@ -1808,7 +1808,7 @@ mod real_world_tests {
 
                     // Similarity score should be between 0 and 1
                     let similarity = result_item["similarity_score"].as_f64().unwrap();
-                    assert!(similarity >= 0.0 && similarity <= 1.0);
+                    assert!((0.0..=1.0).contains(&similarity));
 
                     // Content should not be empty
                     let content = result_item["content"].as_str().unwrap();

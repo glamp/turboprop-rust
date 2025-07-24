@@ -1,5 +1,5 @@
 [indexing]
-max_file_size = "2mb"
+max_filesize = "2mb"
 include_gitignore = false
 
 [embedding]

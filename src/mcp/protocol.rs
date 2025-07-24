@@ -512,7 +512,7 @@ impl JsonRpcError {
     pub fn index_not_ready() -> Self {
         Self::new(
             tool_errors::INDEX_NOT_READY,
-            "Search index is not ready. Please wait for indexing to complete.".to_string(),
+            "Search index is not ready; wait for indexing to complete".to_string(),
             None,
         )
     }

@@ -24,7 +24,7 @@ mod security_test_utils {
 
         // Initialize git repo
         std::process::Command::new("git")
-            .args(&["init"])
+            .args(["init"])
             .current_dir(root)
             .output()
             .ok();
@@ -352,7 +352,7 @@ mod input_sanitization_tests {
         let long_query = "a".repeat(10000); // 10KB query
         let extremely_long_query = "b".repeat(100000); // 100KB query
 
-        for (query, description) in vec![
+        for (query, description) in [
             (long_query, "10KB query"),
             (extremely_long_query, "100KB query"),
         ] {

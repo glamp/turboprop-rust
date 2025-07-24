@@ -43,6 +43,33 @@ impl Default for SearchConfig {
     }
 }
 
+/// Search request that consolidates all search parameters
+#[derive(Debug, Clone)]
+pub struct SearchRequest<P> {
+    /// Path to the search index
+    pub index_path: P,
+    /// Search query string
+    pub query: String,
+    /// Search configuration options
+    pub config: SearchConfig,
+}
+
+impl<P> SearchRequest<P> {
+    /// Create a new search request
+    pub fn new(index_path: P, query: String, config: SearchConfig) -> Self {
+        Self {
+            index_path,
+            query,
+            config,
+        }
+    }
+
+    /// Create a search request with default configuration
+    pub fn with_defaults(index_path: P, query: String) -> Self {
+        Self::new(index_path, query, SearchConfig::default())
+    }
+}
+
 impl SearchConfig {
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.limit = limit;
@@ -341,6 +368,16 @@ pub async fn search_index<P: AsRef<Path>>(
 }
 
 /// Enhanced convenience function to perform a search with filters
+/// Execute a search using consolidated search request parameters
+pub async fn execute_search_request<P: AsRef<Path>>(request: SearchRequest<P>) -> Result<Vec<SearchResult>> {
+    let mut engine = SearchEngine::new(request.index_path, request.config).await?;
+    engine.search(&request.query)
+}
+
+/// Legacy search function with individual parameters (deprecated)
+/// 
+/// This function is deprecated in favor of the more structured `search_index` function.
+/// Consider using `SearchRequest` to consolidate parameters.
 pub async fn search_index_with_filters<P: AsRef<Path>>(
     index_path: P,
     query: &str,
@@ -367,8 +404,8 @@ pub async fn search_index_with_filters<P: AsRef<Path>>(
         config = config.with_glob_filter(glob_pattern);
     }
 
-    let mut engine = SearchEngine::new(index_path, config).await?;
-    engine.search(query)
+    let request = SearchRequest::new(index_path, query.to_string(), config);
+    execute_search_request(request).await
 }
 
 #[cfg(test)]

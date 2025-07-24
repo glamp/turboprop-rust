@@ -203,7 +203,8 @@ impl StdioTransport {
 
                     debug!("Received message ({} bytes): {}", bytes_read, trimmed);
 
-                    let request_result = serde_json::from_str::<JsonRpcRequest>(trimmed)
+                    // Parse and validate the request first
+                    let parse_result = serde_json::from_str::<JsonRpcRequest>(trimmed)
                         .with_context(|| {
                             format!(
                                 "Failed to parse JSON-RPC request (size: {}): {}",
@@ -216,10 +217,12 @@ impl StdioTransport {
                                 anyhow::anyhow!("Request validation failed: {:?}", e)
                             })?;
                             Ok(request)
-                        })
-                        .and_then(|request| {
-                            // Apply rate limiting
-                            let mut limiter = rate_limiter.blocking_lock();
+                        });
+
+                    // Apply rate limiting asynchronously
+                    let request_result = match parse_result {
+                        Ok(request) => {
+                            let mut limiter = rate_limiter.lock().await;
                             if !limiter.try_consume() {
                                 warn!(
                                     "Rate limit exceeded for request: method={}, tokens={}",
@@ -230,16 +233,18 @@ impl StdioTransport {
                                     "Security event: Rate limiting triggered for method '{}'",
                                     request.method
                                 );
-                                return Err(anyhow::anyhow!("Rate limit exceeded"));
+                                Err(anyhow::anyhow!("Rate limit exceeded"))
+                            } else {
+                                debug!(
+                                    "Request allowed: method={}, remaining_tokens={}",
+                                    request.method,
+                                    limiter.current_tokens()
+                                );
+                                Ok(request)
                             }
-
-                            debug!(
-                                "Request allowed: method={}, remaining_tokens={}",
-                                request.method,
-                                limiter.current_tokens()
-                            );
-                            Ok(request)
-                        });
+                        }
+                        Err(e) => Err(e)
+                    };
 
                     if sender.send(request_result).await.is_err() {
                         error!("Failed to send request to handler, receiver dropped");

@@ -8,22 +8,19 @@ mod common;
 use anyhow::Result;
 use std::path::Path;
 use std::path::PathBuf;
-use turboprop::config::TurboPropConfig;
 use turboprop::embeddings::config::EmbeddingConfig;
 use turboprop::embeddings::mock::MockEmbeddingGenerator;
-use turboprop::index::PersistentChunkIndex;
-use turboprop::search::{search_index, SearchConfig, SearchEngine};
+use turboprop::search::SearchConfig;
 use turboprop::types::{
-    ChunkId, ChunkIndex, ChunkIndexNum, ContentChunk, IndexedChunk, SourceLocation, TokenCount,
+    ChunkId, ChunkIndex, ChunkIndexNum, ContentChunk, SourceLocation, TokenCount,
 };
-use turboprop::{build_persistent_index, search_with_config};
+use turboprop::search_with_config;
 
 /// Maximum allowed duration for performance tests in seconds
 const PERFORMANCE_TEST_TIMEOUT_SECONDS: u64 = 30;
 
 // Test constants for similarity thresholds and limits
 const HIGH_SIMILARITY_THRESHOLD: f32 = 0.7;
-const MEDIUM_SIMILARITY_THRESHOLD: f32 = 0.5;
 const TEST_SIMILARITY_SCORE: f32 = 0.85;
 
 // Test result limits
@@ -34,13 +31,6 @@ const STANDARD_RESULT_LIMIT: usize = 5;
 
 // Test file location constants
 
-/// Build a test index for the given directory using real models (slow)
-async fn build_test_index(path: &Path) -> Result<PersistentChunkIndex> {
-    let mut config = TurboPropConfig::default();
-    // Use persistent cache to avoid re-downloading models
-    config.embedding = common::create_persistent_embedding_config();
-    build_persistent_index(path, &config).await
-}
 
 /// Create a mock test chunk for testing
 fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
@@ -60,18 +50,6 @@ fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
     }
 }
 
-/// Create a mock indexed chunk for testing
-fn create_test_indexed_chunk(
-    id: &str,
-    content: &str,
-    file_path: &str,
-    embedding: Vec<f32>,
-) -> IndexedChunk {
-    IndexedChunk {
-        chunk: create_test_chunk(id, content, file_path),
-        embedding,
-    }
-}
 
 /// Build a test index with mock embeddings (fast - for unit tests)
 fn build_mock_test_index() -> Result<ChunkIndex> {
@@ -213,8 +191,7 @@ fn test_search_with_threshold() -> Result<()> {
 
 #[tokio::test]
 async fn test_search_result_ranking() -> Result<()> {
-    let temp_dir = common::create_test_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = common::get_poker_fixture_path();
 
     match search_with_config("calculate_total", temp_path, Some(10), None).await {
         Ok(results) => {
@@ -241,8 +218,7 @@ async fn test_search_result_ranking() -> Result<()> {
 
 #[tokio::test]
 async fn test_search_result_limiting() -> Result<()> {
-    let temp_dir = common::create_test_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = common::get_poker_fixture_path();
 
     // Test different limits
     let test_limits = vec![1, 3, 5, 100];
@@ -268,8 +244,7 @@ async fn test_search_result_limiting() -> Result<()> {
 
 #[tokio::test]
 async fn test_empty_query_handling() -> Result<()> {
-    let temp_dir = common::create_test_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = common::get_poker_fixture_path();
 
     // Test empty query
     let result = search_with_config("", temp_path, Some(5), None).await;
@@ -298,8 +273,8 @@ async fn test_empty_query_handling() -> Result<()> {
 
 #[tokio::test]
 async fn test_invalid_threshold_handling() -> Result<()> {
-    let temp_dir = common::create_test_codebase()?;
-    let _temp_path = temp_dir.path();
+    // Using poker fixture for testing
+    let _temp_path = common::get_poker_fixture_path();
 
     // Test threshold validation in SearchConfig
     let config = SearchConfig::default().with_threshold(-0.5);
@@ -321,8 +296,7 @@ async fn test_invalid_threshold_handling() -> Result<()> {
 
 #[tokio::test]
 async fn test_deterministic_search_results() -> Result<()> {
-    let temp_dir = common::create_test_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = common::get_poker_fixture_path();
 
     // Perform the same search multiple times and verify results are identical
     let query = "user authentication";
@@ -382,8 +356,7 @@ async fn test_deterministic_search_results() -> Result<()> {
 
 #[tokio::test]
 async fn test_search_performance_baseline() -> Result<()> {
-    let temp_dir = common::create_test_codebase()?;
-    let temp_path = temp_dir.path();
+    let temp_path = common::get_poker_fixture_path();
 
     // This is a baseline performance test - we just verify it completes in reasonable time
     let start = std::time::Instant::now();

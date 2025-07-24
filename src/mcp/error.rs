@@ -1,6 +1,7 @@
 //! MCP-specific error types that integrate with TurboProp's error system
 
 use crate::error::TurboPropError;
+use crate::mcp::protocol::JsonRpcError;
 use thiserror::Error;
 
 /// Result type alias for MCP operations
@@ -83,6 +84,20 @@ impl McpError {
 impl From<McpError> for TurboPropError {
     fn from(error: McpError) -> Self {
         TurboPropError::other(error.to_string())
+    }
+}
+
+/// Convert MCP errors to JSON-RPC errors
+impl From<McpError> for JsonRpcError {
+    fn from(error: McpError) -> Self {
+        match error {
+            McpError::ProtocolError { message } => JsonRpcError::invalid_request(message),
+            McpError::ServerInitializationError { reason } => JsonRpcError::internal_error(reason),
+            McpError::TransportError { message } => JsonRpcError::internal_error(message),
+            McpError::ToolExecutionError { tool_name: _, reason } => JsonRpcError::application_error(-32001, reason),
+            McpError::ConfigurationError { message } => JsonRpcError::internal_error(message),
+            McpError::UnsupportedCapability { capability } => JsonRpcError::method_not_found(capability),
+        }
     }
 }
 

@@ -2,6 +2,163 @@
 //!
 //! Provides tools that expose TurboProp's semantic search capabilities
 //! to MCP clients following the tool calling specification.
+//!
+//! ## Architecture
+//!
+//! The tools system uses a registry pattern with the following components:
+//!
+//! - **ToolExecutor**: Trait defining the interface for executable tools
+//! - **Tools**: Registry that manages available tools and routes execution
+//! - **ToolDefinition**: Schema and metadata for each tool
+//! - **ToolCallRequest/Response**: Request/response types for tool execution
+//!
+//! ## Available Tools
+//!
+//! ### Semantic Search Tool
+//!
+//! The `semantic_search` tool provides embedding-based code search capabilities:
+//!
+//! - **Query**: Natural language or code description
+//! - **Limit**: Maximum number of results (default: 10, max: 100)
+//! - **Threshold**: Similarity threshold (0.0-1.0, default: 0.3)
+//!
+//! ## Usage Examples
+//!
+//! ### Basic Tool Execution
+//!
+//! ```rust,no_run
+//! use turboprop::mcp::tools::{Tools, ToolCallRequest};
+//! use std::collections::HashMap;
+//! use serde_json::Value;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let tools = Tools::new();
+//!     
+//!     // Prepare search arguments
+//!     let mut args = HashMap::new();
+//!     args.insert("query".to_string(), Value::String("authentication logic".to_string()));
+//!     args.insert("limit".to_string(), Value::Number(serde_json::Number::from(20)));
+//!     args.insert("threshold".to_string(), Value::Number(serde_json::Number::from_f64(0.4).unwrap()));
+//!     
+//!     // Execute semantic search
+//!     let request = ToolCallRequest {
+//!         name: "semantic_search".to_string(),
+//!         arguments: args,
+//!     };
+//!     
+//!     match tools.execute_tool(request).await {
+//!         Ok(response) => {
+//!             if response.success {
+//!                 println!("Search results: {:?}", response.content);
+//!             } else {
+//!                 eprintln!("Tool execution failed: {:?}", response.error);
+//!             }
+//!         }
+//!         Err(e) => eprintln!("Error executing tool: {}", e),
+//!     }
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ### Custom Tool Implementation
+//!
+//! ```rust,no_run
+//! use turboprop::mcp::tools::{ToolExecutor, ToolDefinition, ToolCallRequest, ToolCallResponse};
+//! use turboprop::mcp::error::McpResult;
+//! use async_trait::async_trait;
+//! use std::collections::HashMap;
+//! use serde_json::{json, Value};
+//!
+//! struct CustomTool;
+//!
+//! #[async_trait]
+//! impl ToolExecutor for CustomTool {
+//!     async fn execute(&self, request: ToolCallRequest) -> McpResult<ToolCallResponse> {
+//!         // Validate arguments
+//!         self.validate_arguments(&request.arguments)?;
+//!         
+//!         // Perform tool logic
+//!         let result = json!({
+//!             "message": "Custom tool executed successfully",
+//!             "timestamp": chrono::Utc::now().to_rfc3339()
+//!         });
+//!         
+//!         Ok(ToolCallResponse {
+//!             success: true,
+//!             content: Some(result),
+//!             error: None,
+//!         })
+//!     }
+//!     
+//!     fn definition(&self) -> ToolDefinition {
+//!         ToolDefinition {
+//!             name: "custom_tool".to_string(),
+//!             description: "A custom tool example".to_string(),
+//!             input_schema: json!({
+//!                 "type": "object",
+//!                 "properties": {
+//!                     "input": {
+//!                         "type": "string",
+//!                         "description": "Input parameter"
+//!                     }
+//!                 },
+//!                 "required": ["input"]
+//!             }),
+//!         }
+//!     }
+//!     
+//!     fn validate_arguments(&self, arguments: &HashMap<String, Value>) -> McpResult<()> {
+//!         if !arguments.contains_key("input") {
+//!             return Err(turboprop::mcp::error::McpError::tool_execution(
+//!                 "custom_tool",
+//!                 "Missing required 'input' parameter",
+//!             ));
+//!         }
+//!         Ok(())
+//!     }
+//! }
+//! ```
+//!
+//! ### Tool Registry Management
+//!
+//! ```rust,no_run
+//! use turboprop::mcp::tools::Tools;
+//!
+//! async fn manage_tools() {
+//!     let mut tools = Tools::new();
+//!     
+//!     // List available tools
+//!     let available_tools = tools.list_tools();
+//!     for tool in &available_tools {
+//!         println!("Tool: {} - {}", tool.name, tool.description);
+//!     }
+//!     
+//!     // Check if specific tool exists
+//!     if tools.has_tool("semantic_search") {
+//!         println!("Semantic search tool is available");
+//!     }
+//!     
+//!     // Register custom tool
+//!     // tools.register_tool(Box::new(CustomTool));
+//! }
+//! ```
+//!
+//! ## Error Handling
+//!
+//! Tools handle errors at multiple levels:
+//!
+//! - **Validation Errors**: Invalid arguments are rejected before execution
+//! - **Execution Errors**: Runtime failures are captured and returned as structured errors
+//! - **Registry Errors**: Unknown tool requests return appropriate error responses
+//!
+//! ## Performance Considerations
+//!
+//! - **Concurrent Execution**: Tools can be executed concurrently by multiple clients
+//! - **Resource Limits**: Tools respect system resource limits and timeouts
+//! - **Caching**: Results may be cached for repeated identical queries
+//! - **Rate Limiting**: Tool execution is subject to the same rate limits as other requests
 
 use crate::mcp::error::{McpError, McpResult};
 use async_trait::async_trait;
@@ -199,7 +356,7 @@ impl ToolExecutor for SemanticSearchTool {
                 if limit == 0 || limit > self.config.max_limit as u64 {
                     return Err(McpError::tool_execution(
                         "semantic_search",
-                        &format!("'limit' must be between 1 and {}", self.config.max_limit),
+                        format!("'limit' must be between 1 and {}", self.config.max_limit),
                     ));
                 }
             } else {
@@ -213,7 +370,7 @@ impl ToolExecutor for SemanticSearchTool {
         // Validate threshold if provided
         if let Some(threshold_value) = arguments.get("threshold") {
             if let Some(threshold) = threshold_value.as_f64() {
-                if threshold < 0.0 || threshold > 1.0 {
+                if !(0.0..=1.0).contains(&threshold) {
                     return Err(McpError::tool_execution(
                         "semantic_search",
                         "'threshold' must be between 0.0 and 1.0",

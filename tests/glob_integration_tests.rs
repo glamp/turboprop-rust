@@ -106,6 +106,7 @@ use tempfile::TempDir;
 static MODEL_LOCK: Mutex<()> = Mutex::new(());
 use turboprop::commands::{execute_search_command_cli, SearchCliArgs};
 use turboprop::config::TurboPropConfig;
+use turboprop::embeddings::EmbeddingConfig;
 use turboprop::{build_persistent_index, index_exists};
 
 // Test constants to avoid magic numbers
@@ -322,7 +323,7 @@ async fn build_test_index_if_needed(path: &Path) -> Result<bool> {
 
     let mut config = TurboPropConfig::default();
     // Use persistent cache to avoid re-downloading models
-    config.embedding = common::create_persistent_embedding_config();
+    config.embedding = EmbeddingConfig::default();
     match build_persistent_index(path, &config).await {
         Ok(_) => Ok(true),
         Err(_) => {

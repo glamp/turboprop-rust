@@ -205,19 +205,11 @@ pub struct ClientInfo {
 }
 
 /// Client capabilities
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ClientCapabilities {
     /// Supports experimental features
     #[serde(default)]
     pub experimental: HashMap<String, Value>,
-}
-
-impl Default for ClientCapabilities {
-    fn default() -> Self {
-        Self {
-            experimental: HashMap::new(),
-        }
-    }
 }
 
 impl ClientCapabilities {
@@ -259,7 +251,7 @@ pub struct ServerInfo {
 }
 
 /// Server capabilities
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServerCapabilities {
     /// Tools capability
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -267,15 +259,6 @@ pub struct ServerCapabilities {
     /// Experimental capabilities
     #[serde(default)]
     pub experimental: HashMap<String, Value>,
-}
-
-impl Default for ServerCapabilities {
-    fn default() -> Self {
-        Self {
-            tools: None,
-            experimental: HashMap::new(),
-        }
-    }
 }
 
 impl ServerCapabilities {
@@ -453,7 +436,7 @@ impl JsonRpcError {
     /// Create a custom application error (should be >= -32000 and <= -32099)
     pub fn application_error(code: i32, message: impl Into<String>) -> Self {
         assert!(
-            code >= -32099 && code <= -32000,
+            (-32099..=-32000).contains(&code),
             "Application error codes must be between -32099 and -32000"
         );
         Self::new(code, message.into(), None)
@@ -462,7 +445,7 @@ impl JsonRpcError {
     /// Create a custom application error with data (should be >= -32000 and <= -32099)
     pub fn application_error_with_data(code: i32, message: impl Into<String>, data: Value) -> Self {
         assert!(
-            code >= -32099 && code <= -32000,
+            (-32099..=-32000).contains(&code),
             "Application error codes must be between -32099 and -32000"
         );
         Self::new(code, message.into(), Some(data))

@@ -82,7 +82,10 @@ impl SearchEngine {
     fn passes_filters(&self, chunk: &IndexedChunk) -> bool {
         // Apply filetype filter if specified
         if let Some(filetype) = &self.config.filetype_filter {
-            let chunk_filetype = chunk.chunk.source_location.file_path
+            let chunk_filetype = chunk
+                .chunk
+                .source_location
+                .file_path
                 .extension()
                 .and_then(|ext| ext.to_str())
                 .map(|ext| format!(".{}", ext))
@@ -144,6 +147,29 @@ impl SearchEngine {
 
         Ok(Self {
             index,
+            query_processor,
+            config: search_config,
+        })
+    }
+
+    /// Create a search engine from an existing index
+    pub async fn from_existing_index(
+        index: &PersistentChunkIndex,
+        search_config: SearchConfig,
+        turboprop_config: &TurboPropConfig,
+    ) -> Result<Self> {
+        let query_processor = QueryProcessor::from_config(turboprop_config)
+            .await
+            .context("Failed to create query processor from config")?;
+
+        info!(
+            "Search engine initialized with existing index - {} chunks, embedding dimensions: {}",
+            index.len(),
+            query_processor.embedding_dimensions()
+        );
+
+        Ok(Self {
+            index: index.clone(),
             query_processor,
             config: search_config,
         })

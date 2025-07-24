@@ -107,7 +107,7 @@ impl Default for IndexConfig {
 }
 
 /// Storage manager for persistent vector indexes
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IndexStorage {
     /// Base directory for index storage
     index_dir: PathBuf,

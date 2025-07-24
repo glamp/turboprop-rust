@@ -42,7 +42,7 @@ impl TokenBucketRateLimiter {
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_refill);
         let tokens_to_add = (elapsed.as_secs_f64() * self.refill_rate as f64 / 60.0) as u32;
-        
+
         if tokens_to_add > 0 {
             self.current_tokens = (self.current_tokens + tokens_to_add).min(self.max_tokens);
             self.last_refill = now;
@@ -134,7 +134,7 @@ impl StdioTransport {
 
         // Start background tasks for stdin/stdout handling (simplified without shutdown)
         let stdin_task = tokio::spawn(Self::stdin_reader_task(
-            request_tx, 
+            request_tx,
             config.clone(),
             Arc::clone(&rate_limiter),
         ));
@@ -212,8 +212,9 @@ impl StdioTransport {
                         })
                         .and_then(|request| {
                             // Validate the parsed request
-                            RequestValidator::validate(&request)
-                                .map_err(|e| anyhow::anyhow!("Request validation failed: {:?}", e))?;
+                            RequestValidator::validate(&request).map_err(|e| {
+                                anyhow::anyhow!("Request validation failed: {:?}", e)
+                            })?;
                             Ok(request)
                         })
                         .and_then(|request| {
@@ -225,10 +226,13 @@ impl StdioTransport {
                                     request.method,
                                     limiter.current_tokens()
                                 );
-                                info!("Security event: Rate limiting triggered for method '{}'", request.method);
+                                info!(
+                                    "Security event: Rate limiting triggered for method '{}'",
+                                    request.method
+                                );
                                 return Err(anyhow::anyhow!("Rate limit exceeded"));
                             }
-                            
+
                             debug!(
                                 "Request allowed: method={}, remaining_tokens={}",
                                 request.method,
@@ -251,7 +255,10 @@ impl StdioTransport {
                     }
                 }
                 Err(_) => {
-                    warn!("Read timeout after {} seconds, continuing", config.read_timeout_seconds);
+                    warn!(
+                        "Read timeout after {} seconds, continuing",
+                        config.read_timeout_seconds
+                    );
                     // Continue the loop on timeout rather than breaking
                     // This allows the server to handle other messages
                     continue;
@@ -288,11 +295,9 @@ impl StdioTransport {
                         );
                         if let Ok(error_json) = serde_json::to_string(&error_response) {
                             let error_message = format!("{}\n", error_json);
-                            let _ = timeout(
-                                write_timeout,
-                                stdout.write_all(error_message.as_bytes()),
-                            )
-                            .await;
+                            let _ =
+                                timeout(write_timeout, stdout.write_all(error_message.as_bytes()))
+                                    .await;
                             let _ = timeout(write_timeout, stdout.flush()).await;
                         }
                         continue;
@@ -312,7 +317,10 @@ impl StdioTransport {
                                     break;
                                 }
                                 Err(_) => {
-                                    error!("Timeout flushing stdout after {} seconds", config.write_timeout_seconds);
+                                    error!(
+                                        "Timeout flushing stdout after {} seconds",
+                                        config.write_timeout_seconds
+                                    );
                                     break;
                                 }
                             }
@@ -322,7 +330,10 @@ impl StdioTransport {
                             break;
                         }
                         Err(_) => {
-                            error!("Timeout writing to stdout after {} seconds", config.write_timeout_seconds);
+                            error!(
+                                "Timeout writing to stdout after {} seconds",
+                                config.write_timeout_seconds
+                            );
                             break;
                         }
                     }
@@ -363,7 +374,6 @@ impl StdioTransport {
         self.request_receiver.recv().await
     }
 
-
     /// Send a response to stdout
     pub async fn send_response(&self, response: JsonRpcResponse) -> Result<()> {
         self.response_sender
@@ -403,11 +413,7 @@ pub struct RequestValidator;
 
 impl RequestValidator {
     /// Valid MCP method names
-    const VALID_METHODS: &'static [&'static str] = &[
-        "initialize",
-        "tools/list", 
-        "tools/call",
-    ];
+    const VALID_METHODS: &'static [&'static str] = &["initialize", "tools/list", "tools/call"];
 
     /// Validate a JSON-RPC request according to MCP requirements
     pub fn validate(request: &JsonRpcRequest) -> Result<(), JsonRpcError> {
@@ -435,8 +441,9 @@ impl RequestValidator {
         }
 
         // Check for valid MCP method names (allow experimental methods with 'experimental/' prefix)
-        if !Self::VALID_METHODS.contains(&request.method.as_str()) 
-            && !request.method.starts_with("experimental/") {
+        if !Self::VALID_METHODS.contains(&request.method.as_str())
+            && !request.method.starts_with("experimental/")
+        {
             return Err(JsonRpcError::method_not_found(request.method.clone()));
         }
 

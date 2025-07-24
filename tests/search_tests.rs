@@ -11,10 +11,10 @@ use std::path::PathBuf;
 use turboprop::embeddings::config::EmbeddingConfig;
 use turboprop::embeddings::mock::MockEmbeddingGenerator;
 use turboprop::search::SearchConfig;
+use turboprop::search_with_config;
 use turboprop::types::{
     ChunkId, ChunkIndex, ChunkIndexNum, ContentChunk, SourceLocation, TokenCount,
 };
-use turboprop::search_with_config;
 
 /// Maximum allowed duration for performance tests in seconds
 const PERFORMANCE_TEST_TIMEOUT_SECONDS: u64 = 30;
@@ -30,7 +30,6 @@ const STANDARD_RESULT_LIMIT: usize = 5;
 // Query length validation
 
 // Test file location constants
-
 
 /// Create a mock test chunk for testing
 fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
@@ -49,7 +48,6 @@ fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
         total_chunks: 1,
     }
 }
-
 
 /// Build a test index with mock embeddings (fast - for unit tests)
 fn build_mock_test_index() -> Result<ChunkIndex> {

@@ -51,7 +51,7 @@ pub struct IndexedChunk {
 }
 
 /// In-memory index of chunks with their embeddings for similarity search
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ChunkIndex {
     chunks: Vec<IndexedChunk>,
 }

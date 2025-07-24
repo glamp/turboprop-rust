@@ -1,121 +1,33 @@
-//! MCP server implementation
+//! Main MCP server implementation
 //!
-//! Provides the core MCP server that handles JSON-RPC protocol communication
-//! and integrates with TurboProp's semantic search capabilities.
-//!
-//! ## Architecture Overview
-//!
-//! The MCP server uses an event-driven architecture with the following components:
-//!
-//! ### Message Processing Flow
-//!
-//! ```text
-//! STDIN → Transport → Validation → Rate Limiting → Server → Tools → Response → STDOUT
-//! ```
-//!
-//! 1. **Transport Layer**: Handles STDIO communication with bounded channels for backpressure
-//! 2. **Validation**: JSON-RPC protocol validation and security checks
-//! 3. **Rate Limiting**: Token bucket algorithm prevents request flooding
-//! 4. **Server**: Core request routing and lifecycle management
-//! 5. **Tools**: Semantic search and other tool execution
-//! 6. **Response**: Serialized JSON-RPC responses back to client
-//!
-//! ### Async Execution Model
-//!
-//! The server uses a non-blocking async model with the following key patterns:
-//!
-//! - **Bounded Channels**: Prevent memory exhaustion under high load
-//! - **Timeout Handling**: All I/O operations have configurable timeouts
-//! - **Graceful Error Recovery**: Failed requests don't crash the server
-//! - **Concurrent Processing**: Multiple requests can be processed simultaneously
-//!
-//! ## Usage Examples
-//!
-//! ### Basic Server Setup
-//!
-//! ```rust,no_run
-//! use turboprop::mcp::server::{McpServer, McpServerConfig, McpServerTrait};
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let config = McpServerConfig {
-//!         address: "127.0.0.1".to_string(),
-//!         port: 8080,
-//!         max_connections: 100,
-//!         request_timeout_seconds: 30,
-//!     };
-//!     
-//!     let mut server = McpServer::with_config(config);
-//!     
-//!     // Start the server - this will block until shutdown
-//!     server.start().await?;
-//!     
-//!     Ok(())
-//! }
-//! ```
-//!
-//! ### Handling Initialization
-//!
-//! ```rust,no_run
-//! use turboprop::mcp::protocol::{InitializeParams, ClientInfo, ClientCapabilities};
-//! use turboprop::mcp::server::{McpServer, McpServerTrait};
-//!
-//! async fn initialize_server() -> Result<(), Box<dyn std::error::Error>> {
-//!     let mut server = McpServer::new();
-//!     
-//!     let params = InitializeParams {
-//!         protocol_version: "2024-11-05".to_string(),
-//!         client_info: ClientInfo {
-//!             name: "my-client".to_string(),
-//!             version: "1.0.0".to_string(),
-//!         },
-//!         capabilities: ClientCapabilities::default(),
-//!     };
-//!     
-//!     let result = server.initialize(params).await?;
-//!     println!("Server initialized: {:?}", result);
-//!     
-//!     Ok(())
-//! }
-//! ```
-//!
-//! ## Error Handling
-//!
-//! The server uses a comprehensive error handling strategy:
-//!
-//! - **Protocol Errors**: Invalid JSON-RPC messages are rejected with appropriate error codes
-//! - **Validation Errors**: Malformed requests are logged and rejected for security
-//! - **Rate Limiting**: Excessive requests are throttled with exponential backoff
-//! - **Tool Errors**: Failed tool executions return structured error responses
-//! - **Transport Errors**: I/O failures are handled gracefully with retries where appropriate
-//!
-//! ## Security Features
-//!
-//! - **Input Validation**: All incoming requests are validated against MCP specification
-//! - **Rate Limiting**: Token bucket algorithm prevents DoS attacks
-//! - **Message Size Limits**: Prevents memory exhaustion attacks
-//! - **Method Validation**: Only allowed MCP methods are accepted
-//! - **Security Logging**: All security-relevant events are logged for monitoring
+//! Coordinates file watching, incremental indexing, and search tool handling
 
-use crate::mcp::error::{McpError, McpResult};
-use crate::mcp::protocol::{
-    ClientCapabilities, InitializeParams, InitializeResult, JsonRpcRequest, JsonRpcResponse,
+use anyhow::{Context, Result};
+use async_trait::async_trait;
+use serde_json::json;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{debug, error, info, warn};
+
+use crate::config::TurboPropConfig;
+use crate::index::PersistentChunkIndex;
+
+use super::protocol::{
+    constants, InitializeParams, InitializeResult, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     ServerCapabilities, ServerInfo, ToolsCapability,
 };
-use crate::mcp::transport::StdioTransport;
-use crate::mcp::tools::{ToolCallRequest, Tools};
-use std::collections::HashMap;
-use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use super::tools::{SearchTool, Tools};
+use super::transport::StdioTransport;
 
-/// Configuration for the MCP server
+/// Configuration for MCP server
 #[derive(Debug, Clone)]
 pub struct McpServerConfig {
-    /// Server listening address
+    /// Server address (for future TCP transport)
     pub address: String,
-    /// Server listening port
+    /// Server port (for future TCP transport)
     pub port: u16,
-    /// Maximum number of concurrent connections
+    /// Maximum number of connections
     pub max_connections: usize,
     /// Request timeout in seconds
     pub request_timeout_seconds: u64,
@@ -125,297 +37,693 @@ impl Default for McpServerConfig {
     fn default() -> Self {
         Self {
             address: "127.0.0.1".to_string(),
-            port: 8080,
-            max_connections: 100,
+            port: 0, // STDIO by default
+            max_connections: 10,
             request_timeout_seconds: 30,
         }
     }
 }
 
-/// Trait defining the core MCP server interface
+/// Trait defining the MCP server interface
+#[async_trait]
 pub trait McpServerTrait {
-    /// Initialize the server with client capabilities
-    fn initialize(&mut self, params: InitializeParams) -> impl std::future::Future<Output = McpResult<InitializeResult>> + Send;
+    /// Initialize the server with given parameters
+    async fn initialize(&mut self, params: InitializeParams) -> Result<InitializeResult>;
 
-    /// Handle incoming JSON-RPC request
-    fn handle_request(&self, request: JsonRpcRequest) -> impl std::future::Future<Output = McpResult<JsonRpcResponse>> + Send;
-
-    /// Start the server
-    fn start(&mut self) -> impl std::future::Future<Output = McpResult<()>> + Send;
-
-    /// Stop the server
-    fn stop(&mut self) -> impl std::future::Future<Output = McpResult<()>> + Send;
+    /// Handle a request
+    async fn handle_request(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse>;
 
     /// Check if server is running
     fn is_running(&self) -> bool;
 }
 
-/// MCP server implementation
+/// Main MCP server
 pub struct McpServer {
-    config: McpServerConfig,
-    #[allow(dead_code)] // TODO: Will be used in message processing loop implementation
-    transport: StdioTransport,
-    tools: Tools,
-    initialized: bool,
-    running: bool,
-    client_capabilities: Option<ClientCapabilities>,
-    server_task: Option<JoinHandle<()>>,
+    /// Repository path being indexed
+    repo_path: PathBuf,
+    /// TurboProp configuration
+    config: TurboPropConfig,
+    /// Server configuration
+    #[allow(dead_code)]
+    server_config: McpServerConfig,
+    /// Search tool instance
+    search_tool: SearchTool,
+    /// Tools registry
+    tools: Option<Tools>,
+    /// Persistent index (wrapped for thread safety)
+    index: Arc<RwLock<Option<PersistentChunkIndex>>>,
+    /// Server initialization state
+    initialized: Arc<RwLock<bool>>,
+    /// Server running state
+    #[allow(dead_code)]
+    running: Arc<RwLock<bool>>,
 }
 
 impl McpServer {
-    /// Create a new MCP server with default configuration
-    pub fn new() -> Self {
-        Self::with_config(McpServerConfig::default())
+    /// Create a new MCP server
+    pub async fn new(repo_path: &Path, config: &TurboPropConfig) -> Result<Self> {
+        info!("Initializing MCP server for {}", repo_path.display());
+
+        let server = Self {
+            repo_path: repo_path.to_path_buf(),
+            config: config.clone(),
+            server_config: McpServerConfig::default(),
+            search_tool: SearchTool::new(),
+            tools: None,
+            index: Arc::new(RwLock::new(None)),
+            initialized: Arc::new(RwLock::new(false)),
+            running: Arc::new(RwLock::new(false)),
+        };
+
+        Ok(server)
     }
 
-    /// Create a new MCP server with custom configuration
-    pub fn with_config(config: McpServerConfig) -> Self {
+    /// Create a new MCP server with custom configuration and tools
+    pub fn with_config_and_tools(server_config: McpServerConfig, tools: Tools) -> Self {
         Self {
-            config,
-            transport: StdioTransport::new(),
-            tools: Tools::new(),
-            initialized: false,
-            running: false,
-            client_capabilities: None,
-            server_task: None,
+            repo_path: PathBuf::new(), // Will be set later
+            config: TurboPropConfig::default(),
+            server_config,
+            search_tool: SearchTool::new(),
+            tools: Some(tools),
+            index: Arc::new(RwLock::new(None)),
+            initialized: Arc::new(RwLock::new(false)),
+            running: Arc::new(RwLock::new(false)),
         }
     }
 
-    /// Create a new MCP server with custom configuration and tools for testing
-    pub fn with_config_and_tools(config: McpServerConfig, tools: Tools) -> Self {
-        Self {
-            config,
-            transport: StdioTransport::new(),
-            tools,
-            initialized: false,
-            running: false,
-            client_capabilities: None,
-            server_task: None,
+    /// Run the MCP server
+    pub async fn run(self) -> Result<()> {
+        let server = Arc::new(self);
+
+        // Initialize transport
+        let mut transport = StdioTransport::new();
+
+        info!("MCP server ready and listening on stdio...");
+
+        // Main message processing loop
+        loop {
+            match transport.receive_request().await {
+                Some(Ok(request)) => {
+                    let response = server.handle_request_internal(request).await;
+                    if let Err(e) = transport.send_response(response).await {
+                        error!("Failed to send response: {}", e);
+                        break;
+                    }
+                }
+                Some(Err(e)) => {
+                    error!("Error receiving request: {}", e);
+                    // Send error response if possible
+                    let error_response = StdioTransport::create_error_response(
+                        None,
+                        JsonRpcError::parse_error(e.to_string()),
+                    );
+                    let _ = transport.send_response(error_response).await;
+                }
+                None => {
+                    // STDIN closed
+                    info!("STDIN closed, shutting down MCP server");
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle an incoming JSON-RPC request (internal implementation)
+    async fn handle_request_internal(&self, request: JsonRpcRequest) -> JsonRpcResponse {
+        debug!(
+            "Handling request: method={}, id={:?}",
+            request.method, request.id
+        );
+
+        // Validate request format
+        if let Err(error) = request.validate() {
+            return request.create_error_response(error);
+        }
+
+        // Dispatch to appropriate handler
+        match request.method.as_str() {
+            constants::methods::INITIALIZE => self.handle_initialize(request).await,
+            constants::methods::TOOLS_LIST => self.handle_tools_list(request).await,
+            constants::methods::TOOLS_CALL => self.handle_tools_call(request).await,
+            _ => {
+                let error = JsonRpcError::method_not_found(request.method.clone());
+                request.create_error_response(error)
+            }
         }
     }
 
-    /// Get server configuration
-    pub fn config(&self) -> &McpServerConfig {
-        &self.config
-    }
+    /// Handle MCP initialization
+    async fn handle_initialize(&self, request: JsonRpcRequest) -> JsonRpcResponse {
+        debug!("Handling initialize request");
 
-    /// Create server capabilities based on TurboProp features
-    fn create_server_capabilities() -> ServerCapabilities {
-        let mut experimental = HashMap::new();
-        experimental.insert("semantic_search".to_string(), serde_json::json!(true));
+        // Parse initialization parameters
+        let params = match &request.params {
+            Some(params) => match serde_json::from_value::<InitializeParams>(params.clone()) {
+                Ok(params) => params,
+                Err(e) => {
+                    let error =
+                        JsonRpcError::invalid_params(format!("Invalid initialize params: {}", e));
+                    return request.create_error_response(error);
+                }
+            },
+            None => {
+                let error =
+                    JsonRpcError::invalid_params("Missing initialize parameters".to_string());
+                return request.create_error_response(error);
+            }
+        };
 
-        ServerCapabilities {
-            tools: Some(ToolsCapability {
-                list_changed: false,
-            }),
-            experimental,
-        }
-    }
-
-    /// Create server information
-    fn create_server_info() -> ServerInfo {
-        ServerInfo {
-            name: crate::mcp::protocol::constants::SERVER_NAME.to_string(),
-            version: crate::mcp::protocol::constants::SERVER_VERSION.to_string(),
-        }
-    }
-}
-
-impl McpServerTrait for McpServer {
-    async fn initialize(&mut self, params: InitializeParams) -> McpResult<InitializeResult> {
         info!(
-            "Initializing MCP server with client: {}",
-            params.client_info.name
+            "Initializing MCP server for client: {} v{}",
+            params.client_info.name, params.client_info.version
         );
 
         // Validate protocol version
-        if params.protocol_version != crate::mcp::protocol::constants::PROTOCOL_VERSION {
-            return Err(McpError::protocol(format!(
-                "Unsupported protocol version: {}. Expected: {}",
+        if params.protocol_version != constants::PROTOCOL_VERSION {
+            warn!(
+                "Client protocol version {} differs from server version {}",
                 params.protocol_version,
-                crate::mcp::protocol::constants::PROTOCOL_VERSION
-            )));
+                constants::PROTOCOL_VERSION
+            );
         }
 
-        // Store client capabilities
-        self.client_capabilities = Some(params.capabilities);
-        self.initialized = true;
+        // Start index initialization in background
+        let index_clone = Arc::clone(&self.index);
+        let repo_path = self.repo_path.clone();
+        let config = self.config.clone();
+        let initialized_flag = Arc::clone(&self.initialized);
 
-        debug!("MCP server initialized successfully");
-
-        Ok(InitializeResult {
-            protocol_version: crate::mcp::protocol::constants::PROTOCOL_VERSION.to_string(),
-            server_info: Self::create_server_info(),
-            capabilities: Self::create_server_capabilities(),
-        })
-    }
-
-    async fn handle_request(&self, request: JsonRpcRequest) -> McpResult<JsonRpcResponse> {
-        if !self.initialized
-            && request.method != crate::mcp::protocol::constants::methods::INITIALIZE
-        {
-            return Err(McpError::protocol(
-                "Server not initialized. Call 'initialize' first.".to_string(),
-            ));
-        }
-
-        debug!("Handling MCP request: {}", request.method);
-
-        match request.method.as_str() {
-            crate::mcp::protocol::constants::methods::INITIALIZE => {
-                Err(McpError::protocol("Server already initialized".to_string()))
-            }
-            crate::mcp::protocol::constants::methods::TOOLS_LIST => {
-                let tool_definitions = self.tools.list_tools();
-                Ok(JsonRpcResponse::from_request_success(
-                    &request,
-                    serde_json::json!({"tools": tool_definitions}),
-                ))
-            }
-            crate::mcp::protocol::constants::methods::TOOLS_CALL => {
-                // Extract tool call parameters
-                let params = request.params.clone().ok_or_else(|| {
-                    McpError::protocol("Missing parameters for tools/call".to_string())
-                })?;
-                
-                let tool_request: ToolCallRequest = serde_json::from_value(params)
-                    .map_err(|e| {
-                        McpError::protocol(format!("Invalid tool call parameters: {}", e))
-                    })?;
-                
-                // Execute the tool
-                match self.tools.execute_tool(tool_request).await {
-                    Ok(response) => {
-                        Ok(JsonRpcResponse::from_request_success(
-                            &request,
-                            serde_json::to_value(response).unwrap(),
-                        ))
+        tokio::spawn(async move {
+            match Self::initialize_index(&repo_path, &config).await {
+                Ok(index) => {
+                    {
+                        let mut index_guard = index_clone.write().await;
+                        *index_guard = Some(index);
                     }
-                    Err(e) => {
-                        Err(e)
+                    {
+                        let mut initialized_guard = initialized_flag.write().await;
+                        *initialized_guard = true;
                     }
+                    info!("Index initialization completed");
+                }
+                Err(e) => {
+                    error!("Failed to initialize index: {}", e);
+                    // Note: Server continues to run but search will return errors
                 }
             }
-            _ => {
-                error!("Unknown method: {}", request.method);
-                Err(McpError::protocol(format!(
-                    "Method not found: {}",
-                    request.method
-                )))
+        });
+
+        // Create initialization result
+        let result = InitializeResult {
+            protocol_version: constants::PROTOCOL_VERSION.to_string(),
+            server_info: ServerInfo {
+                name: constants::SERVER_NAME.to_string(),
+                version: constants::SERVER_VERSION.to_string(),
+            },
+            capabilities: ServerCapabilities {
+                tools: Some(ToolsCapability {
+                    list_changed: false, // Static tool list
+                }),
+                experimental: std::collections::HashMap::new(),
+            },
+        };
+
+        match serde_json::to_value(result) {
+            Ok(result_value) => {
+                info!("MCP server initialized successfully");
+                request.create_success_response(result_value)
+            }
+            Err(e) => {
+                let error =
+                    JsonRpcError::internal_error(format!("Failed to serialize result: {}", e));
+                request.create_error_response(error)
             }
         }
     }
 
-    async fn start(&mut self) -> McpResult<()> {
-        info!("Starting MCP STDIO server");
+    /// Handle tools/list request
+    async fn handle_tools_list(&self, request: JsonRpcRequest) -> JsonRpcResponse {
+        debug!("Handling tools/list request");
 
-        if self.running {
-            return Err(McpError::server_initialization(
-                "Server already running".to_string(),
-            ));
+        // Check if server is initialized first
+        let initialized = {
+            let initialized_guard = self.initialized.read().await;
+            *initialized_guard
+        };
+
+        if !initialized {
+            let error = JsonRpcError::internal_error("Server not initialized");
+            return request.create_error_response(error);
         }
 
-        self.running = true;
-        
-        // For now, spawn a placeholder task to satisfy the test
-        // In a real implementation, this would spawn the message processing loop
-        let handle = tokio::spawn(async {
-            // Placeholder for background message processing
-            // In a real scenario, this would contain the message processing loop
-            info!("Server background task started");
-            
-            // Keep the task alive briefly for testing
-            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        // Use tools registry if available, otherwise create a ToolDefinition from search tool
+        let tools = if let Some(ref tools_registry) = self.tools {
+            tools_registry.list_tools()
+        } else {
+            // Create a ToolDefinition for the SearchTool
+            vec![crate::mcp::tools::ToolDefinition {
+                name: "search".to_string(),
+                description: "Semantic search across the codebase using natural language queries"
+                    .to_string(),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Natural language search query to find relevant code"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of results to return",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
+                        },
+                        "threshold": {
+                            "type": "number",
+                            "description": "Minimum similarity threshold (0.0 to 1.0)",
+                            "minimum": 0.0,
+                            "maximum": 1.0
+                        },
+                        "filetype": {
+                            "type": "string",
+                            "description": "Filter by file extension (e.g., '.rs', '.js')"
+                        },
+                        "filter": {
+                            "type": "string",
+                            "description": "Glob pattern filter (e.g., '*.rs', 'src/**/*.js')"
+                        },
+                        "include_content": {
+                            "type": "boolean",
+                            "description": "Include file content in results",
+                            "default": true
+                        }
+                    },
+                    "required": ["query"]
+                }),
+            }]
+        };
+
+        let result = json!({
+            "tools": tools
         });
-        
-        self.server_task = Some(handle);
-        info!("MCP server started successfully");
-        
-        Ok(())
+
+        request.create_success_response(result)
     }
 
-    async fn stop(&mut self) -> McpResult<()> {
-        info!("Stopping MCP server");
+    /// Handle tools/call request
+    async fn handle_tools_call(&self, request: JsonRpcRequest) -> JsonRpcResponse {
+        debug!("Handling tools/call request");
 
-        if !self.running {
-            return Err(McpError::server_initialization(
-                "Server not running".to_string(),
-            ));
+        // Check if server is initialized
+        let initialized = {
+            let initialized_guard = self.initialized.read().await;
+            *initialized_guard
+        };
+
+        if !initialized {
+            let error = JsonRpcError::index_not_ready();
+            return request.create_error_response(error);
         }
 
-        self.running = false;
-        
-        // Stop the background task if it exists
-        if let Some(handle) = self.server_task.take() {
-            handle.abort();
-        }
-        
-        info!("MCP server stopped successfully");
+        // Parse tool call parameters
+        let params = match &request.params {
+            Some(params) => params.clone(),
+            None => {
+                let error =
+                    JsonRpcError::invalid_params("Missing tool call parameters".to_string());
+                return request.create_error_response(error);
+            }
+        };
 
-        Ok(())
+        // Extract tool name and arguments
+        let tool_name = match params.get("name").and_then(|v| v.as_str()) {
+            Some(name) => name,
+            None => {
+                let error = JsonRpcError::invalid_params("Missing tool name".to_string());
+                return request.create_error_response(error);
+            }
+        };
+
+        let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+
+        // Execute tool using tools registry if available
+        if let Some(ref tools_registry) = self.tools {
+            // Use the tools registry
+            let tool_call_request = crate::mcp::tools::ToolCallRequest {
+                name: tool_name.to_string(),
+                arguments: serde_json::from_value(arguments).unwrap_or_default(),
+            };
+
+            match tools_registry.execute_tool(tool_call_request).await {
+                Ok(tool_response) => {
+                    if tool_response.success {
+                        debug!("Tool executed successfully: {}", tool_name);
+                        let result = tool_response.content.unwrap_or(json!({}));
+                        request.create_success_response(result)
+                    } else {
+                        error!(
+                            "Tool execution failed: {}",
+                            tool_response
+                                .error
+                                .as_ref()
+                                .unwrap_or(&"Unknown error".to_string())
+                        );
+                        let error = JsonRpcError::tool_execution_error(
+                            tool_response
+                                .error
+                                .unwrap_or_else(|| "Unknown error".to_string()),
+                        );
+                        request.create_error_response(error)
+                    }
+                }
+                Err(e) => {
+                    error!("Tool execution failed: {}", e);
+                    let error = JsonRpcError::tool_execution_error(e.to_string());
+                    request.create_error_response(error)
+                }
+            }
+        } else {
+            // Fallback to the old direct search tool execution
+            match tool_name {
+                "search" => {
+                    // Get index
+                    let index_guard = self.index.read().await;
+                    let index = match index_guard.as_ref() {
+                        Some(index) => index,
+                        None => {
+                            let error = JsonRpcError::index_not_ready();
+                            return request.create_error_response(error);
+                        }
+                    };
+
+                    // Execute search tool
+                    match self
+                        .search_tool
+                        .execute(arguments, index, &self.config, &self.repo_path)
+                        .await
+                    {
+                        Ok(result) => {
+                            debug!("Search tool executed successfully");
+                            request.create_success_response(result)
+                        }
+                        Err(e) => {
+                            error!("Search tool execution failed: {}", e);
+                            let error = JsonRpcError::tool_execution_error(e.to_string());
+                            request.create_error_response(error)
+                        }
+                    }
+                }
+                _ => {
+                    let error = JsonRpcError::tool_not_found(tool_name);
+                    request.create_error_response(error)
+                }
+            }
+        }
     }
 
-    fn is_running(&self) -> bool {
-        self.running
+    /// Initialize the search index
+    async fn initialize_index(
+        repo_path: &Path,
+        config: &TurboPropConfig,
+    ) -> Result<PersistentChunkIndex> {
+        info!("Initializing search index for {}", repo_path.display());
+
+        // Check if index already exists by trying to load it
+        let index = if let Ok(existing_index) = PersistentChunkIndex::load(repo_path) {
+            info!("Loading existing index from {}", repo_path.display());
+            existing_index
+        } else {
+            info!("Creating new index");
+
+            // Use existing TurboProp indexing logic
+            let index = crate::commands::index::build_index(repo_path, config)
+                .await
+                .context("Failed to build initial index")?;
+
+            info!("Index created successfully with {} chunks", index.len());
+            index
+        };
+
+        Ok(index)
+    }
+
+    /// Initialize the server (public method for tests)
+    pub async fn initialize(&mut self, params: InitializeParams) -> Result<InitializeResult> {
+        info!(
+            "Initializing MCP server for client: {} v{}",
+            params.client_info.name, params.client_info.version
+        );
+
+        // Validate protocol version
+        if params.protocol_version != constants::PROTOCOL_VERSION {
+            anyhow::bail!(
+                "Unsupported protocol version: {} (expected: {})",
+                params.protocol_version,
+                constants::PROTOCOL_VERSION
+            );
+        }
+
+        // Validate parameters
+        params
+            .validate()
+            .map_err(|e| anyhow::anyhow!("Invalid initialization parameters: {:?}", e))?;
+
+        // Mark as initialized
+        {
+            let mut initialized_guard = self.initialized.write().await;
+            *initialized_guard = true;
+        }
+
+        // Create initialization result
+        let result = InitializeResult {
+            protocol_version: constants::PROTOCOL_VERSION.to_string(),
+            server_info: ServerInfo {
+                name: constants::SERVER_NAME.to_string(),
+                version: constants::SERVER_VERSION.to_string(),
+            },
+            capabilities: ServerCapabilities {
+                tools: Some(ToolsCapability {
+                    list_changed: false, // Static tool list
+                }),
+                experimental: std::collections::HashMap::new(),
+            },
+        };
+
+        info!("MCP server initialized successfully");
+        Ok(result)
+    }
+
+    /// Check if the server is running
+    pub fn is_running(&self) -> bool {
+        // For now, return false by default since we don't track running state in the current implementation
+        // In a real implementation, this would check if the server loop is active
+        false
     }
 }
 
-impl Default for McpServer {
+/// MCP server builder for configuration
+pub struct McpServerBuilder {
+    repo_path: Option<PathBuf>,
+    config: Option<TurboPropConfig>,
+}
+
+impl McpServerBuilder {
+    /// Create a new server builder
+    pub fn new() -> Self {
+        Self {
+            repo_path: None,
+            config: None,
+        }
+    }
+
+    /// Set the repository path
+    pub fn repo_path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.repo_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+
+    /// Set the configuration
+    pub fn config(mut self, config: TurboPropConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    /// Build the MCP server
+    pub async fn build(self) -> Result<McpServer> {
+        let repo_path = self
+            .repo_path
+            .ok_or_else(|| anyhow::anyhow!("Repository path is required"))?;
+        let config = self
+            .config
+            .ok_or_else(|| anyhow::anyhow!("Configuration is required"))?;
+
+        McpServer::new(&repo_path, &config).await
+    }
+}
+
+impl Default for McpServerBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Implementation of McpServerTrait for McpServer
+#[async_trait]
+impl McpServerTrait for McpServer {
+    async fn initialize(&mut self, params: InitializeParams) -> Result<InitializeResult> {
+        self.initialize(params).await
+    }
+
+    async fn handle_request(&self, request: JsonRpcRequest) -> Result<JsonRpcResponse> {
+        // The internal method returns JsonRpcResponse, but the trait expects Result<JsonRpcResponse>
+        // We need to wrap the response in Ok() for success cases
+        let response = self.handle_request_internal(request).await;
+
+        // Check if the response contains an error and convert to Result accordingly
+        if response.error.is_some() {
+            // Extract error message for the Err case
+            let error_msg = response
+                .error
+                .as_ref()
+                .map(|e| e.message.clone())
+                .unwrap_or_else(|| "Unknown error".to_string());
+            Err(anyhow::anyhow!("Request failed: {}", error_msg))
+        } else {
+            Ok(response)
+        }
+    }
+
+    fn is_running(&self) -> bool {
+        self.is_running()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mcp::protocol::{ClientCapabilities, ClientInfo};
-    use std::collections::HashMap;
+    use serde_json::json;
+    use tempfile::TempDir;
 
-    fn create_test_initialize_params() -> InitializeParams {
-        InitializeParams {
-            protocol_version: crate::mcp::protocol::constants::PROTOCOL_VERSION.to_string(),
-            client_info: ClientInfo {
-                name: "test-client".to_string(),
-                version: "1.0.0".to_string(),
-            },
-            capabilities: ClientCapabilities {
-                experimental: HashMap::new(),
-            },
+    #[tokio::test]
+    async fn test_mcp_server_creation() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = TurboPropConfig::default();
+
+        let server = McpServer::new(temp_dir.path(), &config).await;
+        assert!(server.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_initialize_request() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = TurboPropConfig::default();
+        let server = McpServer::new(temp_dir.path(), &config).await.unwrap();
+
+        let request = JsonRpcRequest::new(
+            constants::methods::INITIALIZE.to_string(),
+            Some(json!({
+                "protocol_version": constants::PROTOCOL_VERSION,
+                "client_info": {
+                    "name": "test-client",
+                    "version": "1.0.0"
+                },
+                "capabilities": {}
+            })),
+        );
+
+        let response = server.handle_initialize(request).await;
+
+        if let Some(error) = &response.error {
+            println!("Error: {:?}", error);
         }
+
+        assert!(response.error.is_none());
+        assert!(response.result.is_some());
+
+        let result = response.result.unwrap();
+        println!("Result: {:?}", result);
+        assert_eq!(result["protocol_version"], constants::PROTOCOL_VERSION);
+        assert_eq!(result["server_info"]["name"], constants::SERVER_NAME);
     }
 
     #[tokio::test]
-    async fn test_server_initialization() {
-        let mut server = McpServer::new();
-        let params = create_test_initialize_params();
+    async fn test_tools_list_request() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = TurboPropConfig::default();
+        let server = McpServer::new(temp_dir.path(), &config).await.unwrap();
 
-        let result = server.initialize(params).await;
-        assert!(result.is_ok());
+        // Mark server as initialized for this test
+        {
+            let mut initialized_guard = server.initialized.write().await;
+            *initialized_guard = true;
+        }
 
-        let init_result = result.unwrap();
-        assert_eq!(
-            init_result.protocol_version,
-            crate::mcp::protocol::constants::PROTOCOL_VERSION
-        );
-        assert_eq!(
-            init_result.server_info.name,
-            crate::mcp::protocol::constants::SERVER_NAME
-        );
+        let request = JsonRpcRequest::new(constants::methods::TOOLS_LIST.to_string(), None);
+
+        let response = server.handle_tools_list(request).await;
+
+        assert!(response.error.is_none());
+        assert!(response.result.is_some());
+
+        let result = response.result.unwrap();
+        let tools = result["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["name"], "search");
+    }
+
+    #[test]
+    fn test_server_builder() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = TurboPropConfig::default();
+
+        let builder = McpServerBuilder::new()
+            .repo_path(temp_dir.path())
+            .config(config);
+
+        // Builder should be created successfully
+        // Actual build() test would require async context
+        drop(builder);
     }
 
     #[tokio::test]
-    async fn test_server_lifecycle() {
-        let mut server = McpServer::new();
+    async fn test_invalid_method_request() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = TurboPropConfig::default();
+        let server = McpServer::new(temp_dir.path(), &config).await.unwrap();
 
-        assert!(!server.is_running());
+        let request = JsonRpcRequest::new("invalid_method".to_string(), None);
 
-        let start_result = server.start().await;
-        assert!(start_result.is_ok());
-        assert!(server.is_running());
+        let response = server.handle_request_internal(request).await;
 
-        let stop_result = server.stop().await;
-        assert!(stop_result.is_ok());
-        assert!(!server.is_running());
+        assert!(response.result.is_none());
+        assert!(response.error.is_some());
+        assert_eq!(response.error.unwrap().code, -32601); // Method not found
+    }
+
+    #[tokio::test]
+    async fn test_tools_call_before_initialization() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = TurboPropConfig::default();
+        let server = McpServer::new(temp_dir.path(), &config).await.unwrap();
+
+        let request = JsonRpcRequest::new(
+            constants::methods::TOOLS_CALL.to_string(),
+            Some(json!({
+                "name": "search",
+                "arguments": {
+                    "query": "test"
+                }
+            })),
+        );
+
+        let response = server.handle_tools_call(request).await;
+
+        assert!(response.result.is_none());
+        assert!(response.error.is_some());
+        // Should return index not ready error
     }
 }

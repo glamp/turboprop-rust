@@ -16,7 +16,7 @@ use crate::storage::{IndexConfig, IndexStorage};
 use crate::types::{ChunkIndex, FileMetadata, IndexedChunk};
 
 /// Enhanced persistent vector index that extends ChunkIndex with storage capabilities
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PersistentChunkIndex {
     /// In-memory chunk index for fast queries
     chunk_index: ChunkIndex,

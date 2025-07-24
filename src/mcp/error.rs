@@ -94,9 +94,14 @@ impl From<McpError> for JsonRpcError {
             McpError::ProtocolError { message } => JsonRpcError::invalid_request(message),
             McpError::ServerInitializationError { reason } => JsonRpcError::internal_error(reason),
             McpError::TransportError { message } => JsonRpcError::internal_error(message),
-            McpError::ToolExecutionError { tool_name: _, reason } => JsonRpcError::application_error(-32001, reason),
+            McpError::ToolExecutionError {
+                tool_name: _,
+                reason,
+            } => JsonRpcError::application_error(-32001, reason),
             McpError::ConfigurationError { message } => JsonRpcError::internal_error(message),
-            McpError::UnsupportedCapability { capability } => JsonRpcError::method_not_found(capability),
+            McpError::UnsupportedCapability { capability } => {
+                JsonRpcError::method_not_found(capability)
+            }
         }
     }
 }

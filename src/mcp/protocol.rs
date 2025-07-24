@@ -489,7 +489,7 @@ impl JsonRpcError {
             None,
         )
     }
-    
+
     /// Create an invalid tool parameters error
     pub fn invalid_tool_params(message: String) -> Self {
         Self::new(
@@ -498,7 +498,7 @@ impl JsonRpcError {
             None,
         )
     }
-    
+
     /// Create a tool execution error
     pub fn tool_execution_error(message: String) -> Self {
         Self::new(
@@ -507,7 +507,7 @@ impl JsonRpcError {
             None,
         )
     }
-    
+
     /// Create an index not ready error
     pub fn index_not_ready() -> Self {
         Self::new(

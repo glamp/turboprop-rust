@@ -13,8 +13,8 @@ use serde_json::{json, Value};
 
 use turboprop::mcp::error::McpError;
 use turboprop::mcp::protocol::{
-    InitializeParams, JsonRpcError, JsonRpcRequest, JsonRpcResponse, RequestId,
-    ClientInfo, ClientCapabilities,
+    ClientCapabilities, ClientInfo, InitializeParams, JsonRpcError, JsonRpcRequest,
+    JsonRpcResponse, RequestId,
 };
 use turboprop::mcp::server::{McpServer, McpServerConfig, McpServerTrait};
 use turboprop::mcp::tools::{ToolCallRequest, Tools};
@@ -48,7 +48,7 @@ mod test_data {
     pub fn create_tools_call_request() -> JsonRpcRequest {
         let mut args = HashMap::new();
         args.insert("query".to_string(), Value::String("test query".to_string()));
-        
+
         let tool_request = ToolCallRequest {
             name: "semantic_search".to_string(),
             arguments: args,
@@ -220,7 +220,7 @@ mod transport_tests {
 
         // Test size exceeded
         assert!(RequestValidator::validate_size(2048, 1024).is_err());
-        
+
         let error_msg = RequestValidator::validate_size(2048, 1024).unwrap_err();
         assert!(error_msg.contains("exceeds maximum"));
         assert!(error_msg.contains("2048"));
@@ -230,7 +230,7 @@ mod transport_tests {
     #[test]
     fn test_malformed_message_validation() {
         let malformed_requests = test_data::create_malformed_requests();
-        
+
         for malformed in malformed_requests {
             match serde_json::from_str::<JsonRpcRequest>(&malformed) {
                 Ok(request) => {
@@ -272,20 +272,20 @@ mod transport_tests {
     #[test]
     fn test_rate_limiter() {
         use turboprop::mcp::transport::TokenBucketRateLimiter;
-        
+
         // Create rate limiter with small capacity for testing
         let mut limiter = TokenBucketRateLimiter::new(2, 60); // 2 tokens, 60 per minute
-        
+
         // Should allow first 2 requests
         assert!(limiter.try_consume());
         assert_eq!(limiter.current_tokens(), 1);
         assert!(limiter.try_consume());
         assert_eq!(limiter.current_tokens(), 0);
-        
+
         // Should reject 3rd request
         assert!(!limiter.try_consume());
         assert_eq!(limiter.current_tokens(), 0);
-        
+
         // Should still reject without any time passing
         assert!(!limiter.try_consume());
     }
@@ -309,7 +309,7 @@ mod server_tests {
     #[tokio::test]
     async fn test_server_initialization() {
         let mut server = create_test_server();
-        
+
         let params = InitializeParams {
             protocol_version: "2024-11-05".to_string(),
             client_info: ClientInfo {
@@ -331,7 +331,7 @@ mod server_tests {
     #[tokio::test]
     async fn test_server_initialization_wrong_protocol_version() {
         let mut server = create_test_server();
-        
+
         let params = InitializeParams {
             protocol_version: "1.0.0".to_string(), // Wrong version
             client_info: ClientInfo {
@@ -343,7 +343,7 @@ mod server_tests {
 
         let result = server.initialize(params).await;
         assert!(result.is_err());
-        
+
         let error = result.unwrap_err();
         assert!(error.to_string().contains("Unsupported protocol version"));
     }
@@ -351,10 +351,10 @@ mod server_tests {
     #[tokio::test]
     async fn test_server_request_handling_before_initialization() {
         let server = create_test_server();
-        
+
         let request = test_data::create_tools_list_request();
         let result = server.handle_request(request).await;
-        
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(error.to_string().contains("Server not initialized"));
@@ -363,7 +363,7 @@ mod server_tests {
     #[tokio::test]
     async fn test_server_tools_list() {
         let mut server = create_test_server();
-        
+
         // Initialize server first
         let init_params = InitializeParams {
             protocol_version: "2024-11-05".to_string(),
@@ -378,11 +378,11 @@ mod server_tests {
         // Test tools/list
         let request = test_data::create_tools_list_request();
         let result = server.handle_request(request).await;
-        
+
         assert!(result.is_ok());
         let response = result.unwrap();
         assert!(response.result.is_some());
-        
+
         let tools_data = response.result.unwrap();
         assert!(tools_data.get("tools").is_some());
     }
@@ -390,7 +390,7 @@ mod server_tests {
     #[tokio::test]
     async fn test_server_tools_call() {
         let mut server = create_test_server();
-        
+
         // Initialize server first
         let init_params = InitializeParams {
             protocol_version: "2024-11-05".to_string(),
@@ -405,9 +405,12 @@ mod server_tests {
         // Test tools/call
         let request = test_data::create_tools_call_request();
         let result = server.handle_request(request).await;
-        
+
         if result.is_err() {
-            eprintln!("Server tools call failed with error: {:?}", result.as_ref().unwrap_err());
+            eprintln!(
+                "Server tools call failed with error: {:?}",
+                result.as_ref().unwrap_err()
+            );
         }
         assert!(result.is_ok());
         let response = result.unwrap();
@@ -417,7 +420,7 @@ mod server_tests {
     #[tokio::test]
     async fn test_server_unknown_method() {
         let mut server = create_test_server();
-        
+
         // Initialize server first
         let init_params = InitializeParams {
             protocol_version: "2024-11-05".to_string(),
@@ -432,7 +435,7 @@ mod server_tests {
         // Test unknown method
         let request = JsonRpcRequest::with_number_id(99, "unknown_method".to_string(), None);
         let result = server.handle_request(request).await;
-        
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(error.to_string().contains("Method not found"));
@@ -441,7 +444,7 @@ mod server_tests {
     #[tokio::test]
     async fn test_server_lifecycle() {
         let server = create_test_server();
-        
+
         // Server should not be running initially
         assert!(!server.is_running());
 
@@ -459,18 +462,19 @@ mod tools_integration_tests {
     #[tokio::test]
     async fn test_tools_registry() {
         let tools = Tools::new_for_integration_tests();
-        
+
         // Check default tools are registered
         assert!(tools.has_tool("semantic_search"));
-        
+
         // List tools
         let tool_list = tools.list_tools();
         assert!(!tool_list.is_empty());
-        
-        let semantic_search_tool = tool_list.iter()
+
+        let semantic_search_tool = tool_list
+            .iter()
             .find(|tool| tool.name == "semantic_search")
             .expect("semantic_search tool should be available");
-        
+
         assert_eq!(semantic_search_tool.name, "semantic_search");
         assert!(!semantic_search_tool.description.is_empty());
         assert!(semantic_search_tool.input_schema.is_object());
@@ -479,20 +483,26 @@ mod tools_integration_tests {
     #[tokio::test]
     async fn test_semantic_search_tool_execution() {
         let tools = Tools::new_for_integration_tests();
-        
+
         let mut args = HashMap::new();
         args.insert("query".to_string(), Value::String("test query".to_string()));
-        args.insert("limit".to_string(), Value::Number(serde_json::Number::from(5)));
-        args.insert("threshold".to_string(), Value::Number(serde_json::Number::from_f64(0.5).unwrap()));
-        
+        args.insert(
+            "limit".to_string(),
+            Value::Number(serde_json::Number::from(5)),
+        );
+        args.insert(
+            "threshold".to_string(),
+            Value::Number(serde_json::Number::from_f64(0.5).unwrap()),
+        );
+
         let request = ToolCallRequest {
             name: "semantic_search".to_string(),
             arguments: args,
         };
-        
+
         let response = tools.execute_tool(request).await;
         assert!(response.is_ok());
-        
+
         let result = response.unwrap();
         if !result.success {
             eprintln!("Tool execution failed with error: {:?}", result.error);
@@ -505,39 +515,45 @@ mod tools_integration_tests {
     #[tokio::test]
     async fn test_semantic_search_tool_validation_errors() {
         let tools = Tools::new_for_integration_tests();
-        
+
         // Test missing query
         let request_no_query = ToolCallRequest {
             name: "semantic_search".to_string(),
             arguments: HashMap::new(),
         };
-        
+
         let response = tools.execute_tool(request_no_query).await;
         assert!(response.is_err());
-        
+
         // Test invalid limit
         let mut invalid_args = HashMap::new();
         invalid_args.insert("query".to_string(), Value::String("test".to_string()));
-        invalid_args.insert("limit".to_string(), Value::Number(serde_json::Number::from(0))); // Invalid: 0
-        
+        invalid_args.insert(
+            "limit".to_string(),
+            Value::Number(serde_json::Number::from(0)),
+        ); // Invalid: 0
+
         let request_invalid_limit = ToolCallRequest {
             name: "semantic_search".to_string(),
             arguments: invalid_args,
         };
-        
+
         let response = tools.execute_tool(request_invalid_limit).await;
         assert!(response.is_err());
-        
+
         // Test invalid threshold
         let mut invalid_threshold_args = HashMap::new();
         invalid_threshold_args.insert("query".to_string(), Value::String("test".to_string()));
-        invalid_threshold_args.insert("threshold".to_string(), Value::Number(serde_json::Number::from_f64(2.0).unwrap())); // Invalid: > 1.0
-        
+        invalid_threshold_args.insert(
+            "threshold".to_string(),
+            Value::Number(serde_json::Number::from_f64(2.0).unwrap()),
+        ); // Invalid: > 1.0
+
         let request_invalid_threshold = ToolCallRequest {
             name: "semantic_search".to_string(),
             arguments: invalid_threshold_args,
         };
-        
+
         let response = tools.execute_tool(request_invalid_threshold).await;
         assert!(response.is_err());
     }
@@ -545,15 +561,15 @@ mod tools_integration_tests {
     #[tokio::test]
     async fn test_unknown_tool_execution() {
         let tools = Tools::new_for_integration_tests();
-        
+
         let request = ToolCallRequest {
             name: "unknown_tool".to_string(),
             arguments: HashMap::new(),
         };
-        
+
         let response = tools.execute_tool(request).await;
         assert!(response.is_err());
-        
+
         let error = response.unwrap_err();
         assert!(error.to_string().contains("Tool not found"));
     }
@@ -616,13 +632,16 @@ mod concurrent_request_tests {
             let tools_clone = Arc::clone(&tools);
             join_set.spawn(async move {
                 let mut args = HashMap::new();
-                args.insert("query".to_string(), Value::String(format!("test query {}", i)));
-                
+                args.insert(
+                    "query".to_string(),
+                    Value::String(format!("test query {}", i)),
+                );
+
                 let request = ToolCallRequest {
                     name: "semantic_search".to_string(),
                     arguments: args,
                 };
-                
+
                 tools_clone.execute_tool(request).await
             });
         }
@@ -659,7 +678,7 @@ mod concurrent_request_tests {
                 } else {
                     test_data::create_tools_call_request()
                 };
-                
+
                 RequestValidator::validate(&request)
             });
         }
@@ -733,16 +752,19 @@ mod performance_tests {
         let num_iterations = 1000;
 
         let start = std::time::Instant::now();
-        
+
         for _ in 0..num_iterations {
             let serialized = serde_json::to_string(&request).unwrap();
             let _deserialized: JsonRpcRequest = serde_json::from_str(&serialized).unwrap();
         }
-        
+
         let duration = start.elapsed();
-        
+
         // Should complete within reasonable time (less than 1 second for 1000 iterations)
-        assert!(duration < Duration::from_secs(1), 
-               "Serialization performance too slow: {:?}", duration);
+        assert!(
+            duration < Duration::from_secs(1),
+            "Serialization performance too slow: {:?}",
+            duration
+        );
     }
 }

@@ -11,6 +11,7 @@ use crate::config::TurboPropConfig;
 use crate::error_classification::ErrorType;
 use crate::git::GitignoreFilter;
 use crate::incremental::{IncrementalStats, IncrementalUpdater};
+use crate::index::PersistentChunkIndex;
 use crate::model_validation::{validate_instruction_compatibility, validate_model_selection};
 use crate::pipeline::{IndexingPipeline, PipelineConfig};
 use crate::storage::PersistentIndex;
@@ -88,6 +89,21 @@ pub async fn execute_index_command(
             Err(e).with_context(|| format!("Index command failed for path: {}", path.display()))
         }
     }
+}
+
+/// Build an index for MCP server use
+pub async fn build_index(
+    repo_path: &Path,
+    config: &TurboPropConfig,
+) -> Result<PersistentChunkIndex> {
+    // Use existing index building logic
+    execute_index_command(
+        repo_path, config, false, // show_progress
+    )
+    .await?;
+
+    // Load and return the created index from the repo path
+    PersistentChunkIndex::load(repo_path).context("Failed to load newly created index")
 }
 
 /// Execute index command with detailed error context for CLI usage

@@ -8,7 +8,7 @@ use crate::mcp::protocol::{
     ClientCapabilities, InitializeParams, InitializeResult, JsonRpcRequest, JsonRpcResponse,
     ServerCapabilities, ServerInfo, ToolsCapability,
 };
-use crate::mcp::transport::Transport;
+use crate::mcp::transport::StdioTransport;
 use std::collections::HashMap;
 use tracing::{debug, error, info};
 
@@ -57,7 +57,7 @@ pub trait McpServerTrait {
 /// MCP server implementation
 pub struct McpServer {
     config: McpServerConfig,
-    transport: Transport,
+    transport: StdioTransport,
     initialized: bool,
     running: bool,
     client_capabilities: Option<ClientCapabilities>,
@@ -73,7 +73,7 @@ impl McpServer {
     pub fn with_config(config: McpServerConfig) -> Self {
         Self {
             config,
-            transport: Transport::new(),
+            transport: StdioTransport::new(),
             initialized: false,
             running: false,
             client_capabilities: None,
@@ -109,7 +109,10 @@ impl McpServer {
 
 impl McpServerTrait for McpServer {
     async fn initialize(&mut self, params: InitializeParams) -> McpResult<InitializeResult> {
-        info!("Initializing MCP server with client: {}", params.client_info.name);
+        info!(
+            "Initializing MCP server with client: {}",
+            params.client_info.name
+        );
 
         // Validate protocol version
         if params.protocol_version != crate::mcp::protocol::constants::PROTOCOL_VERSION {
@@ -134,7 +137,9 @@ impl McpServerTrait for McpServer {
     }
 
     async fn handle_request(&self, request: JsonRpcRequest) -> McpResult<JsonRpcResponse> {
-        if !self.initialized && request.method != crate::mcp::protocol::constants::methods::INITIALIZE {
+        if !self.initialized
+            && request.method != crate::mcp::protocol::constants::methods::INITIALIZE
+        {
             return Err(McpError::protocol(
                 "Server not initialized. Call 'initialize' first.".to_string(),
             ));
@@ -177,7 +182,9 @@ impl McpServerTrait for McpServer {
         );
 
         if self.running {
-            return Err(McpError::server_initialization("Server already running".to_string()));
+            return Err(McpError::server_initialization(
+                "Server already running".to_string(),
+            ));
         }
 
         // TODO: Implement actual server startup logic
@@ -192,7 +199,9 @@ impl McpServerTrait for McpServer {
         info!("Stopping MCP server");
 
         if !self.running {
-            return Err(McpError::server_initialization("Server not running".to_string()));
+            return Err(McpError::server_initialization(
+                "Server not running".to_string(),
+            ));
         }
 
         // TODO: Implement actual server shutdown logic
@@ -217,7 +226,7 @@ impl Default for McpServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mcp::protocol::{ClientInfo, ClientCapabilities};
+    use crate::mcp::protocol::{ClientCapabilities, ClientInfo};
     use std::collections::HashMap;
 
     fn create_test_initialize_params() -> InitializeParams {

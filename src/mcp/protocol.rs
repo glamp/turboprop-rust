@@ -173,16 +173,22 @@ impl InitializeParams {
     pub fn validate(&self) -> Result<(), JsonRpcError> {
         // Check protocol version format (basic validation)
         if self.protocol_version.is_empty() {
-            return Err(JsonRpcError::invalid_params("protocol_version cannot be empty"));
+            return Err(JsonRpcError::invalid_params(
+                "protocol_version cannot be empty",
+            ));
         }
 
         // Check client info
         if self.client_info.name.is_empty() {
-            return Err(JsonRpcError::invalid_params("client_info.name cannot be empty"));
+            return Err(JsonRpcError::invalid_params(
+                "client_info.name cannot be empty",
+            ));
         }
 
         if self.client_info.version.is_empty() {
-            return Err(JsonRpcError::invalid_params("client_info.version cannot be empty"));
+            return Err(JsonRpcError::invalid_params(
+                "client_info.version cannot be empty",
+            ));
         }
 
         Ok(())
@@ -339,6 +345,21 @@ impl JsonRpcRequest {
     pub fn with_number_id(id: u64, method: String, params: Option<Value>) -> Self {
         Self::with_id(RequestId::from_number(id), method, params)
     }
+
+    /// Validate this request according to MCP requirements
+    pub fn validate(&self) -> Result<(), JsonRpcError> {
+        crate::mcp::transport::RequestValidator::validate(self)
+    }
+
+    /// Create an error response for this request
+    pub fn create_error_response(&self, error: JsonRpcError) -> JsonRpcResponse {
+        JsonRpcResponse::error(self.id.clone(), error)
+    }
+
+    /// Create a success response for this request
+    pub fn create_success_response(&self, result: serde_json::Value) -> JsonRpcResponse {
+        JsonRpcResponse::success(self.id.clone(), result)
+    }
 }
 
 impl JsonRpcResponse {
@@ -431,13 +452,19 @@ impl JsonRpcError {
 
     /// Create a custom application error (should be >= -32000 and <= -32099)
     pub fn application_error(code: i32, message: impl Into<String>) -> Self {
-        assert!(code >= -32099 && code <= -32000, "Application error codes must be between -32099 and -32000");
+        assert!(
+            code >= -32099 && code <= -32000,
+            "Application error codes must be between -32099 and -32000"
+        );
         Self::new(code, message.into(), None)
     }
 
     /// Create a custom application error with data (should be >= -32000 and <= -32099)
     pub fn application_error_with_data(code: i32, message: impl Into<String>, data: Value) -> Self {
-        assert!(code >= -32099 && code <= -32000, "Application error codes must be between -32099 and -32000");
+        assert!(
+            code >= -32099 && code <= -32000,
+            "Application error codes must be between -32099 and -32000"
+        );
         Self::new(code, message.into(), Some(data))
     }
 
@@ -588,7 +615,7 @@ mod tests {
         // Test error with data
         let error_with_data = JsonRpcError::invalid_params_with_details(
             "Invalid parameters",
-            json!({"expected": "string", "received": "number"})
+            json!({"expected": "string", "received": "number"}),
         );
         assert!(error_with_data.is_invalid_params());
         assert!(error_with_data.data.is_some());
@@ -614,7 +641,7 @@ mod tests {
         let client_caps = ClientCapabilities::new()
             .with_experimental("feature1", json!(true))
             .with_experimental("feature2", json!({"enabled": true}));
-        
+
         assert!(client_caps.has_experimental("feature1"));
         assert!(client_caps.has_experimental("feature2"));
         assert!(!client_caps.has_experimental("feature3"));
@@ -622,7 +649,7 @@ mod tests {
         let server_caps = ServerCapabilities::new()
             .with_tools(false)
             .with_experimental("semantic_search", json!(true));
-        
+
         assert!(server_caps.supports_tools());
         assert!(server_caps.has_experimental("semantic_search"));
         assert!(!server_caps.has_experimental("other_feature"));

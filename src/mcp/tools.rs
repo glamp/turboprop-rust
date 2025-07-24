@@ -96,28 +96,37 @@ impl SemanticSearchTool {
 #[async_trait]
 impl ToolExecutor for SemanticSearchTool {
     async fn execute(&self, request: ToolCallRequest) -> McpResult<ToolCallResponse> {
-        debug!("Executing semantic search tool with arguments: {:?}", request.arguments);
+        debug!(
+            "Executing semantic search tool with arguments: {:?}",
+            request.arguments
+        );
 
         // Validate arguments first
         self.validate_arguments(&request.arguments)?;
 
         // Extract search parameters
-        let query = request.arguments
+        let query = request
+            .arguments
             .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| McpError::tool_execution(&request.name, "Missing 'query' parameter"))?;
 
-        let limit = request.arguments
+        let limit = request
+            .arguments
             .get("limit")
             .and_then(|v| v.as_u64())
             .unwrap_or(self.config.default_limit as u64) as usize;
 
-        let threshold = request.arguments
+        let threshold = request
+            .arguments
             .get("threshold")
             .and_then(|v| v.as_f64())
             .unwrap_or(self.config.default_threshold as f64) as f32;
 
-        info!("Performing semantic search: query='{}', limit={}, threshold={}", query, limit, threshold);
+        info!(
+            "Performing semantic search: query='{}', limit={}, threshold={}",
+            query, limit, threshold
+        );
 
         // TODO: Integrate with actual TurboProp search functionality
         // For now, return a placeholder response
@@ -170,12 +179,18 @@ impl ToolExecutor for SemanticSearchTool {
     fn validate_arguments(&self, arguments: &HashMap<String, Value>) -> McpResult<()> {
         // Check required query parameter
         if !arguments.contains_key("query") {
-            return Err(McpError::tool_execution("semantic_search", "Missing required 'query' parameter"));
+            return Err(McpError::tool_execution(
+                "semantic_search",
+                "Missing required 'query' parameter",
+            ));
         }
 
         // Validate query is a string
         if !arguments.get("query").unwrap().is_string() {
-            return Err(McpError::tool_execution("semantic_search", "'query' parameter must be a string"));
+            return Err(McpError::tool_execution(
+                "semantic_search",
+                "'query' parameter must be a string",
+            ));
         }
 
         // Validate limit if provided
@@ -188,7 +203,10 @@ impl ToolExecutor for SemanticSearchTool {
                     ));
                 }
             } else {
-                return Err(McpError::tool_execution("semantic_search", "'limit' parameter must be an integer"));
+                return Err(McpError::tool_execution(
+                    "semantic_search",
+                    "'limit' parameter must be an integer",
+                ));
             }
         }
 
@@ -202,7 +220,10 @@ impl ToolExecutor for SemanticSearchTool {
                     ));
                 }
             } else {
-                return Err(McpError::tool_execution("semantic_search", "'threshold' parameter must be a number"));
+                return Err(McpError::tool_execution(
+                    "semantic_search",
+                    "'threshold' parameter must be a number",
+                ));
             }
         }
 
@@ -226,11 +247,11 @@ impl Tools {
     /// Create a new tools registry with default tools
     pub fn new() -> Self {
         let mut tools: HashMap<String, Box<dyn ToolExecutor + Send + Sync>> = HashMap::new();
-        
+
         // Register semantic search tool
         let search_tool = SemanticSearchTool::new();
         tools.insert("semantic_search".to_string(), Box::new(search_tool));
-        
+
         Self { tools }
     }
 
@@ -247,9 +268,10 @@ impl Tools {
 
     /// Execute a tool by name
     pub async fn execute_tool(&self, request: ToolCallRequest) -> McpResult<ToolCallResponse> {
-        let tool = self.tools.get(&request.name).ok_or_else(|| {
-            McpError::tool_execution(&request.name, "Tool not found")
-        })?;
+        let tool = self
+            .tools
+            .get(&request.name)
+            .ok_or_else(|| McpError::tool_execution(&request.name, "Tool not found"))?;
 
         tool.execute(request).await
     }
@@ -283,7 +305,7 @@ mod tests {
     #[test]
     fn test_semantic_search_tool_validation() {
         let tool = SemanticSearchTool::new();
-        
+
         // Valid arguments
         let mut args = HashMap::new();
         args.insert("query".to_string(), Value::String("test query".to_string()));
@@ -296,17 +318,20 @@ mod tests {
         // Invalid limit
         let mut invalid_args = HashMap::new();
         invalid_args.insert("query".to_string(), Value::String("test".to_string()));
-        invalid_args.insert("limit".to_string(), Value::Number(serde_json::Number::from(0)));
+        invalid_args.insert(
+            "limit".to_string(),
+            Value::Number(serde_json::Number::from(0)),
+        );
         assert!(tool.validate_arguments(&invalid_args).is_err());
     }
 
     #[tokio::test]
     async fn test_tools_registry() {
         let tools = Tools::new();
-        
+
         // Check default tools are registered
         assert!(tools.has_tool("semantic_search"));
-        
+
         // List tools
         let tool_list = tools.list_tools();
         assert!(!tool_list.is_empty());
@@ -316,18 +341,18 @@ mod tests {
     #[tokio::test]
     async fn test_tool_execution() {
         let tools = Tools::new();
-        
+
         let mut args = HashMap::new();
         args.insert("query".to_string(), Value::String("test query".to_string()));
-        
+
         let request = ToolCallRequest {
             name: "semantic_search".to_string(),
             arguments: args,
         };
-        
+
         let response = tools.execute_tool(request).await;
         assert!(response.is_ok());
-        
+
         let result = response.unwrap();
         assert!(result.success);
         assert!(result.content.is_some());

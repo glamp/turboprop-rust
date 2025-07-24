@@ -1,7 +1,7 @@
 use clap::Parser;
 use turboprop::cli::{Cli, Commands};
 use turboprop::commands::{
-    execute_index_command_cli, execute_search_command_cli, handle_model_command, run_benchmark,
+    execute_index_command_cli, execute_search_command_cli, execute_mcp_command, handle_model_command, run_benchmark,
     BenchmarkArgs, SearchCliArgs,
 };
 use turboprop::config::{CliConfigOverrides, TurboPropConfig};
@@ -136,6 +136,10 @@ async fn main() -> anyhow::Result<()> {
                 format,
             };
             run_benchmark(args).await?;
+        }
+        Commands::Mcp(args) => {
+            // Execute MCP server (it will print setup info after validation)
+            execute_mcp_command(args).await?;
         }
     }
 

@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 // Default path for indexing when no path is specified
@@ -139,6 +139,13 @@ Examples:
         #[arg(long, default_value = "table")]
         format: String,
     },
+
+    /// Start MCP server for real-time semantic search
+    /// 
+    /// The MCP (Model Context Protocol) server enables integration with coding
+    /// agents like Claude Code, GitHub Copilot, Cursor, and Windsurf. It provides
+    /// real-time semantic search capabilities over your codebase.
+    Mcp(McpArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -160,4 +167,79 @@ pub enum ModelCommands {
         /// Specific model to clear (optional)
         model: Option<String>,
     },
+}
+
+/// Arguments for the MCP server command
+#[derive(Debug, Args)]
+pub struct McpArgs {
+    /// Repository path to index and watch
+    /// 
+    /// The MCP server will index all files in this repository and watch for
+    /// changes to keep the index up-to-date.
+    #[arg(long, default_value = ".", value_name = "PATH")]
+    pub repo: PathBuf,
+    
+    /// Embedding model to use for semantic search
+    /// 
+    /// Overrides the model specified in the configuration file. Use 'tp model list'
+    /// to see available models.
+    #[arg(long, value_name = "MODEL")]
+    pub model: Option<String>,
+    
+    /// Maximum file size to index
+    /// 
+    /// Files larger than this size will be skipped during indexing.
+    /// Examples: "1mb", "2.5MB", "500kb"
+    #[arg(long, value_name = "SIZE")]
+    pub max_filesize: Option<String>,
+    
+    /// Only index files matching this glob pattern
+    /// 
+    /// Examples: "*.rs", "src/**/*.js", "**/*.py"
+    #[arg(long, value_name = "PATTERN")]
+    pub filter: Option<String>,
+    
+    /// Only index files of this type
+    /// 
+    /// Examples: "rust", "javascript", "python"
+    #[arg(long, value_name = "TYPE")]  
+    pub filetype: Option<String>,
+    
+    /// Force rebuild of the index even if it exists
+    /// 
+    /// Useful when changing models or after major configuration changes.
+    #[arg(long)]
+    pub force_rebuild: bool,
+    
+    /// Enable verbose logging
+    /// 
+    /// Logs are written to stderr to avoid interfering with MCP protocol
+    /// messages on stdout.
+    #[arg(short, long)]
+    pub verbose: bool,
+    
+    /// Show additional debug information
+    /// 
+    /// Enables debug-level logging for troubleshooting MCP server issues.
+    #[arg(long)]
+    pub debug: bool,
+}
+
+impl McpArgs {
+    /// Validate MCP command arguments
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate repository path
+        if !self.repo.exists() {
+            return Err(format!("Repository path does not exist: {}", self.repo.display()));
+        }
+        
+        if !self.repo.is_dir() {
+            return Err(format!("Repository path is not a directory: {}", self.repo.display()));
+        }
+        
+        // Note: More detailed validation is done in the command handler
+        // to avoid dependency issues in CLI module
+        
+        Ok(())
+    }
 }

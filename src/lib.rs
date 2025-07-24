@@ -4,6 +4,8 @@
 //! using machine learning embeddings. It indexes your code files and allows you to search for
 //! functionality using natural language queries.
 //!
+//! Now includes MCP server support for real-time integration with coding agents.
+//!
 //! ## Features
 //!
 //! - **Semantic Search**: Find code by meaning, not just keywords
@@ -13,6 +15,7 @@
 //! - **Multiple Output Formats**: JSON for tools, human-readable text for reading
 //! - **Performance Optimized**: Handles codebases with 50-10,000+ files efficiently
 //! - **Configurable Models**: Use any HuggingFace sentence-transformer model
+//! - **MCP Server**: Real-time integration with coding agents via Model Context Protocol
 //!
 //! ## Quick Start
 //!
@@ -220,6 +223,8 @@ pub mod validation;
 pub mod warnings;
 pub mod watcher;
 
+pub mod mcp;
+
 use crate::chunking::ChunkingStrategy;
 use crate::config::TurboPropConfig;
 use crate::embeddings::EmbeddingGenerator;
@@ -230,6 +235,9 @@ use crate::types::{parse_filesize, ChunkIndex, FileDiscoveryConfig};
 use anyhow::Result;
 use std::path::Path;
 use tracing::{debug, info};
+
+// Re-export MCP server for library usage
+pub use mcp::McpServer;
 
 /// Default path for indexing when no path is specified
 pub const DEFAULT_INDEX_PATH: &str = ".";

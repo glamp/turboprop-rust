@@ -127,9 +127,11 @@ pub struct JsonRpcError {
 /// MCP initialization request parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitializeParams {
-    /// Protocol version
+    /// Protocol version (supports both snake_case and camelCase)
+    #[serde(alias = "protocolVersion")]
     pub protocol_version: String,
-    /// Client information
+    /// Client information (supports both snake_case and camelCase)
+    #[serde(alias = "clientInfo")]
     pub client_info: ClientInfo,
     /// Client capabilities
     pub capabilities: ClientCapabilities,

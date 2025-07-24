@@ -130,12 +130,17 @@ impl McpServer {
             &server.repo_path,
             &server.config,
             None, // Initial index will be set after building
-        ).await {
+        )
+        .await
+        {
             Ok(manager) => manager,
             Err(e) => {
-                error!("Failed to create IndexManager for repository '{}': {}", 
-                       server.repo_path.display(), e);
-                
+                error!(
+                    "Failed to create IndexManager for repository '{}': {}",
+                    server.repo_path.display(),
+                    e
+                );
+
                 // Attempt basic recovery checks
                 if !server.repo_path.exists() {
                     return Err(anyhow::anyhow!(
@@ -143,14 +148,14 @@ impl McpServer {
                         server.repo_path.display()
                     ));
                 }
-                
+
                 if !server.repo_path.is_dir() {
                     return Err(anyhow::anyhow!(
                         "Repository path '{}' is not a directory. Please provide a valid repository directory.",
                         server.repo_path.display()
                     ));
                 }
-                
+
                 // Check for permission issues
                 if let Err(perm_err) = std::fs::read_dir(&server.repo_path) {
                     return Err(anyhow::anyhow!(
@@ -158,7 +163,7 @@ impl McpServer {
                         server.repo_path.display(), perm_err
                     ));
                 }
-                
+
                 // If all basic checks pass, return the original error with additional context
                 return Err(e.context(format!(
                     "Failed to create IndexManager for repository '{}'. This may be due to file system issues, missing dependencies, or configuration problems.",
@@ -196,9 +201,10 @@ impl McpServer {
             *running_guard = true;
         }
 
-        info!("MCP server ready and listening on stdio (timeout: {}s, max_connections: {})", 
-               server.server_config.request_timeout, 
-               server.server_config.max_connections);
+        info!(
+            "MCP server ready and listening on stdio (timeout: {}s, max_connections: {})",
+            server.server_config.request_timeout, server.server_config.max_connections
+        );
 
         // Main message processing loop
         loop {
@@ -481,27 +487,27 @@ impl McpServer {
     /// Initialize index with manager integration
     async fn initialize_index_with_manager(&self) -> Result<()> {
         info!("Starting index initialization");
-        
+
         // Build initial index
         let index = Self::initialize_index(&self.repo_path, &self.config).await?;
-        
+
         // Set index in manager
         if let Some(manager) = self.index_manager.read().await.as_ref() {
             manager.set_index(index.clone()).await;
         }
-        
+
         // Set index in server
         {
             let mut index_guard = self.index.write().await;
             *index_guard = Some(index);
         }
-        
+
         // Mark as initialized
         {
             let mut initialized_guard = self.initialized.write().await;
             *initialized_guard = true;
         }
-        
+
         info!("Index initialization completed with file watching enabled");
         Ok(())
     }

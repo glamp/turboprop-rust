@@ -141,7 +141,7 @@ Examples:
     },
 
     /// Start MCP server for real-time semantic search
-    /// 
+    ///
     /// The MCP (Model Context Protocol) server enables integration with coding
     /// agents like Claude Code, GitHub Copilot, Cursor, and Windsurf. It provides
     /// real-time semantic search capabilities over your codebase.
@@ -173,53 +173,53 @@ pub enum ModelCommands {
 #[derive(Debug, Args)]
 pub struct McpArgs {
     /// Repository path to index and watch
-    /// 
+    ///
     /// The MCP server will index all files in this repository and watch for
     /// changes to keep the index up-to-date.
     #[arg(long, default_value = ".", value_name = "PATH")]
     pub repo: PathBuf,
-    
+
     /// Embedding model to use for semantic search
-    /// 
+    ///
     /// Overrides the model specified in the configuration file. Use 'tp model list'
     /// to see available models.
     #[arg(long, value_name = "MODEL")]
     pub model: Option<String>,
-    
+
     /// Maximum file size to index
-    /// 
+    ///
     /// Files larger than this size will be skipped during indexing.
     /// Examples: "1mb", "2.5MB", "500kb"
     #[arg(long, value_name = "SIZE")]
     pub max_filesize: Option<String>,
-    
+
     /// Only index files matching this glob pattern
-    /// 
+    ///
     /// Examples: "*.rs", "src/**/*.js", "**/*.py"
     #[arg(long, value_name = "PATTERN")]
     pub filter: Option<String>,
-    
+
     /// Only index files of this type
-    /// 
+    ///
     /// Examples: "rust", "javascript", "python"
-    #[arg(long, value_name = "TYPE")]  
+    #[arg(long, value_name = "TYPE")]
     pub filetype: Option<String>,
-    
+
     /// Force rebuild of the index even if it exists
-    /// 
+    ///
     /// Useful when changing models or after major configuration changes.
     #[arg(long)]
     pub force_rebuild: bool,
-    
+
     /// Enable verbose logging
-    /// 
+    ///
     /// Logs are written to stderr to avoid interfering with MCP protocol
     /// messages on stdout.
     #[arg(short, long)]
     pub verbose: bool,
-    
+
     /// Show additional debug information
-    /// 
+    ///
     /// Enables debug-level logging for troubleshooting MCP server issues.
     #[arg(long)]
     pub debug: bool,

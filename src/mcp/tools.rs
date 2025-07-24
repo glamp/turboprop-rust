@@ -709,11 +709,16 @@ impl ToolExecutor for SemanticSearchTool {
         }
 
         // Convert arguments to search params
-        let search_params: SearchToolParams = serde_json::from_value(
-            serde_json::to_value(&request.arguments)
-                .map_err(|e| McpError::tool_execution(&request.name, format!("Failed to serialize arguments: {}", e)))?
-        )
-        .map_err(|e| McpError::tool_execution(&request.name, format!("Failed to parse arguments: {}", e)))?;
+        let search_params: SearchToolParams =
+            serde_json::from_value(serde_json::to_value(&request.arguments).map_err(|e| {
+                McpError::tool_execution(
+                    &request.name,
+                    format!("Failed to serialize arguments: {}", e),
+                )
+            })?)
+            .map_err(|e| {
+                McpError::tool_execution(&request.name, format!("Failed to parse arguments: {}", e))
+            })?;
 
         // Execute search directly
         match self.execute_search(search_params).await {
@@ -741,12 +746,18 @@ impl ToolExecutor for SemanticSearchTool {
     fn validate_arguments(&self, arguments: &HashMap<String, Value>) -> McpResult<()> {
         // Check required query parameter
         if !arguments.contains_key("query") {
-            return Err(McpError::tool_execution("semantic_search", "Missing required 'query' parameter"));
+            return Err(McpError::tool_execution(
+                "semantic_search",
+                "Missing required 'query' parameter",
+            ));
         }
 
         // Validate query is a string
         if !arguments.get("query").unwrap().is_string() {
-            return Err(McpError::tool_execution("semantic_search", "'query' parameter must be a string"));
+            return Err(McpError::tool_execution(
+                "semantic_search",
+                "'query' parameter must be a string",
+            ));
         }
 
         // Validate limit if provided
@@ -755,11 +766,14 @@ impl ToolExecutor for SemanticSearchTool {
                 if limit == 0 || limit > self.config.max_limit as u64 {
                     return Err(McpError::tool_execution(
                         "semantic_search",
-                        format!("'limit' must be between 1 and {}", self.config.max_limit)
+                        format!("'limit' must be between 1 and {}", self.config.max_limit),
                     ));
                 }
             } else {
-                return Err(McpError::tool_execution("semantic_search", "'limit' parameter must be an integer"));
+                return Err(McpError::tool_execution(
+                    "semantic_search",
+                    "'limit' parameter must be an integer",
+                ));
             }
         }
 
@@ -771,11 +785,17 @@ impl ToolExecutor for SemanticSearchTool {
                 {
                     return Err(McpError::tool_execution(
                         "semantic_search",
-                        format!("'threshold' must be between {} and {}", self.config.min_threshold, self.config.max_threshold)
+                        format!(
+                            "'threshold' must be between {} and {}",
+                            self.config.min_threshold, self.config.max_threshold
+                        ),
                     ));
                 }
             } else {
-                return Err(McpError::tool_execution("semantic_search", "'threshold' parameter must be a number"));
+                return Err(McpError::tool_execution(
+                    "semantic_search",
+                    "'threshold' parameter must be a number",
+                ));
             }
         }
 
@@ -847,7 +867,9 @@ impl Tools {
             .get(&request.name)
             .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", request.name))?;
 
-        tool.execute(request).await.map_err(|e| anyhow::anyhow!("Tool execution error: {}", e))
+        tool.execute(request)
+            .await
+            .map_err(|e| anyhow::anyhow!("Tool execution error: {}", e))
     }
 
     /// Check if a tool exists

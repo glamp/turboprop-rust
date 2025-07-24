@@ -13,3 +13,17 @@ compression_enabled = false
 
 [parallel]
 max_concurrent_files = 2
+
+[search]
+default_limit = 10
+similarity_threshold = 0.3
+
+[file_discovery]
+max_filesize = "1mb"
+include_patterns = ["**/*.rs", "**/*.md"]
+
+[mcp]
+# MCP-specific test settings
+enable_file_watching = true
+update_debounce_ms = 100
+max_concurrent_searches = 5

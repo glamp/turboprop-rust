@@ -304,19 +304,21 @@ impl IndexStorage {
             let file_path = &indexed_chunk.chunk.source_location.file_path;
             // Store the actual file modification time for proper incremental update detection
             match std::fs::metadata(file_path) {
-                Ok(metadata) => {
-                    match metadata.modified() {
-                        Ok(modified_time) => {
-                            file_timestamps.insert(file_path.clone(), modified_time);
-                        }
-                        Err(e) => {
-                            warn!("Could not get modification time for {}: {}. Using current time as fallback.", file_path.display(), e);
-                            file_timestamps.insert(file_path.clone(), std::time::SystemTime::now());
-                        }
+                Ok(metadata) => match metadata.modified() {
+                    Ok(modified_time) => {
+                        file_timestamps.insert(file_path.clone(), modified_time);
                     }
-                }
+                    Err(e) => {
+                        warn!("Could not get modification time for {}: {}. Using current time as fallback.", file_path.display(), e);
+                        file_timestamps.insert(file_path.clone(), std::time::SystemTime::now());
+                    }
+                },
                 Err(e) => {
-                    warn!("Could not get metadata for {}: {}. Using current time as fallback.", file_path.display(), e);
+                    warn!(
+                        "Could not get metadata for {}: {}. Using current time as fallback.",
+                        file_path.display(),
+                        e
+                    );
                     file_timestamps.insert(file_path.clone(), std::time::SystemTime::now());
                 }
             }

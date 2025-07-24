@@ -76,6 +76,19 @@ pprof = { version = "0.13", features = ["flamegraph", "criterion"] }
 walkdir = "2.4"
 assert_cmd = "2.0"
 predicates = "3.0"
+# Property-based testing
+proptest = "1.4"
+proptest-derive = "0.4"
+# Advanced async testing
+tokio-test = "0.4"
+# Mocking and test doubles
+mockall = "0.12"
+# Test data generation and faker
+fake = { version = "2.9", features = ["derive", "chrono", "uuid"] }
+# Snapshot testing for protocol messages
+insta = { version = "1.34", features = ["json", "yaml"] }
+# Test orchestration and fixtures
+rstest = "0.18"
 # Enable test-utils feature for all tests (including integration tests)
 turboprop = { path = ".", features = ["test-utils"] }
 

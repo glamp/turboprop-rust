@@ -100,8 +100,8 @@ mod common;
 use anyhow::Result;
 use std::path::Path;
 use std::sync::Once;
-use tokio::sync::Mutex;
 use tempfile::TempDir;
+use tokio::sync::Mutex;
 
 // Global mutex to serialize model loading across tests to prevent lock conflicts
 static MODEL_LOCK: Mutex<()> = Mutex::const_new(());
@@ -323,9 +323,9 @@ async fn build_test_index_if_needed(path: &Path) -> Result<bool> {
     }
 
     // Use persistent cache to avoid re-downloading models
-    let config = TurboPropConfig { 
-        embedding: EmbeddingConfig::default(), 
-        ..Default::default() 
+    let config = TurboPropConfig {
+        embedding: EmbeddingConfig::default(),
+        ..Default::default()
     };
     match build_persistent_index(path, &config).await {
         Ok(_) => Ok(true),

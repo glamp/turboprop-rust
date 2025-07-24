@@ -288,7 +288,7 @@ mod tests {
         assert!(Port::new(0).is_err());
         assert!(Port::new(80).is_ok());
         assert!(Port::new(65535).is_ok());
-        
+
         let dynamic_port = Port::dynamic();
         assert_eq!(dynamic_port.value(), 0);
     }

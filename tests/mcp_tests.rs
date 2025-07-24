@@ -1004,7 +1004,10 @@ mod resource_exhaustion_tests {
 
         for malicious_query in malicious_queries {
             let mut args = HashMap::new();
-            args.insert("query".to_string(), Value::String(malicious_query.to_string()));
+            args.insert(
+                "query".to_string(),
+                Value::String(malicious_query.to_string()),
+            );
 
             let request = ToolCallRequest {
                 name: "semantic_search".to_string(),

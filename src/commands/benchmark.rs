@@ -6,7 +6,7 @@
 use anyhow::Result;
 use clap::Args;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tabled::{Table, Tabled};
 use tracing::{debug, info};
@@ -193,7 +193,7 @@ fn generate_test_texts(count: usize) -> Vec<String> {
 }
 
 /// Load sample texts from a file
-fn load_sample_texts(file_path: &PathBuf, max_count: usize) -> Result<Vec<String>> {
+fn load_sample_texts(file_path: &Path, max_count: usize) -> Result<Vec<String>> {
     let content = std::fs::read_to_string(file_path)?;
     let lines: Vec<String> = content
         .lines()

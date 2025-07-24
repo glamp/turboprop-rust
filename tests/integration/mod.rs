@@ -12,3 +12,4 @@
 mod binary_tests;
 mod embedding_tests;
 mod library_tests;
+mod mcp_tests;

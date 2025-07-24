@@ -16,7 +16,7 @@ use tracing::{debug, error, info};
 use crate::git::GitignoreFilter;
 
 // Bounds for WatcherConfig validation
-const MIN_DEBOUNCE_DURATION_MS: u64 = 50;  // 50ms minimum
+const MIN_DEBOUNCE_DURATION_MS: u64 = 50; // 50ms minimum
 const MAX_DEBOUNCE_DURATION_MS: u64 = 10000; // 10 seconds maximum
 const MIN_BATCH_SIZE: usize = 1;
 const MAX_BATCH_SIZE: usize = 10000;
@@ -49,42 +49,42 @@ impl WatcherConfig {
         config.validate()?;
         Ok(config)
     }
-    
+
     /// Validate the configuration parameters
     pub fn validate(&self) -> Result<()> {
         // Validate debounce duration bounds
         let debounce_ms = self.debounce_duration.as_millis() as u64;
         if debounce_ms < MIN_DEBOUNCE_DURATION_MS {
             return Err(anyhow::anyhow!(
-                "Debounce duration {}ms is below minimum {}ms", 
-                debounce_ms, 
+                "Debounce duration {}ms is below minimum {}ms",
+                debounce_ms,
                 MIN_DEBOUNCE_DURATION_MS
             ));
         }
         if debounce_ms > MAX_DEBOUNCE_DURATION_MS {
             return Err(anyhow::anyhow!(
-                "Debounce duration {}ms exceeds maximum {}ms", 
-                debounce_ms, 
+                "Debounce duration {}ms exceeds maximum {}ms",
+                debounce_ms,
                 MAX_DEBOUNCE_DURATION_MS
             ));
         }
-        
-        // Validate batch size bounds  
+
+        // Validate batch size bounds
         if self.max_batch_size < MIN_BATCH_SIZE {
             return Err(anyhow::anyhow!(
-                "Max batch size {} is below minimum {}", 
-                self.max_batch_size, 
+                "Max batch size {} is below minimum {}",
+                self.max_batch_size,
                 MIN_BATCH_SIZE
             ));
         }
         if self.max_batch_size > MAX_BATCH_SIZE {
             return Err(anyhow::anyhow!(
-                "Max batch size {} exceeds maximum {}", 
-                self.max_batch_size, 
+                "Max batch size {} exceeds maximum {}",
+                self.max_batch_size,
                 MAX_BATCH_SIZE
             ));
         }
-        
+
         Ok(())
     }
 }
@@ -123,7 +123,10 @@ impl WatchEvent {
     pub fn is_file_event(&self) -> bool {
         matches!(
             self,
-            WatchEvent::Modified(_) | WatchEvent::Created(_) | WatchEvent::Deleted(_) | WatchEvent::Renamed { .. }
+            WatchEvent::Modified(_)
+                | WatchEvent::Created(_)
+                | WatchEvent::Deleted(_)
+                | WatchEvent::Renamed { .. }
         )
     }
 }
@@ -152,22 +155,22 @@ impl WatchEventBatch {
         // Use HashMap to store the last event index for each path
         // This ensures "last event wins" semantics and is more efficient than HashSet
         let mut path_to_index = std::collections::HashMap::new();
-        
+
         // Iterate through events and store the latest index for each path
         for (index, event) in self.events.iter().enumerate() {
             let path = event.path().to_path_buf();
             path_to_index.insert(path, index);
         }
-        
+
         // Collect unique paths in the order they last appeared
         let mut indexed_paths: Vec<(usize, PathBuf)> = path_to_index
             .into_iter()
             .map(|(path, index)| (index, path))
             .collect();
-        
+
         // Sort by index to preserve event ordering (last event wins)
         indexed_paths.sort_by_key(|(index, _)| *index);
-        
+
         // Extract just the paths
         indexed_paths.into_iter().map(|(_, path)| path).collect()
     }

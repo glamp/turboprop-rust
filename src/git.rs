@@ -28,9 +28,9 @@ impl GitRepo {
             })?
             .to_path_buf();
 
-        Ok(Self { 
-            repo: Arc::new(Mutex::new(repo)), 
-            root_path 
+        Ok(Self {
+            repo: Arc::new(Mutex::new(repo)),
+            root_path,
         })
     }
 

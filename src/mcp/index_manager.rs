@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{watch, RwLock};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Instant};
 use tracing::{debug, error, info, warn};
@@ -82,24 +82,23 @@ impl IndexManager {
         initial_index: Option<PersistentChunkIndex>,
     ) -> Result<Self> {
         info!("Initializing index manager for {}", repo_path.display());
-        
+
         // Create gitignore filter
-        let gitignore_filter = GitignoreFilter::new(repo_path)
-            .context("Failed to create gitignore filter")?;
-        
+        let gitignore_filter =
+            GitignoreFilter::new(repo_path).context("Failed to create gitignore filter")?;
+
         // Create file watcher with validated config
-        let watcher_config = WatcherConfig::new(
-            Duration::from_millis(DEFAULT_DEBOUNCE_DURATION_MS),
-            100
-        ).context("Invalid watcher configuration")?;
+        let watcher_config =
+            WatcherConfig::new(Duration::from_millis(DEFAULT_DEBOUNCE_DURATION_MS), 100)
+                .context("Invalid watcher configuration")?;
         let file_watcher = FileWatcher::with_config(repo_path, gitignore_filter, watcher_config)
             .context("Failed to create file watcher")?;
-        
+
         // Create incremental updater
         let updater = IncrementalUpdater::new(config.clone(), repo_path)
             .await
             .context("Failed to create incremental updater")?;
-        
+
         // Initialize index stats
         let stats = if let Some(ref index) = initial_index {
             IndexStats {
@@ -111,10 +110,10 @@ impl IndexManager {
         } else {
             IndexStats::default()
         };
-        
+
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        
+
         Ok(Self {
             repo_path: repo_path.to_path_buf(),
             index: Arc::new(RwLock::new(initial_index)),
@@ -126,49 +125,52 @@ impl IndexManager {
             task_handles: Arc::new(RwLock::new(Vec::new())),
         })
     }
-    
+
     /// Set the initial index
     pub async fn set_index(&self, index: PersistentChunkIndex) {
         let mut index_guard = self.index.write().await;
         *index_guard = Some(index);
-        
+
         // Update stats
         if let Some(ref index) = *index_guard {
             let mut stats_guard = self.stats.write().await;
             stats_guard.total_chunks = index.len();
             stats_guard.last_update = Some(Instant::now());
         }
-        
+
         info!("Index set successfully");
     }
-    
+
     /// Get a read-only reference to the current index
     pub async fn get_index(&self) -> Arc<RwLock<Option<PersistentChunkIndex>>> {
         Arc::clone(&self.index)
     }
-    
+
     /// Get current index statistics
     pub async fn get_stats(&self) -> IndexStats {
         let stats_guard = self.stats.read().await;
         stats_guard.clone()
     }
-    
+
     /// Start the index management background tasks
     pub async fn start(&mut self) -> Result<()> {
         info!("Starting index manager background tasks");
-        
+
         // Ensure file watcher is available
-        let mut file_watcher = self.file_watcher.take()
-            .ok_or_else(|| anyhow::anyhow!("File watcher not available - IndexManager may have already been started"))?;
-        
+        let mut file_watcher = self.file_watcher.take().ok_or_else(|| {
+            anyhow::anyhow!(
+                "File watcher not available - IndexManager may have already been started"
+            )
+        })?;
+
         let mut task_handles = self.task_handles.write().await;
-        
+
         // Spawn file change processing task
         let index_clone = Arc::clone(&self.index);
         let stats_clone = Arc::clone(&self.stats);
         let updater_clone = Arc::clone(&self.updater);
         let mut shutdown_rx_clone = self.shutdown_rx.clone();
-        
+
         let repo_path_clone = self.repo_path.clone();
         let file_processing_handle = tokio::spawn(async move {
             Self::process_file_changes(
@@ -178,15 +180,16 @@ impl IndexManager {
                 updater_clone,
                 &mut file_watcher,
                 &mut shutdown_rx_clone,
-            ).await;
+            )
+            .await;
         });
         task_handles.push(file_processing_handle);
-        
+
         // Spawn periodic maintenance task
         let index_clone = Arc::clone(&self.index);
         let stats_clone = Arc::clone(&self.stats);
         let mut shutdown_rx_clone = self.shutdown_rx.clone();
-        
+
         let repo_path_clone2 = self.repo_path.clone();
         let maintenance_handle = tokio::spawn(async move {
             Self::periodic_maintenance(
@@ -194,68 +197,82 @@ impl IndexManager {
                 index_clone,
                 stats_clone,
                 &mut shutdown_rx_clone,
-            ).await;
+            )
+            .await;
         });
         task_handles.push(maintenance_handle);
-        
-        info!("Index manager started successfully with {} background tasks", task_handles.len());
+
+        info!(
+            "Index manager started successfully with {} background tasks",
+            task_handles.len()
+        );
         Ok(())
     }
-    
+
     /// Stop the index manager
     pub async fn stop(&self) -> Result<()> {
         info!("Stopping index manager");
-        
+
         // Send shutdown signal to all background tasks
         if let Err(e) = self.shutdown_tx.send(true) {
             warn!("Failed to send shutdown signal: {}", e);
         }
-        
+
         // Wait for all background tasks to complete with timeout
         let mut task_handles = self.task_handles.write().await;
         let task_count = task_handles.len();
-        
+
         if task_count > 0 {
-            info!("Waiting for {} background tasks to complete gracefully", task_count);
-            
+            info!(
+                "Waiting for {} background tasks to complete gracefully",
+                task_count
+            );
+
             // Create timeout for graceful shutdown
-            let timeout = tokio::time::timeout(
-                Duration::from_secs(GRACEFUL_SHUTDOWN_TIMEOUT_SECS),
-                async {
+            let timeout =
+                tokio::time::timeout(Duration::from_secs(GRACEFUL_SHUTDOWN_TIMEOUT_SECS), async {
                     // Join all tasks
                     while let Some(handle) = task_handles.pop() {
                         match tokio::time::timeout(
                             Duration::from_secs(TASK_JOIN_TIMEOUT_SECS),
-                            handle
-                        ).await {
+                            handle,
+                        )
+                        .await
+                        {
                             Ok(Ok(())) => {
                                 debug!("Background task completed gracefully");
-                            },
+                            }
                             Ok(Err(join_error)) => {
                                 warn!("Background task failed: {}", join_error);
-                            },
+                            }
                             Err(_) => {
-                                warn!("Background task join timed out after {}s", TASK_JOIN_TIMEOUT_SECS);
+                                warn!(
+                                    "Background task join timed out after {}s",
+                                    TASK_JOIN_TIMEOUT_SECS
+                                );
                             }
                         }
                     }
-                }
-            ).await;
-            
+                })
+                .await;
+
             match timeout {
                 Ok(()) => {
                     info!("All background tasks completed gracefully");
-                },
+                }
                 Err(_) => {
-                    warn!("Graceful shutdown timed out after {}s, some tasks may still be running", GRACEFUL_SHUTDOWN_TIMEOUT_SECS);
+                    warn!(
+                        "Graceful shutdown timed out after {}s, some tasks may still be running",
+                        GRACEFUL_SHUTDOWN_TIMEOUT_SECS
+                    );
                 }
             }
         }
-        
+
         info!("Index manager stopped");
         Ok(())
     }
-    
+
     /// Background task for processing file changes
     async fn process_file_changes(
         repo_path: PathBuf,
@@ -266,9 +283,9 @@ impl IndexManager {
         shutdown_rx: &mut watch::Receiver<bool>,
     ) {
         info!("Starting file change processing task");
-        
+
         let mut update_interval = interval(Duration::from_millis(UPDATE_CHECK_INTERVAL_MS)); // Check every second
-        
+
         loop {
             tokio::select! {
                 // Check for shutdown signal
@@ -278,12 +295,12 @@ impl IndexManager {
                         break;
                     }
                 }
-                
+
                 // Process file change batches
                 _ = update_interval.tick() => {
                     if let Some(batch) = file_watcher.next_batch().await {
                         let batch_size = batch.events.len();
-                        
+
                         match Self::handle_file_batch(
                             &index,
                             &stats,
@@ -300,19 +317,19 @@ impl IndexManager {
                             }
                             Err(e) => {
                                 error!("Failed to process file batch for {}: {}", repo_path.display(), e);
-                                
+
                                 // Update error count and implement error recovery with limits
                                 let mut stats_guard = stats.write().await;
                                 stats_guard.update_errors += 1;
                                 let error_count = stats_guard.update_errors;
                                 drop(stats_guard);
-                                
+
                                 // Check if we've exceeded maximum consecutive errors
                                 if error_count >= MAX_CONSECUTIVE_ERRORS {
                                     error!("Maximum consecutive errors ({}) reached for {}. Stopping file processing to prevent infinite loops.", MAX_CONSECUTIVE_ERRORS, repo_path.display());
                                     break;
                                 }
-                                
+
                                 // Implement exponential backoff for error recovery
                                 if error_count >= 3 {
                                     let backoff_factor = std::cmp::min(error_count - 2, 10); // Cap the exponential growth
@@ -323,7 +340,7 @@ impl IndexManager {
                                     warn!("Multiple consecutive errors ({}), implementing recovery delay of {}ms", error_count, delay_ms);
                                     tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                                 }
-                                
+
                                 // Log detailed error information for debugging
                                 debug!("Error context: batch contained {} events, total consecutive errors: {}", batch_size, error_count);
                             }
@@ -333,7 +350,7 @@ impl IndexManager {
             }
         }
     }
-    
+
     /// Handle a batch of file changes
     async fn handle_file_batch(
         index: &Arc<RwLock<Option<PersistentChunkIndex>>>,
@@ -344,46 +361,46 @@ impl IndexManager {
         if batch.events.is_empty() {
             return Ok(());
         }
-        
+
         debug!("Processing file batch with {} events", batch.events.len());
-        
+
         // Check if there are any file changes that require index updates
         let has_file_changes = batch.events.iter().any(|event| event.is_file_event());
-        
+
         if !has_file_changes {
             return Ok(());
         }
-        
+
         // For now, we'll use a simple approach: mark that files have changed
         // and update statistics. In the future, this could be enhanced to use
         // the IncrementalUpdater for more sophisticated updates.
-        
+
         // Update statistics
         {
             let mut stats_guard = stats.write().await;
             stats_guard.updates_processed += 1;
             stats_guard.last_update = Some(Instant::now());
-            
+
             // Estimate changes based on event types
             let (modified_files, created_files, deleted_files) = batch.group_by_type();
             stats_guard.files_added += created_files.len() as u64;
             stats_guard.files_updated += modified_files.len() as u64;
             stats_guard.files_removed += deleted_files.len() as u64;
-            
+
             // Update total files/chunks from current index
             if let Some(ref current_index) = *index.read().await {
                 stats_guard.total_chunks = current_index.len();
             }
         }
-        
+
         info!(
             "File changes detected: {} events processed, statistics updated",
             batch.events.len()
         );
-        
+
         Ok(())
     }
-    
+
     /// Periodic maintenance task
     async fn periodic_maintenance(
         repo_path: PathBuf,
@@ -392,9 +409,9 @@ impl IndexManager {
         shutdown_rx: &mut watch::Receiver<bool>,
     ) {
         info!("Starting periodic maintenance task");
-        
+
         let mut maintenance_interval = interval(Duration::from_secs(MAINTENANCE_INTERVAL_SECS)); // 5 minutes
-        
+
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
@@ -403,45 +420,44 @@ impl IndexManager {
                         break;
                     }
                 }
-                
+
                 _ = maintenance_interval.tick() => {
                     Self::perform_maintenance(&repo_path, &index, &stats).await;
                 }
             }
         }
     }
-    
+
     /// Perform periodic maintenance
     async fn perform_maintenance(
-        repo_path: &PathBuf,
+        repo_path: &Path,
         index: &Arc<RwLock<Option<PersistentChunkIndex>>>,
         stats: &Arc<RwLock<IndexStats>>,
     ) {
         debug!("Performing periodic maintenance");
-        
+
         // Log statistics
         {
             let stats_guard = stats.read().await;
             if stats_guard.updates_processed > 0 {
                 info!(
                     "Index stats: {} chunks, {} updates processed",
-                    stats_guard.total_chunks,
-                    stats_guard.updates_processed
+                    stats_guard.total_chunks, stats_guard.updates_processed
                 );
-                
+
                 if stats_guard.update_errors > 0 {
                     warn!("Update errors encountered: {}", stats_guard.update_errors);
                 }
             }
         }
-        
+
         // Persist index to disk with retry logic
         {
             let index_guard = index.read().await;
             if let Some(ref current_index) = *index_guard {
                 const MAX_SAVE_RETRIES: u32 = 3;
                 let mut save_attempt = 0;
-                
+
                 loop {
                     match current_index.save() {
                         Ok(()) => {
@@ -451,22 +467,33 @@ impl IndexManager {
                         Err(e) => {
                             save_attempt += 1;
                             if save_attempt >= MAX_SAVE_RETRIES {
-                                error!("Failed to save index for {} after {} attempts: {}", repo_path.display(), MAX_SAVE_RETRIES, e);
-                                
+                                error!(
+                                    "Failed to save index for {} after {} attempts: {}",
+                                    repo_path.display(),
+                                    MAX_SAVE_RETRIES,
+                                    e
+                                );
+
                                 // Update error statistics
                                 let mut stats_guard = stats.write().await;
                                 stats_guard.update_errors += 1;
                                 break;
                             } else {
-                                warn!("Failed to save index (attempt {}), retrying: {}", save_attempt, e);
-                                tokio::time::sleep(Duration::from_millis(SAVE_RETRY_DELAY_BASE_MS * save_attempt as u64)).await;
+                                warn!(
+                                    "Failed to save index (attempt {}), retrying: {}",
+                                    save_attempt, e
+                                );
+                                tokio::time::sleep(Duration::from_millis(
+                                    SAVE_RETRY_DELAY_BASE_MS * save_attempt as u64,
+                                ))
+                                .await;
                             }
                         }
                     }
                 }
             }
         }
-        
+
         debug!("Maintenance cycle completed");
     }
 }
@@ -475,24 +502,26 @@ impl IndexManager {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    
+
     #[tokio::test]
     async fn test_index_manager_creation() {
         let temp_dir = TempDir::new().unwrap();
         let config = TurboPropConfig::default();
-        
+
         let manager = IndexManager::new(temp_dir.path(), &config, None).await;
         assert!(manager.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_index_stats() {
         let temp_dir = TempDir::new().unwrap();
         let config = TurboPropConfig::default();
-        
-        let manager = IndexManager::new(temp_dir.path(), &config, None).await.unwrap();
+
+        let manager = IndexManager::new(temp_dir.path(), &config, None)
+            .await
+            .unwrap();
         let stats = manager.get_stats().await;
-        
+
         assert_eq!(stats.total_chunks, 0);
         assert_eq!(stats.updates_processed, 0);
     }

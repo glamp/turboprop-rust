@@ -26,3 +26,5 @@ Thumbs.db
 # Test data and sample codebases  
 sample-codebases/
 test_temp/
+test_mcp_repo/
+TEST_FAILURES.md

@@ -55,6 +55,113 @@ cargo build --release
    tp search "jwt authentication" --repo . --output text
    ```
 
+## Model Support
+
+TurboProp now supports multiple embedding models to optimize for different use cases:
+
+### Available Models
+
+#### Sentence Transformer Models (FastEmbed)
+- `sentence-transformers/all-MiniLM-L6-v2` (default)
+  - Fast and lightweight, good for general use
+  - 384 dimensions, ~23MB
+  - Automatic download and caching
+
+- `sentence-transformers/all-MiniLM-L12-v2`
+  - Better accuracy with slightly more compute
+  - 384 dimensions, ~44MB
+
+#### Specialized Code Models
+- `nomic-embed-code.Q5_K_S.gguf`
+  - Specialized for code search and retrieval
+  - 768 dimensions, ~2.5GB
+  - Supports multiple programming languages
+  - Quantized for efficient inference
+
+#### Multilingual Models
+- `Qwen/Qwen3-Embedding-0.6B`
+  - State-of-the-art multilingual support (100+ languages)
+  - 1024 dimensions, ~600MB
+  - Supports instruction-based embeddings
+  - Excellent for code and text retrieval
+
+### Model Selection Guide
+
+Choose your model based on your use case:
+
+| Use Case | Recommended Model | Why |
+|----------|-------------------|-----|
+| General code search | `sentence-transformers/all-MiniLM-L6-v2` | Fast, reliable, good balance |
+| Specialized code search | `nomic-embed-code.Q5_K_S.gguf` | Optimized for code understanding |
+| Multilingual projects | `Qwen/Qwen3-Embedding-0.6B` | Best multilingual support |
+| Low resource environments | `sentence-transformers/all-MiniLM-L6-v2` | Smallest memory footprint |
+| Maximum accuracy | `Qwen/Qwen3-Embedding-0.6B` | State-of-the-art performance |
+
+### Usage Examples
+
+#### Basic Model Selection
+```bash
+# List available models
+tp model list
+
+# Get model information
+tp model info "Qwen/Qwen3-Embedding-0.6B"
+
+# Download a model before use
+tp model download "nomic-embed-code.Q5_K_S.gguf"
+```
+
+#### Indexing with Different Models
+```bash
+# Use default model
+tp index --repo ./my-project
+
+# Use specialized code model
+tp index --repo ./my-project --model "nomic-embed-code.Q5_K_S.gguf"
+
+# Use multilingual model with instruction
+tp index --repo ./my-project \
+  --model "Qwen/Qwen3-Embedding-0.6B" \
+  --instruction "Represent this code for semantic search"
+```
+
+#### Searching with Model Consistency
+```bash
+# Search using the same model used for indexing
+tp search "jwt authentication" --model "nomic-embed-code.Q5_K_S.gguf"
+
+# Use instruction for context-aware search (Qwen3 only)
+tp search "error handling" \
+  --model "Qwen/Qwen3-Embedding-0.6B" \
+  --instruction "Find code related to error handling and exceptions"
+```
+
+### Configuration File Support
+
+Create `.turboprop.yml` in your project root:
+```yaml
+# Default model for all operations
+default_model: "sentence-transformers/all-MiniLM-L6-v2"
+
+# Model-specific configurations
+models:
+  "Qwen/Qwen3-Embedding-0.6B":
+    instruction: "Represent this code for semantic search"
+    cache_dir: "~/.turboprop/qwen3-cache"
+  
+  "nomic-embed-code.Q5_K_S.gguf":
+    cache_dir: "~/.turboprop/nomic-cache"
+
+# Performance settings
+embedding:
+  batch_size: 32
+  cache_embeddings: true
+  
+# Resource limits
+max_memory_usage: "8GB"
+warn_large_models: true
+```
+
 ## Complete Usage Guide
 
 ### Indexing Command

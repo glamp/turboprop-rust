@@ -758,6 +758,360 @@ echo 'export TURBOPROP_MODEL="sentence-transformers/all-MiniLM-L12-v2"' >> ~/.ba
 source ~/.bashrc
 ```
 
+## Model-Specific Issues
+
+### Model not found or unavailable
+
+**Problem**: Error when trying to use a specific model.
+
+**Common causes and solutions**:
+
+1. **Model name typo**:
+   ```bash
+   # Check available models first
+   tp model list
+   
+   # Use exact model name
+   tp index --repo . --model "sentence-transformers/all-MiniLM-L6-v2"
+   ```
+
+2. **Model not yet downloaded**:
+   ```bash
+   # Download explicitly before use
+   tp model download "Qwen/Qwen3-Embedding-0.6B"
+   
+   # Then index
+   tp index --repo . --model "Qwen/Qwen3-Embedding-0.6B"
+   ```
+
+3. **Model temporarily unavailable**:
+   ```bash
+   # Try alternative model
+   tp model list  # See available alternatives
+   tp index --repo . --model "sentence-transformers/all-MiniLM-L12-v2"
+   ```
+
+### GGUF model loading failures
+
+**Problem**: Nomic code model or other GGUF models fail to load.
+
+**Diagnosis**:
+```bash
+# Check model info and requirements
+tp model info "nomic-embed-code.Q5_K_S.gguf"
+
+# Check available memory
+free -h  # Linux
+vm_stat  # macOS
+
+# Enable debug logging
+export RUST_LOG=turboprop=debug
+tp index --repo . --model "nomic-embed-code.Q5_K_S.gguf"
+```
+
+**Solutions**:
+
+1. **Insufficient memory**:
+   ```bash
+   # Check system memory requirements
+   tp model info "nomic-embed-code.Q5_K_S.gguf"
+   
+   # Reduce batch size for large models
+   tp index --repo . --model "nomic-embed-code.Q5_K_S.gguf" --batch-size 4
+   
+   # Close other applications to free memory
+   # Add swap space if needed (Linux)
+   sudo fallocate -l 4G /swapfile
+   sudo chmod 600 /swapfile
+   sudo mkswap /swapfile
+   sudo swapon /swapfile
+   ```
+
+2. **Model file corruption**:
+   ```bash
+   # Clear model cache and re-download
+   tp model clear "nomic-embed-code.Q5_K_S.gguf"
+   tp model download "nomic-embed-code.Q5_K_S.gguf"
+   ```
+
+3. **Architecture incompatibility**:
+   ```bash
+   # Check if model is compatible with your system
+   uname -m  # Should show x86_64 or arm64
+   
+   # Try alternative models if incompatible
+   tp model list | grep -E "(sentence-transformers|Qwen)"
+   ```
+
+### Qwen3 model issues
+
+**Problem**: Qwen/Qwen3-Embedding-0.6B model fails to work or gives poor results.
+
+**Common issues**:
+
+1. **Missing Hugging Face token for gated models**:
+   ```bash
+   # Some models require authentication
+   export HF_TOKEN="your_huggingface_token"
+   tp model download "Qwen/Qwen3-Embedding-0.6B"
+   ```
+
+2. **Not using instructions properly**:
+   ```bash
+   # Qwen3 works best with instructions
+   tp index --repo . \
+     --model "Qwen/Qwen3-Embedding-0.6B" \
+     --instruction "Represent this code for semantic search"
+   
+   # Use consistent instructions for search
+   tp search "authentication" \
+     --model "Qwen/Qwen3-Embedding-0.6B" \
+     --instruction "Find code related to user authentication"
+   ```
+
+3. **PyTorch dependency issues**:
+   ```bash
+   # Qwen3 may require additional dependencies
+   pip install torch transformers  # If using Python backend
+   
+   # Or use alternative models
+   tp index --repo . --model "sentence-transformers/all-MiniLM-L12-v2"
+   ```
+
+### Model download and caching issues
+
+**Problem**: Model downloads fail, are slow, or take up too much space.
+
+**Solutions**:
+
+1. **Network/firewall issues**:
+   ```bash
+   # Test connectivity
+   curl -I https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+   
+   # Configure proxy if needed
+   export HTTP_PROXY=http://proxy.company.com:8080
+   export HTTPS_PROXY=http://proxy.company.com:8080
+   tp model download "model-name"
+   
+   # Use alternative cache directory
+   export TURBOPROP_CACHE_DIR="/custom/path"
+   tp model download "model-name"
+   ```
+
+2. **Disk space issues**:
+   ```bash
+   # Check cache directory size
+   du -sh ~/.turboprop/models/
+   du -sh ~/.cache/fastembed/
+   
+   # Clear unused models
+   tp model clear
+   
+   # Or clear specific models
+   tp model clear "large-model-name"
+   
+   # Use custom cache location with more space
+   tp index --repo . --cache-dir /mnt/large-drive/turboprop-cache
+   ```
+
+3. **Slow downloads**:
+   ```bash
+   # Download models in advance
+   tp model download "sentence-transformers/all-MiniLM-L6-v2"
+   tp model download "sentence-transformers/all-MiniLM-L12-v2"
+   
+   # Use verbose mode to monitor progress
+   tp model download "model-name" --verbose
+   
+   # Consider using smaller models for slower connections
+   tp model list | grep -E "(MiniLM-L6|small)"
+   ```
+
+### Model performance issues
+
+**Problem**: Model inference is too slow or uses too much memory.
+
+**Diagnosis**:
+```bash
+# Benchmark different models
+tp benchmark --models "sentence-transformers/all-MiniLM-L6-v2,nomic-embed-code.Q5_K_S.gguf"
+
+# Monitor resource usage
+top -p $(pgrep tp)  # Linux
+top | grep tp       # macOS
+
+# Check model requirements
+tp model info "current-model-name"
+```
+
+**Solutions**:
+
+1. **Switch to faster model**:
+   ```bash
+   # Use lightweight model for speed
+   tp index --repo . --model "sentence-transformers/all-MiniLM-L6-v2"
+   
+   # Compare performance
+   time tp search "test query" --model "sentence-transformers/all-MiniLM-L6-v2"
+   time tp search "test query" --model "sentence-transformers/all-MiniLM-L12-v2"
+   ```
+
+2. **Optimize batch processing**:
+   ```bash
+   # Reduce batch size for memory-constrained systems
+   tp index --repo . --batch-size 8
+   
+   # Increase batch size for systems with more memory
+   tp index --repo . --batch-size 64
+   ```
+
+3. **Use model-specific optimizations**:
+   ```yaml
+   # .turboprop.yml
+   models:
+     "nomic-embed-code.Q5_K_S.gguf":
+       batch_size: 4  # Smaller batches for large models
+       cache_embeddings: true
+     
+     "sentence-transformers/all-MiniLM-L6-v2":
+       batch_size: 32  # Larger batches for small models
+   ```
+
+### Model compatibility and migration issues
+
+**Problem**: Switching between models causes issues or poor results.
+
+**Solutions**:
+
+1. **Re-index when switching models**:
+   ```bash
+   # Always re-index when changing models
+   tp index --repo . --model "new-model-name" --force-rebuild
+   
+   # Use same model for search as indexing
+   tp search "query" --model "new-model-name"
+   ```
+
+2. **Compare model results**:
+   ```bash
+   # Create separate indexes for comparison
+   mkdir model-comparison
+   cd model-comparison
+   
+   # Index with different models
+   tp index --repo ../your-project --model "sentence-transformers/all-MiniLM-L6-v2"
+   tp search "test query" > results-miniLM-L6.txt
+   
+   tp index --repo ../your-project --model "nomic-embed-code.Q5_K_S.gguf" --force-rebuild
+   tp search "test query" > results-nomic.txt
+   
+   # Compare results
+   diff results-miniLM-L6.txt results-nomic.txt
+   ```
+
+3. **Handle dimension mismatches**:
+   ```bash
+   # Different models have different embedding dimensions
+   # Always re-index when switching models
+   
+   # Check model dimensions
+   tp model info "sentence-transformers/all-MiniLM-L6-v2"  # 384 dims
+   tp model info "nomic-embed-code.Q5_K_S.gguf"           # 768 dims
+   tp model info "Qwen/Qwen3-Embedding-0.6B"             # 1024 dims
+   ```
+
+### Instruction-based embedding issues
+
+**Problem**: Qwen3 instructions don't seem to improve results.
+
+**Solutions**:
+
+1. **Use appropriate instructions**:
+   ```bash
+   # For code search
+   tp index --repo . \
+     --model "Qwen/Qwen3-Embedding-0.6B" \
+     --instruction "Represent this code for semantic search"
+   
+   # For documentation search
+   tp index --repo . \
+     --model "Qwen/Qwen3-Embedding-0.6B" \
+     --instruction "Represent this documentation for question answering"
+   
+   # For API endpoint search
+   tp search "user authentication" \
+     --model "Qwen/Qwen3-Embedding-0.6B" \
+     --instruction "Find API endpoints related to user authentication"
+   ```
+
+2. **Consistent instruction usage**:
+   ```bash
+   # Use same instruction for indexing and searching
+   # Index with instruction
+   tp index --repo . \
+     --model "Qwen/Qwen3-Embedding-0.6B" \
+     --instruction "Represent this code for semantic search"
+   
+   # Search with same instruction
+   tp search "database connection" \
+     --model "Qwen/Qwen3-Embedding-0.6B" \
+     --instruction "Represent this code for semantic search"
+   ```
+
+3. **Test different instructions**:
+   ```bash
+   # Try various instruction styles
+   tp search "error handling" \
+     --instruction "Find code that handles errors and exceptions"
+   
+   tp search "error handling" \
+     --instruction "Represent error handling code for retrieval"
+   
+   tp search "error handling" \
+     --instruction "Query: error handling code"
+   ```
+
+### Model validation and health checks
+
+**Problem**: Need to verify model is working correctly.
+
+**Health check commands**:
+```bash
+# Basic model validation
+tp model info "your-model-name"
+
+# Test model loading
+tp index --repo . --model "your-model-name" --limit 1 --verbose
+
+# Benchmark model performance
+tp benchmark --models "your-model-name" --text-count 10
+
+# Test search functionality
+echo "test function() { return true; }" > test_file.js
+tp index --repo . --model "your-model-name"
+tp search "test function" --model "your-model-name"
+rm test_file.js
+```
+
+**Validation checklist**:
+```bash
+# 1. Model downloads successfully
+tp model download "model-name"
+
+# 2. Model loads without errors
+tp model info "model-name"
+
+# 3. Can generate embeddings
+tp index --repo . --model "model-name" --limit 1
+
+# 4. Search produces reasonable results
+tp search "common term in your codebase" --model "model-name" --limit 3
+
+# 5. Performance is acceptable
+time tp search "test query" --model "model-name"
+```
+
 ## Watch Mode Issues
 
 ### Watch mode not detecting changes

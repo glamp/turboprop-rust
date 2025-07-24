@@ -144,10 +144,12 @@ fn test_config_integration() {
         "sentence-transformers/all-MiniLM-L6-v2"
     );
     assert_eq!(config.embedding.batch_size, 32);
-    assert_eq!(
-        config.embedding.cache_dir,
-        PathBuf::from(".turboprop/models")
-    );
+    
+    // Cache directory should now default to ~/.turboprop/models
+    let expected_cache_dir = dirs::home_dir()
+        .map(|p| p.join(".turboprop").join("models"))
+        .unwrap_or_else(|| PathBuf::from(".turboprop/models"));
+    assert_eq!(config.embedding.cache_dir, expected_cache_dir);
 
     // Test validation passes
     assert!(config.validate().is_ok());

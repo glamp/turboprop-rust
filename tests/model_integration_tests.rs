@@ -285,7 +285,11 @@ fn test_embedding_config_models() {
         assert_eq!(config.model_name, model.name.as_str());
         assert_eq!(config.embedding_dimensions, model.dimensions);
         assert_eq!(config.batch_size, 16);
-        assert_eq!(config.cache_dir.to_string_lossy(), ".turboprop/models");
+        // Cache directory should now default to ~/.turboprop/models
+        let expected_cache_dir = dirs::home_dir()
+            .map(|p| p.join(".turboprop").join("models"))
+            .unwrap_or_else(|| std::path::PathBuf::from(".turboprop/models"));
+        assert_eq!(config.cache_dir, expected_cache_dir);
     }
 }
 

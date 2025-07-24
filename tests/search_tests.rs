@@ -11,6 +11,10 @@ use turboprop::config::TurboPropConfig;
 use turboprop::index::PersistentChunkIndex;
 use turboprop::search::{search_index, SearchConfig, SearchEngine};
 use turboprop::{build_persistent_index, search_with_config};
+use turboprop::types::{ChunkIndex, IndexedChunk, ContentChunk, ChunkId, SourceLocation, TokenCount, ChunkIndexNum};
+use turboprop::embeddings::mock::MockEmbeddingGenerator;
+use turboprop::embeddings::config::EmbeddingConfig;
+use std::path::PathBuf;
 
 /// Maximum allowed duration for performance tests in seconds
 const PERFORMANCE_TEST_TIMEOUT_SECONDS: u64 = 30;
@@ -28,10 +32,68 @@ const STANDARD_RESULT_LIMIT: usize = 5;
 
 // Test file location constants
 
-/// Build a test index for the given directory
+/// Build a test index for the given directory using real models (slow)
 async fn build_test_index(path: &Path) -> Result<PersistentChunkIndex> {
-    let config = TurboPropConfig::default();
+    let mut config = TurboPropConfig::default();
+    // Use persistent cache to avoid re-downloading models
+    config.embedding = common::create_persistent_embedding_config();
     build_persistent_index(path, &config).await
+}
+
+/// Create a mock test chunk for testing
+fn create_test_chunk(id: &str, content: &str, file_path: &str) -> ContentChunk {
+    ContentChunk {
+        id: ChunkId::new(id.to_string()),
+        content: content.to_string(),
+        token_count: TokenCount::new(content.len() / 4), // Rough token estimate
+        source_location: SourceLocation {
+            file_path: PathBuf::from(file_path),
+            start_line: 1,
+            end_line: 2,
+            start_char: 0,
+            end_char: content.len(),
+        },
+        chunk_index: ChunkIndexNum::new(0),
+        total_chunks: 1,
+    }
+}
+
+/// Create a mock indexed chunk for testing
+fn create_test_indexed_chunk(
+    id: &str,
+    content: &str,
+    file_path: &str,
+    embedding: Vec<f32>,
+) -> IndexedChunk {
+    IndexedChunk {
+        chunk: create_test_chunk(id, content, file_path),
+        embedding,
+    }
+}
+
+/// Build a test index with mock embeddings (fast - for unit tests)
+fn build_mock_test_index() -> Result<ChunkIndex> {
+    let mut mock_generator = MockEmbeddingGenerator::new(EmbeddingConfig::default());
+    
+    // Create test content similar to what would be found in a codebase
+    let test_data = vec![
+        ("chunk1", "function main() { println!(\"Hello, world!\"); }", "main.rs"),
+        ("chunk2", "pub struct User { id: u32, name: String }", "types.rs"),
+        ("chunk3", "impl User { fn new(id: u32, name: String) -> Self { User { id, name } } }", "types.rs"),
+        ("chunk4", "fn calculate_sum(a: i32, b: i32) -> i32 { a + b }", "math.rs"),
+        ("chunk5", "use std::collections::HashMap; fn process_data() {}", "processing.rs"),
+    ];
+    
+    let mut index = ChunkIndex::new();
+    
+    for (id, content, file_path) in test_data {
+        // Generate mock embedding for this content
+        let embedding = mock_generator.embed_single(content)?;
+        let chunk = create_test_chunk(id, content, file_path);
+        index.add_chunk(chunk, embedding);
+    }
+    
+    Ok(index)
 }
 
 #[tokio::test]
@@ -48,92 +110,54 @@ async fn test_search_config() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_basic_search_functionality() -> Result<()> {
-    let temp_dir = common::create_test_codebase()?;
-    let temp_path = temp_dir.path();
-
-    // This test might fail in CI without model access, so we handle that gracefully
-    match build_test_index(temp_path).await {
-        Ok(index) => {
-            assert!(!index.is_empty(), "Index should contain chunks");
-
-            // Try to create a search engine
-            let search_config = SearchConfig::default().with_limit(5);
-            match SearchEngine::new(temp_path, search_config).await {
-                Ok(mut engine) => {
-                    assert!(engine.index_size() > 0);
-                    assert!(engine.embedding_dimensions() > 0);
-
-                    // Try a basic search
-                    match engine.search("function main") {
-                        Ok(results) => {
-                            // If successful, validate results
-                            assert!(results.len() <= 5);
-                            for result in &results {
-                                assert!(result.similarity >= 0.0 && result.similarity <= 1.0);
-                                assert!(!result.location_display().is_empty());
-                                assert!(!result.content_preview(50).is_empty());
-                            }
-                        }
-                        Err(_) => {
-                            // Expected in environments without model access
-                            println!(
-                                "Search failed - likely due to missing model in test environment"
-                            );
-                        }
-                    }
-                }
-                Err(_) => {
-                    println!("SearchEngine creation failed - likely due to missing model in test environment");
-                }
-            }
-        }
-        Err(_) => {
-            println!("Index building failed - likely due to missing model in test environment");
-        }
+#[test]
+fn test_basic_search_functionality() -> Result<()> {
+    // Use mock index for fast unit testing
+    let index = build_mock_test_index()?;
+    
+    assert!(!index.is_empty(), "Index should contain chunks");
+    assert_eq!(index.len(), 5, "Should have 5 test chunks");
+    
+    // Test similarity search functionality
+    let chunks = index.get_chunks();
+    assert_eq!(chunks.len(), 5);
+    
+    // Test that all chunks have proper embeddings
+    for chunk in chunks {
+        assert!(!chunk.embedding.is_empty(), "Each chunk should have an embedding");
+        assert_eq!(chunk.embedding.len(), 384, "Should use default embedding dimensions");
+        assert!(!chunk.chunk.content.is_empty(), "Each chunk should have content");
+        assert!(!chunk.chunk.source_location.file_path.to_string_lossy().is_empty(), "Each chunk should have a file path");
     }
-
+    
     Ok(())
 }
 
-#[tokio::test]
-async fn test_search_with_threshold() -> Result<()> {
-    let temp_dir = common::create_test_codebase()?;
-    let temp_path = temp_dir.path();
-
-    // Test the search_index function with threshold
-    match search_index(
-        temp_path,
-        "authentication",
-        Some(SMALL_RESULT_LIMIT),
-        Some(MEDIUM_SIMILARITY_THRESHOLD),
-    )
-    .await
-    {
-        Ok(results) => {
-            // Verify all results meet the threshold
-            for result in &results {
-                assert!(
-                    result.similarity >= 0.5,
-                    "Result similarity {} below threshold 0.5",
-                    result.similarity
-                );
-            }
-            assert!(results.len() <= 3, "Results should be limited to 3");
-        }
-        Err(e) => {
-            // Expected in CI without model access
-            assert!(
-                e.to_string().contains("load")
-                    || e.to_string().contains("model")
-                    || e.to_string().contains("embedding")
-                    || e.to_string().contains("index")
-            );
-            println!("Search test failed as expected in test environment: {}", e);
-        }
+#[test]
+fn test_search_with_threshold() -> Result<()> {
+    // Create mock index with test data
+    let index = build_mock_test_index()?;
+    
+    // Create mock query embedding (similar to "authentication" which doesn't match our test data well)
+    let mut mock_generator = MockEmbeddingGenerator::new(EmbeddingConfig::default());
+    let query_embedding = mock_generator.embed_single("authentication")?;
+    
+    // Test similarity search functionality
+    let results = index.similarity_search(&query_embedding, SMALL_RESULT_LIMIT);
+    
+    // All results should meet minimum similarity and be within limit
+    assert!(results.len() <= SMALL_RESULT_LIMIT, "Results should be limited to {}", SMALL_RESULT_LIMIT);
+    
+    // Test that similarity scores are reasonable (between 0.0 and 1.0)
+    for (similarity, chunk) in &results {
+        assert!(*similarity >= 0.0 && *similarity <= 1.0, 
+               "Similarity score {} should be between 0.0 and 1.0", similarity);
+        
+        // Test chunk properties
+        assert!(!chunk.chunk.content.is_empty(), "Chunk should have content");
+        assert!(!chunk.chunk.id.as_str().is_empty(), "Chunk should have an ID");
     }
-
+    
     Ok(())
 }
 

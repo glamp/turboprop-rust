@@ -95,10 +95,15 @@
 //! | Type-safe configuration | ✓ (via `TestConfigBuilder`) |
 //! | Test isolation | ✓ (individual temp directories) |
 
+mod common;
+
 use anyhow::Result;
 use std::path::Path;
-use std::sync::Once;
+use std::sync::{Mutex, Once};
 use tempfile::TempDir;
+
+// Global mutex to serialize model loading across tests to prevent lock conflicts
+static MODEL_LOCK: Mutex<()> = Mutex::new(());
 use turboprop::commands::{execute_search_command_cli, SearchCliArgs};
 use turboprop::config::TurboPropConfig;
 use turboprop::{build_persistent_index, index_exists};
@@ -315,7 +320,10 @@ async fn build_test_index_if_needed(path: &Path) -> Result<bool> {
         return Ok(true);
     }
 
-    match build_persistent_index(path, &TurboPropConfig::default()).await {
+    let mut config = TurboPropConfig::default();
+    // Use persistent cache to avoid re-downloading models
+    config.embedding = common::create_persistent_embedding_config();
+    match build_persistent_index(path, &config).await {
         Ok(_) => Ok(true),
         Err(_) => {
             // Expected in CI/test environments without model access
@@ -478,6 +486,9 @@ async fn execute_test_search(
     temp_path: &Path,
     options: TestSearchOptions,
 ) -> Result<()> {
+    // Acquire global model lock to prevent concurrent model loading conflicts
+    let _guard = MODEL_LOCK.lock().unwrap();
+    
     let args = SearchCliArgs::new(
         query.to_string(),
         temp_path.to_path_buf(),

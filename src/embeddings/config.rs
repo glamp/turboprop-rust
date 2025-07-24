@@ -43,7 +43,9 @@ impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
             model_name: DEFAULT_MODEL.to_string(),
-            cache_dir: PathBuf::from(".turboprop/models"),
+            cache_dir: dirs::home_dir()
+                .map(|p| p.join(".turboprop").join("models"))
+                .unwrap_or_else(|| PathBuf::from(".turboprop/models")),
             batch_size: 32,
             fastembed_batch_size: 32,
             gguf_batch_size: 8,

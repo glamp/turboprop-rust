@@ -59,7 +59,12 @@ mod tests {
         let config = EmbeddingConfig::default();
         assert_eq!(config.model_name, DEFAULT_MODEL);
         assert_eq!(config.batch_size, 32);
-        assert_eq!(config.cache_dir, PathBuf::from(".turboprop/models"));
+        
+        // Cache directory should now default to ~/.turboprop/models
+        let expected_cache_dir = dirs::home_dir()
+            .map(|p| p.join(".turboprop").join("models"))
+            .unwrap_or_else(|| PathBuf::from(".turboprop/models"));
+        assert_eq!(config.cache_dir, expected_cache_dir);
     }
 
     #[tokio::test]

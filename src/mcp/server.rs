@@ -14,6 +14,7 @@ use crate::config::TurboPropConfig;
 use crate::index::PersistentChunkIndex;
 use crate::types::{ConnectionLimit, Port, TimeoutSeconds};
 
+use super::index_manager::IndexManager;
 use super::protocol::{
     constants, InitializeParams, InitializeResult, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
     ServerCapabilities, ServerInfo, ToolsCapability,
@@ -76,6 +77,8 @@ pub struct McpServer {
     /// Server running state
     #[allow(dead_code)]
     running: Arc<RwLock<bool>>,
+    /// Index manager for file watching and incremental updates
+    index_manager: Arc<RwLock<Option<IndexManager>>>,
 }
 
 impl McpServer {
@@ -97,6 +100,7 @@ impl McpServer {
             index: Arc::new(RwLock::new(None)),
             initialized: Arc::new(RwLock::new(false)),
             running: Arc::new(RwLock::new(false)),
+            index_manager: Arc::new(RwLock::new(None)),
         };
 
         Ok(server)
@@ -112,15 +116,39 @@ impl McpServer {
             index: Arc::new(RwLock::new(None)),
             initialized: Arc::new(RwLock::new(false)),
             running: Arc::new(RwLock::new(false)),
+            index_manager: Arc::new(RwLock::new(None)),
         }
     }
 
-    /// Run the MCP server
+    /// Run the MCP server with file watching
     pub async fn run(self) -> Result<()> {
         let server = Arc::new(self);
 
         // Initialize transport
         let mut transport = StdioTransport::new();
+
+        // Initialize index manager
+        let mut index_manager = IndexManager::new(
+            &server.repo_path,
+            &server.config,
+            None, // Initial index will be set after building
+        ).await.context("Failed to create index manager")?;
+
+        // Start index manager
+        index_manager.start()
+            .await
+            .context("Failed to start index manager")?;
+
+        // Store index manager reference
+        {
+            let mut manager_guard = server.index_manager.write().await;
+            *manager_guard = Some(index_manager);
+        }
+
+        // Initialize index immediately (avoid spawn to prevent Send issues)
+        if let Err(e) = server.initialize_index_with_manager().await {
+            error!("Failed to initialize index: {}", e);
+        }
 
         info!("MCP server ready and listening on stdio...");
 
@@ -149,6 +177,11 @@ impl McpServer {
                     break;
                 }
             }
+        }
+
+        // Cleanup
+        if let Some(manager) = server.index_manager.read().await.as_ref() {
+            let _ = manager.stop().await;
         }
 
         Ok(())
@@ -388,6 +421,34 @@ impl McpServer {
         };
 
         Ok(index)
+    }
+
+    /// Initialize index with manager integration
+    async fn initialize_index_with_manager(&self) -> Result<()> {
+        info!("Starting index initialization");
+        
+        // Build initial index
+        let index = Self::initialize_index(&self.repo_path, &self.config).await?;
+        
+        // Set index in manager
+        if let Some(manager) = self.index_manager.read().await.as_ref() {
+            manager.set_index(index.clone()).await;
+        }
+        
+        // Set index in server
+        {
+            let mut index_guard = self.index.write().await;
+            *index_guard = Some(index);
+        }
+        
+        // Mark as initialized
+        {
+            let mut initialized_guard = self.initialized.write().await;
+            *initialized_guard = true;
+        }
+        
+        info!("Index initialization completed with file watching enabled");
+        Ok(())
     }
 
     /// Initialize the server (public method for tests)

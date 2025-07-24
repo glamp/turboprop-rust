@@ -9,12 +9,14 @@
 //! - Integration with existing TurboProp infrastructure
 
 pub mod error;
+pub mod index_manager;
 pub mod protocol;
 pub mod server;
 pub mod tools;
 pub mod transport;
 
 pub use error::ErrorHandler;
+pub use index_manager::{IndexManager, IndexStats};
 pub use server::{McpServer, McpServerBuilder, McpServerConfig, McpServerTrait};
 pub use transport::{
     RequestValidator, StdioTransport, StdioTransportConfig, TokenBucketRateLimiter,

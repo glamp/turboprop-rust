@@ -2,9 +2,11 @@ use anyhow::{Context, Result};
 use git2::{Repository, Status, StatusOptions};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
+#[derive(Clone)]
 pub struct GitRepo {
-    repo: Repository,
+    repo: Arc<Mutex<Repository>>,
     root_path: PathBuf,
 }
 
@@ -26,7 +28,10 @@ impl GitRepo {
             })?
             .to_path_buf();
 
-        Ok(Self { repo, root_path })
+        Ok(Self { 
+            repo: Arc::new(Mutex::new(repo)), 
+            root_path 
+        })
     }
 
     pub fn is_git_repo(path: &Path) -> bool {
@@ -39,7 +44,8 @@ impl GitRepo {
 
     pub fn get_tracked_files(&self) -> Result<HashSet<PathBuf>> {
         let mut files = HashSet::new();
-        let mut index = self.repo.index()?;
+        let repo = self.repo.lock().unwrap();
+        let mut index = repo.index()?;
         index.update_all(std::iter::empty::<&str>(), None)?;
 
         for entry in index.iter() {
@@ -58,7 +64,8 @@ impl GitRepo {
         let mut opts = StatusOptions::new();
         opts.include_untracked(true).include_ignored(false);
 
-        let statuses = self.repo.statuses(Some(&mut opts))?;
+        let repo = self.repo.lock().unwrap();
+        let statuses = repo.statuses(Some(&mut opts))?;
 
         for entry in statuses.iter() {
             let flags = entry.status();
@@ -88,7 +95,8 @@ impl GitRepo {
     pub fn is_ignored(&self, path: &Path) -> Result<bool> {
         let relative_path = path.strip_prefix(&self.root_path).unwrap_or(path);
 
-        let status = self.repo.status_file(relative_path)?;
+        let repo = self.repo.lock().unwrap();
+        let status = repo.status_file(relative_path)?;
         Ok(status.contains(Status::IGNORED))
     }
 }

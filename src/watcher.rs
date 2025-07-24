@@ -42,6 +42,8 @@ pub enum WatchEvent {
     Created(PathBuf),
     /// File was deleted
     Deleted(PathBuf),
+    /// File was renamed
+    Renamed { from: PathBuf, to: PathBuf },
     /// Directory was created (may contain new files)
     DirectoryCreated(PathBuf),
     /// Directory was deleted (files removed)
@@ -55,6 +57,7 @@ impl WatchEvent {
             WatchEvent::Modified(path) => path,
             WatchEvent::Created(path) => path,
             WatchEvent::Deleted(path) => path,
+            WatchEvent::Renamed { to, .. } => to,
             WatchEvent::DirectoryCreated(path) => path,
             WatchEvent::DirectoryDeleted(path) => path,
         }
@@ -64,7 +67,7 @@ impl WatchEvent {
     pub fn is_file_event(&self) -> bool {
         matches!(
             self,
-            WatchEvent::Modified(_) | WatchEvent::Created(_) | WatchEvent::Deleted(_)
+            WatchEvent::Modified(_) | WatchEvent::Created(_) | WatchEvent::Deleted(_) | WatchEvent::Renamed { .. }
         )
     }
 }
@@ -110,6 +113,11 @@ impl WatchEventBatch {
                 }
                 WatchEvent::Deleted(path) | WatchEvent::DirectoryDeleted(path) => {
                     deleted.push(path.clone())
+                }
+                WatchEvent::Renamed { from, to } => {
+                    // Treat rename as deletion of old path and creation of new path
+                    deleted.push(from.clone());
+                    created.push(to.clone());
                 }
             }
         }
